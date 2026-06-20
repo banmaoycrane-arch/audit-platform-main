@@ -1,0 +1,8 @@
+
+[notice] A new release of pip is available: 24.3.1 -> 26.1.2
+[notice] To update, run: E:\projects\finance-vector-audit\wroksapce20260616\backend\venv\Scripts\python.exe -m pip install --upgrade pip
+ERROR: THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE. If you have updated the package versions, please update the hashes. Otherwise, examine the package contents carefully; someone may have tampered with them.
+    unknown package:
+        Expected sha256 e7bfaf995c1bdbbd21d13539decb6650967013759318627d85daeb7881af16b7
+             Got        07797f09595b4b7a5b0b33a64d21f44c50197368e4e3d5420fba590ddb80075e
+

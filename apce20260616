@@ -1,0 +1,1614 @@
+[1mdiff --git a/backend/app/db/models.py b/backend/app/db/models.py[m
+[1mindex be4d424..791aada 100644[m
+[1m--- a/backend/app/db/models.py[m
+[1m+++ b/backend/app/db/models.py[m
+[36m@@ -1,5 +1,5 @@[m
+ from datetime import date, datetime[m
+[31m-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, Numeric, String, Text[m
+[32m+[m[32mfrom sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint[m
+ from sqlalchemy.orm import Mapped, mapped_column, relationship[m
+ [m
+ from app.db.session import Base[m
+[36m@@ -20,6 +20,7 @@[m [mclass ImportJob(Base):[m
+ [m
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)[m
+     status: Mapped[str] = mapped_column(String(40), default="created")[m
+     source_type: Mapped[str] = mapped_column(String(40), default="voucher_import")[m
+     file_count: Mapped[int] = mapped_column(Integer, default=0)[m
+[36m@@ -36,30 +37,696 @@[m [mclass SourceFile(Base):[m
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+     import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"))[m
+[32m+[m[32m    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)[m
+[32m+[m[32m    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)[m
+     filename: Mapped[str] = mapped_column(String(300))[m
+     file_type: Mapped[str] = mapped_column(String(80))[m
+     storage_path: Mapped[str] = mapped_column(String(500))[m
+     text_extract_status: Mapped[str] = mapped_column(String(40), default="pending")[m
+     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[32m    customer_match_source: Mapped[str | None] = mapped_column(String(80), nullable=True)[m
+[32m+[m[32m    customer_confidence_note: Mapped[str | None] = mapped_column(String(300), nullable=True)[m
+     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+ [m
+ [m
+[32m+[m[32m# ==================== 会计主体相关表 ====================[m
+[32m+[m
+[32m+[m[32mclass Entity(Base):[m
+[32m+[m[32m    __tablename__ = "entities"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 主体基本信息[m
+[32m+[m[32m    entity_name: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    entity_code: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 统一社会信用代码等[m
+[32m+[m[32m    entity_type: Mapped[str] = mapped_column(String(50))  # company/group/branch/individual/organization[m
+[32m+[m[32m    entity_category: Mapped[str] = mapped_column(String(50))  # parent/subsidiary/associate/joint_venture[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 多维度主体类型标记[m
+[32m+[m[32m    is_accounting_entity: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否为会计主体[m
+[32m+[m[32m    is_tax_entity: Mapped[bool] = mapped_column(Boolean, default=False)        # 是否为纳税主体[m
+[32m+[m[32m    is_legal_entity: Mapped[bool] = mapped_column(Boolean, default=False)       # 是否为法律主体[m
+[32m+[m[32m    is_management_entity: Mapped[bool] = mapped_column(Boolean, default=False) # 是否为管理主体[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 法律属性[m
+[32m+[m[32m    legal_form: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 法人/非法人/分支机构[m
+[32m+[m[32m    has_legal_personality: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否具有法人资格[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 税务属性[m
+[32m+[m[32m    tax_registration_no: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 税务登记号[m
+[32m+[m[32m    taxpayer_type: Mapped[str | None] = mapped_column(String(50), nullable=True)        # 一般纳税人/小规模[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 层级关系[m
+[32m+[m[32m    parent_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id"), nullable=True)[m
+[32m+[m[32m    hierarchy_level: Mapped[int] = mapped_column(Integer, default=1)  # 层级级别（1=顶层）[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[32m    valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 元数据[m
+[32m+[m[32m    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关系[m
+[32m+[m[32m    parent: Mapped["Entity"] = relationship("Entity", remote_side=[id])[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass EntityTag(Base):[m
+[32m+[m[32m    __tablename__ = "entity_tags"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    entity_id: Mapped[int] = mapped_column(ForeignKey("entities.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 语义标签[m
+[32m+[m[32m    tag: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    tag_type: Mapped[str] = mapped_column(String(50))  # name/alias/acronym/description[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 置信度[m
+[32m+[m[32m    confidence: Mapped[float] = mapped_column(Float, default=0.8)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 来源[m
+[32m+[m[32m    source: Mapped[str] = mapped_column(String(50), default="system")  # system/ai/manual[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass EntityScope(Base):[m
+[32m+[m[32m    __tablename__ = "entity_scopes"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 范围定义[m
+[32m+[m[32m    scope_name: Mapped[str] = mapped_column(String(200))[m
+[32m+[m[32m    scope_description: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 时间范围[m
+[32m+[m[32m    period_start: Mapped[date] = mapped_column(Date)[m
+[32m+[m[32m    period_end: Mapped[date] = mapped_column(Date)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 类型[m
+[32m+[m[32m    scope_type: Mapped[str] = mapped_column(String(50))  # consolidation/tax/management/legal[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass EntityScopeMember(Base):[m
+[32m+[m[32m    __tablename__ = "entity_scope_members"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    scope_id: Mapped[int] = mapped_column(ForeignKey("entity_scopes.id"))[m
+[32m+[m[32m    entity_id: Mapped[int] = mapped_column(ForeignKey("entities.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 成员类型[m
+[32m+[m[32m    member_type: Mapped[str] = mapped_column(String(50))  # full/proportionate/equity/virtual[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 持股比例（适用于权益法或比例合并）[m
+[32m+[m[32m    ownership_percentage: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_included: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass EntityVersion(Base):[m
+[32m+[m[32m    __tablename__ = "entity_versions"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    entity_id: Mapped[int] = mapped_column(ForeignKey("entities.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 版本信息[m
+[32m+[m[32m    version_number: Mapped[int] = mapped_column(Integer)[m
+[32m+[m[32m    version_name: Mapped[str] = mapped_column(String(200))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 变更时间[m
+[32m+[m[32m    effective_date: Mapped[date] = mapped_column(Date)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 变更内容（JSON格式）[m
+[32m+[m[32m    changes: Mapped[dict] = mapped_column(JSON)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 变更原因[m
+[32m+[m[32m    change_reason: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 变更人[m
+[32m+[m[32m    changed_by: Mapped[str] = mapped_column(String(100), default="system")[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 虚拟主体集合 ====================[m
+[32m+[m
+[32m+[m[32mclass VirtualEntitySet(Base):[m
+[32m+[m[32m    __tablename__ = "virtual_entity_sets"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 集合信息[m
+[32m+[m[32m    set_name: Mapped[str] = mapped_column(String(200))  # 如 "XX集团"[m
+[32m+[m[32m    set_description: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[32m    set_type: Mapped[str] = mapped_column(String(50))  # group/division/department/channel[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass VirtualEntitySetMember(Base):[m
+[32m+[m[32m    __tablename__ = "virtual_entity_set_members"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    set_id: Mapped[int] = mapped_column(ForeignKey("virtual_entity_sets.id"))[m
+[32m+[m[32m    entity_id: Mapped[int] = mapped_column(ForeignKey("entities.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 成员角色[m
+[32m+[m[32m    member_role: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 如 "总部", "事业部A"[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 优先级（用于排序）[m
+[32m+[m[32m    priority: Mapped[int] = mapped_column(Integer, default=1)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 主体关系类型 ====================[m
+[32m+[m
+[32m+[m[32mclass EntityRelationType(Base):[m
+[32m+[m[32m    __tablename__ = "entity_relation_types"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关系类型定义[m
+[32m+[m[32m    relation_code: Mapped[str] = mapped_column(String(50))  # parent_subsidiary, branch_of, same_control[m
+[32m+[m[32m    relation_name: Mapped[str] = mapped_column(String(100))  # 母子公司关系, 分支机构关系, 同一控制[m
+[32m+[m[32m    relation_description: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关系属性[m
+[32m+[m[32m    is_hierarchical: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否层级关系[m
+[32m+[m[32m    is_reciprocal: Mapped[bool] = mapped_column(Boolean, default=True)   # 是否双向关系[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass EntityRelation(Base):[m
+[32m+[m[32m    __tablename__ = "entity_relations"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关系双方[m
+[32m+[m[32m    entity_a_id: Mapped[int] = mapped_column(ForeignKey("entities.id"))[m
+[32m+[m[32m    entity_b_id: Mapped[int] = mapped_column(ForeignKey("entities.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关系类型[m
+[32m+[m[32m    relation_type_id: Mapped[int] = mapped_column(ForeignKey("entity_relation_types.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关系属性[m
+[32m+[m[32m    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 股权信息（适用于投资关系）[m
+[32m+[m[32m    ownership_percentage: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)[m
+[32m+[m[32m    investment_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 置信度[m
+[32m+[m[32m    confidence: Mapped[float] = mapped_column(Float, default=0.9)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+ class AccountingEntry(Base):[m
+     __tablename__ = "accounting_entries"[m
+ [m
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)[m
+     import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"))[m
+     voucher_no: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+     voucher_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+     summary: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+     account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+     account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 主体标识（语义映射用）[m
+[32m+[m[32m    entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id"), nullable=True)[m
+[32m+[m[32m    original_entity_name: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[41m    [m
+     debit_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0)[m
+     credit_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0)[m
+     counterparty: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[32m    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)[m
+     original_row: Mapped[dict] = mapped_column(JSON, default=dict)[m
+     normalized_text: Mapped[str] = mapped_column(Text, default="")[m
+[32m+[m[32m    entry_line_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m[32m    __table_args__ = ([m
+[32m+[m[32m        Index([m
+[32m+[m[32m            "ix_entry_voucher_line",[m
+[32m+[m[32m            "organization_id",[m
+[32m+[m[32m            "voucher_no",[m
+[32m+[m[32m            "entry_line_no",[m
+[32m+[m[32m        ),[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 会计期间与快照相关表 ====================[m
+[32m+[m
+[32m+[m[32mclass AccountingPeriod(Base):[m
+[32m+[m[32m    __tablename__ = "accounting_periods"[m
+[32m+[m[32m    __table_args__ = ([m
+[32m+[m[32m        UniqueConstraint("organization_id", "period_code", name="uq_accounting_period_org_code"),[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)[m
+[32m+[m[32m    period_code: Mapped[str] = mapped_column(String(40))[m
+[32m+[m[32m    period_type: Mapped[str] = mapped_column(String(40), default="monthly")[m
+[32m+[m[32m    start_date: Mapped[date] = mapped_column(Date)[m
+[32m+[m[32m    end_date: Mapped[date] = mapped_column(Date)[m
+[32m+[m[32m    status: Mapped[str] = mapped_column(String(40), default="open")[m
+[32m+[m[32m    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)[m
+[32m+[m[32m    reopened_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass PeriodSnapshot(Base):[m
+[32m+[m[32m    __tablename__ = "period_snapshots"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)[m
+[32m+[m[32m    period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id"))[m
+[32m+[m[32m    snapshot_version: Mapped[int] = mapped_column(Integer, default=1)[m
+[32m+[m[32m    dimension_type: Mapped[str] = mapped_column(String(80))[m
+[32m+[m[32m    dimension_id: Mapped[int | None] = mapped_column(Integer, nullable=True)[m
+[32m+[m[32m    dimension_code: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    dimension_name: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)[m
+[32m+[m[32m    quantity: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)[m
+[32m+[m[32m    currency: Mapped[str] = mapped_column(String(10), default="CNY")[m
+[32m+[m[32m    source_scope: Mapped[dict] = mapped_column(JSON, default=dict)[m
+[32m+[m[32m    generation_params: Mapped[dict] = mapped_column(JSON, default=dict)[m
+[32m+[m[32m    snapshot_status: Mapped[str] = mapped_column(String(40), default="valid")[m
+[32m+[m[32m    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass PeriodCloseLog(Base):[m
+[32m+[m[32m    __tablename__ = "period_close_logs"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id"))[m
+[32m+[m[32m    action_type: Mapped[str] = mapped_column(String(50))[m
+[32m+[m[32m    transaction_id: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    operator: Mapped[str] = mapped_column(String(100), default="system")[m
+[32m+[m[32m    reason: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[32m    old_status: Mapped[str | None] = mapped_column(String(40), nullable=True)[m
+[32m+[m[32m    new_status: Mapped[str | None] = mapped_column(String(40), nullable=True)[m
+[32m+[m[32m    snapshot_version: Mapped[int | None] = mapped_column(Integer, nullable=True)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 事务性相关表 ====================[m
+[32m+[m
+[32m+[m[32m# ==================== 内部核算单位相关表 ====================[m
+[32m+[m
+[32m+[m[32mclass AccountingUnitType(Base):[m
+[32m+[m[32m    __tablename__ = "accounting_unit_types"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 类型定义[m
+[32m+[m[32m    type_code: Mapped[str] = mapped_column(String(50))  # project/department/product/channel/customer/platform[m
+[32m+[m[32m    type_name: Mapped[str] = mapped_column(String(100))  # 项目/部门/产品/渠道/客户/平台[m
+[32m+[m[32m    type_description: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 层级属性[m
+[32m+[m[32m    allow_hierarchy: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否允许层级[m
+[32m+[m[32m    allow_combination: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否允许组合[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass AccountingUnit(Base):[m
+[32m+[m[32m    __tablename__ = "accounting_units"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 基本信息[m
+[32m+[m[32m    unit_name: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    unit_code: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 编码[m
+[32m+[m[32m    unit_type_id: Mapped[int] = mapped_column(ForeignKey("accounting_unit_types.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 描述信息[m
+[32m+[m[32m    description: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[32m    valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 层级信息[m
+[32m+[m[32m    parent_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_units.id"), nullable=True)[m
+[32m+[m[32m    hierarchy_level: Mapped[int] = mapped_column(Integer, default=1)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 元数据[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关系[m
+[32m+[m[32m    parent: Mapped["AccountingUnit"] = relationship("AccountingUnit", remote_side=[id])[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass AccountingUnitHierarchy(Base):[m
+[32m+[m[32m    __tablename__ = "accounting_unit_hierarchy"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 层级关系[m
+[32m+[m[32m    parent_unit_id: Mapped[int] = mapped_column(ForeignKey("accounting_units.id"))[m
+[32m+[m[32m    child_unit_id: Mapped[int] = mapped_column(ForeignKey("accounting_units.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 层级深度[m
+[32m+[m[32m    depth: Mapped[int] = mapped_column(Integer, default=1)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass AccountingUnitCombination(Base):[m
+[32m+[m[32m    __tablename__ = "accounting_unit_combinations"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 组合信息[m
+[32m+[m[32m    combination_name: Mapped[str] = mapped_column(String(200))[m
+[32m+[m[32m    combination_code: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    combination_type: Mapped[str] = mapped_column(String(50))  # merge/group/temporary[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass AccountingUnitCombinationMember(Base):[m
+[32m+[m[32m    __tablename__ = "accounting_unit_combination_members"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 组合关联[m
+[32m+[m[32m    combination_id: Mapped[int] = mapped_column(ForeignKey("accounting_unit_combinations.id"))[m
+[32m+[m[32m    unit_id: Mapped[int] = mapped_column(ForeignKey("accounting_units.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 权重（用于比例分配）[m
+[32m+[m[32m    weight: Mapped[float] = mapped_column(Numeric(5, 2), default=1.0)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 优先级[m
+[32m+[m[32m    priority: Mapped[int] = mapped_column(Integer, default=1)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass AccountingUnitEntityRelation(Base):[m
+[32m+[m[32m    __tablename__ = "accounting_unit_entity_relations"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关联关系[m
+[32m+[m[32m    unit_id: Mapped[int] = mapped_column(ForeignKey("accounting_units.id"))[m
+[32m+[m[32m    entity_id: Mapped[int] = mapped_column(ForeignKey("entities.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关联类型[m
+[32m+[m[32m    relation_type: Mapped[str] = mapped_column(String(50))  # primary/secondary/shared[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[32m    valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass AccountingUnitVersion(Base):[m
+[32m+[m[32m    __tablename__ = "accounting_unit_versions"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 版本信息[m
+[32m+[m[32m    unit_id: Mapped[int] = mapped_column(ForeignKey("accounting_units.id"))[m
+[32m+[m[32m    version_number: Mapped[int] = mapped_column(Integer)[m
+[32m+[m[32m    version_name: Mapped[str] = mapped_column(String(200))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 变更时间[m
+[32m+[m[32m    effective_date: Mapped[date] = mapped_column(Date)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 变更内容[m
+[32m+[m[32m    changes: Mapped[dict] = mapped_column(JSON)[m
+[32m+[m[32m    change_reason: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 变更人[m
+[32m+[m[32m    changed_by: Mapped[str] = mapped_column(String(100), default="system")[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass AccountingUnitTag(Base):[m
+[32m+[m[32m    __tablename__ = "accounting_unit_tags"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 标签信息[m
+[32m+[m[32m    unit_id: Mapped[int] = mapped_column(ForeignKey("accounting_units.id"))[m
+[32m+[m[32m    tag: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    tag_type: Mapped[str] = mapped_column(String(50))  # name/alias/acronym/description[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 置信度[m
+[32m+[m[32m    confidence: Mapped[float] = mapped_column(Float, default=0.8)[m
+[32m+[m[32m    source: Mapped[str] = mapped_column(String(50), default="system")[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 物料层级与行业颗粒度相关表 ====================[m
+[32m+[m
+[32m+[m[32mclass Industry(Base):[m
+[32m+[m[32m    __tablename__ = "industries"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 行业信息[m
+[32m+[m[32m    industry_code: Mapped[str] = mapped_column(String(50))  # manufacturing/trading/retail/service/finance[m
+[32m+[m[32m    industry_name: Mapped[str] = mapped_column(String(100))  # 生产制造/贸易批发/零售电商/服务业/金融[m
+[32m+[m[32m    industry_description: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 推荐颗粒度[m
+[32m+[m[32m    recommended_granularity: Mapped[str] = mapped_column(String(50))  # sku/product/batch/project/account[m
+[32m+[m[32m    granularity_description: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 支持的核算单位类型[m
+[32m+[m[32m    supported_unit_types: Mapped[list] = mapped_column(JSON, default=list)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass Material(Base):[m
+[32m+[m[32m    __tablename__ = "materials"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 物料基本信息[m
+[32m+[m[32m    material_code: Mapped[str] = mapped_column(String(100))  # 物料编码[m
+[32m+[m[32m    material_name: Mapped[str] = mapped_column(String(500))  # 物料名称[m
+[32m+[m[32m    material_type: Mapped[str] = mapped_column(String(50))  # raw_material/semi_finished/finished/goods_sku[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 规格信息[m
+[32m+[m[32m    specification: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    unit: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 单位：个/件/千克/米等[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 层级信息[m
+[32m+[m[32m    parent_id: Mapped[int | None] = mapped_column(ForeignKey("materials.id"), nullable=True)[m
+[32m+[m[32m    hierarchy_level: Mapped[int] = mapped_column(Integer, default=1)  # 1=原材料, 2=半成品, 3=成品, 4=SKU[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 元数据[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关系[m
+[32m+[m[32m    parent: Mapped["Material"] = relationship("Material", remote_side=[id])[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass MaterialHierarchy(Base):[m
+[32m+[m[32m    __tablename__ = "material_hierarchy"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 层级关系[m
+[32m+[m[32m    parent_material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))[m
+[32m+[m[32m    child_material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 转换类型[m
+[32m+[m[32m    conversion_type: Mapped[str] = mapped_column(String(50))  # assembly/refining/fermentation/packaging/customization[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 转化率/配比[m
+[32m+[m[32m    conversion_rate: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 层级深度[m
+[32m+[m[32m    depth: Mapped[int] = mapped_column(Integer, default=1)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass MaterialBOM(Base):[m
+[32m+[m[32m    __tablename__ = "material_bom"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # BOM信息[m
+[32m+[m[32m    bom_code: Mapped[str] = mapped_column(String(100))  # BOM编码[m
+[32m+[m[32m    bom_name: Mapped[str] = mapped_column(String(200))  # BOM名称[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 成品物料[m
+[32m+[m[32m    finished_goods_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 版本信息[m
+[32m+[m[32m    version: Mapped[str] = mapped_column(String(50), default="1.0")[m
+[32m+[m[32m    effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass MaterialBOMItem(Base):[m
+[32m+[m[32m    __tablename__ = "material_bom_items"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # BOM关联[m
+[32m+[m[32m    bom_id: Mapped[int] = mapped_column(ForeignKey("material_bom.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 物料信息[m
+[32m+[m[32m    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 用量[m
+[32m+[m[32m    quantity: Mapped[float] = mapped_column(Numeric(18, 4))[m
+[32m+[m[32m    unit: Mapped[str] = mapped_column(String(50))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 损耗率[m
+[32m+[m[32m    wastage_rate: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 优先级/顺序[m
+[32m+[m[32m    sequence: Mapped[int] = mapped_column(Integer, default=1)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass Transaction(Base):[m
+[32m+[m[32m    __tablename__ = "transactions"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 事务标识[m
+[32m+[m[32m    transaction_id: Mapped[str] = mapped_column(String(100), unique=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 事务类型[m
+[32m+[m[32m    transaction_type: Mapped[str] = mapped_column(String(50))  # import/analysis/audit/test[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关联上下文[m
+[32m+[m[32m    context_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 如导入作业ID[m
+[32m+[m[32m    context_type: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    status: Mapped[str] = mapped_column(String(50), default="pending")  # pending/committed/rolled_back/failed[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 时间信息[m
+[32m+[m[32m    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    committed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)[m
+[32m+[m[32m    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 操作计数[m
+[32m+[m[32m    operation_count: Mapped[int] = mapped_column(Integer, default=0)[m
+[32m+[m[32m    succeeded_count: Mapped[int] = mapped_column(Integer, default=0)[m
+[32m+[m[32m    failed_count: Mapped[int] = mapped_column(Integer, default=0)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 错误信息[m
+[32m+[m[32m    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 元数据[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass TransactionOperation(Base):[m
+[32m+[m[32m    __tablename__ = "transaction_operations"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    transaction_id: Mapped[int] = mapped_column(ForeignKey("transactions.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 操作信息[m
+[32m+[m[32m    operation_order: Mapped[int] = mapped_column(Integer)[m
+[32m+[m[32m    operation_type: Mapped[str] = mapped_column(String(50))  # create/update/delete[m
+[32m+[m[32m    entity_type: Mapped[str] = mapped_column(String(50))  # 如 accounting_entry, contract[m
+[32m+[m[32m    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 操作详情[m
+[32m+[m[32m    operation_details: Mapped[dict] = mapped_column(JSON)[m
+[32m+[m[32m    rollback_details: Mapped[dict | None] = mapped_column(JSON, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    status: Mapped[str] = mapped_column(String(50), default="pending")  # pending/succeeded/failed/rolled_back[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 错误信息[m
+[32m+[m[32m    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass TransactionCheckpoint(Base):[m
+[32m+[m[32m    __tablename__ = "transaction_checkpoints"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    transaction_id: Mapped[int] = mapped_column(ForeignKey("transactions.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 检查点信息[m
+[32m+[m[32m    checkpoint_name: Mapped[str] = mapped_column(String(100))[m
+[32m+[m[32m    checkpoint_order: Mapped[int] = mapped_column(Integer)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    is_reached: Mapped[bool] = mapped_column(Boolean, default=False)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 时间[m
+[32m+[m[32m    reached_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)[m
+[32m+[m[41m    [m
+     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+ [m
+ [m
+[36m@@ -69,10 +736,72 @@[m [mclass EntryTag(Base):[m
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+     entry_id: Mapped[int] = mapped_column(ForeignKey("accounting_entries.id"))[m
+     tag_name: Mapped[str] = mapped_column(String(100))[m
+[32m+[m[32m    tag_type: Mapped[str | None] = mapped_column(String(40), nullable=True)[m
+[32m+[m[32m    tag_value: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[32m    tag_value_normalized: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+     tag_source: Mapped[str] = mapped_column(String(40), default="rule")[m
+     confidence: Mapped[float] = mapped_column(Float, default=0.8)[m
+     reviewed_by_user: Mapped[bool] = mapped_column(Boolean, default=False)[m
+[32m+[m[32m    vector_pending: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass ChartOfAccounts(Base):[m
+[32m+[m[32m    __tablename__ = "chart_of_accounts"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    code: Mapped[str] = mapped_column(String(20), unique=True, index=True)[m
+[32m+[m[32m    name: Mapped[str] = mapped_column(String(200))[m
+[32m+[m[32m    parent_code: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)[m
+[32m+[m[32m    level: Mapped[int] = mapped_column(Integer, default=1)[m
+[32m+[m[32m    category: Mapped[str] = mapped_column(String(40))  # asset/liability/common/equity/cost/profit[m
+[32m+[m[32m    direction: Mapped[str] = mapped_column(String(10))  # debit/credit[m
+[32m+[m[32m    account_category: Mapped[str | None] = mapped_column(String(40), nullable=True)[m
+[32m+[m[32m    account_subcategory: Mapped[str | None] = mapped_column(String(40), nullable=True)[m
+[32m+[m[32m    equity_subcategory: Mapped[str | None] = mapped_column(String(40), nullable=True)[m
+[32m+[m[32m    include_in_dividend_base: Mapped[bool | None] = mapped_column(Boolean, nullable=True)[m
+[32m+[m[32m    is_terminal: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[32m    status: Mapped[str] = mapped_column(String(20), default="active")  # active/disabled/archived[m
+[32m+[m[32m    is_system: Mapped[bool] = mapped_column(Boolean, default=False)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass Counterparty(Base):[m
+[32m+[m[32m    __tablename__ = "counterparties"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    name: Mapped[str] = mapped_column(String(200), index=True)[m
+[32m+[m[32m    role: Mapped[str] = mapped_column(String(40), default="other")[m
+[32m+[m[32m    unified_credit_no: Mapped[str | None] = mapped_column(String(40), nullable=True)[m
+[32m+[m[32m    is_related_party: Mapped[bool] = mapped_column(Boolean, default=False)[m
+[32m+[m[32m    default_entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id"), nullable=True)[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass OpeningBalance(Base):[m
+[32m+[m[32m    __tablename__ = "opening_balances"[m
+[32m+[m[32m    __table_args__ = ([m
+[32m+[m[32m        UniqueConstraint([m
+[32m+[m[32m            "organization_id",[m
+[32m+[m[32m            "period_id",[m
+[32m+[m[32m            "account_code",[m
+[32m+[m[32m            name="uq_opening_balance_org_period_account",[m
+[32m+[m[32m        ),[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id"))[m
+[32m+[m[32m    account_code: Mapped[str] = mapped_column(String(20), index=True)[m
+[32m+[m[32m    debit_balance: Mapped[float] = mapped_column(Numeric(18, 2), default=0)[m
+[32m+[m[32m    credit_balance: Mapped[float] = mapped_column(Numeric(18, 2), default=0)[m
+[32m+[m[32m    currency: Mapped[str] = mapped_column(String(10), default="CNY")[m
+[32m+[m[32m    notes: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+ [m
+ [m
+ class DocumentChunk(Base):[m
+[36m@@ -80,6 +809,7 @@[m [mclass DocumentChunk(Base):[m
+ [m
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)[m
+     source_type: Mapped[str] = mapped_column(String(60))[m
+     source_id: Mapped[int] = mapped_column(Integer)[m
+     chunk_text: Mapped[str] = mapped_column(Text)[m
+[36m@@ -94,6 +824,7 @@[m [mclass AuditRisk(Base):[m
+ [m
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)[m
+     import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"))[m
+     risk_type: Mapped[str] = mapped_column(String(100))[m
+     risk_level: Mapped[str] = mapped_column(String(40))[m
+[36m@@ -124,3 +855,643 @@[m [mclass ReviewAction(Base):[m
+     action: Mapped[str] = mapped_column(String(80))[m
+     comment: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass AuditReport(Base):[m
+[32m+[m[32m    __tablename__ = "audit_reports"[m
+[32m+[m[32m    __table_args__ = ([m
+[32m+[m[32m        UniqueConstraint("import_job_id", name="uq_audit_reports_import_job_id"),[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"), nullable=False)[m
+[32m+[m[32m    report_payload: Mapped[dict] = mapped_column(JSON, default=dict)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass AuditFinding(Base):[m
+[32m+[m[32m    __tablename__ = "audit_findings"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"))[m
+[32m+[m[32m    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)[m
+[32m+[m[32m    finding_uuid: Mapped[str] = mapped_column(String(64))[m
+[32m+[m[32m    finding_type: Mapped[str] = mapped_column(String(80))[m
+[32m+[m[32m    severity: Mapped[str] = mapped_column(String(20))[m
+[32m+[m[32m    business_type: Mapped[str | None] = mapped_column(String(40), nullable=True)[m
+[32m+[m[32m    finding_title: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    finding_description: Mapped[str] = mapped_column(Text, default="")[m
+[32m+[m[32m    audit_procedure: Mapped[str] = mapped_column(Text, default="")[m
+[32m+[m[32m    audit_conclusion: Mapped[str] = mapped_column(Text, default="")[m
+[32m+[m[32m    risk_statement: Mapped[str] = mapped_column(Text, default="")[m
+[32m+[m[32m    recommendation: Mapped[str] = mapped_column(Text, default="")[m
+[32m+[m[32m    related_entries: Mapped[list] = mapped_column(JSON, default=list)[m
+[32m+[m[32m    related_files: Mapped[list] = mapped_column(JSON, default=list)[m
+[32m+[m[32m    finding_metadata: Mapped[dict] = mapped_column(JSON, default=dict)[m
+[32m+[m[32m    status: Mapped[str] = mapped_column(String(40), default="pending")[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass AuditFindingReviewAction(Base):[m
+[32m+[m[32m    __tablename__ = "audit_finding_review_actions"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    finding_id: Mapped[int] = mapped_column(ForeignKey("audit_findings.id"))[m
+[32m+[m[32m    action: Mapped[str] = mapped_column(String(80))[m
+[32m+[m[32m    comment: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 业务循环相关表 ====================[m
+[32m+[m
+[32m+[m[32mclass BusinessCycle(Base):[m
+[32m+[m[32m    __tablename__ = "business_cycles"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    cycle_type: Mapped[str] = mapped_column(String(50))  # purchase/sales/expense[m
+[32m+[m[32m    cycle_name: Mapped[str] = mapped_column(String(200))[m
+[32m+[m[32m    status: Mapped[str] = mapped_column(String(40), default="in_progress")  # in_progress/completed/broken[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 时间范围[m
+[32m+[m[32m    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 完整性[m
+[32m+[m[32m    completeness: Mapped[float] = mapped_column(Float, default=0.0)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 风险标记[m
+[32m+[m[32m    risk_flags: Mapped[dict] = mapped_column(JSON, default=dict)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass CycleStep(Base):[m
+[32m+[m[32m    __tablename__ = "cycle_steps"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    cycle_id: Mapped[int] = mapped_column(ForeignKey("business_cycles.id"))[m
+[32m+[m[32m    step_order: Mapped[int] = mapped_column(Integer)[m
+[32m+[m[32m    step_type: Mapped[str] = mapped_column(String(50))  # contract/inventory/invoice/payment[m
+[32m+[m[32m    step_name: Mapped[str] = mapped_column(String(100))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关联的证据[m
+[32m+[m[32m    evidence_type: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    evidence_id: Mapped[int | None] = mapped_column(Integer, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 状态[m
+[32m+[m[32m    status: Mapped[str] = mapped_column(String(40), default="pending")  # pending/completed/missing[m
+[32m+[m[32m    actual_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass CycleBreak(Base):[m
+[32m+[m[32m    __tablename__ = "cycle_breaks"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    cycle_id: Mapped[int] = mapped_column(ForeignKey("business_cycles.id"))[m
+[32m+[m[32m    break_point: Mapped[int] = mapped_column(Integer)[m
+[32m+[m[32m    break_type: Mapped[str] = mapped_column(String(50))  # evidence_break/date_error/incomplete[m
+[32m+[m[41m    [m
+[32m+[m[32m    severity: Mapped[str] = mapped_column(String(40))  # high/medium/low[m
+[32m+[m[32m    description: Mapped[str] = mapped_column(Text)[m
+[32m+[m[32m    affected_steps: Mapped[list] = mapped_column(JSON, default=list)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 审计建议[m
+[32m+[m[32m    suggestion: Mapped[str] = mapped_column(Text)[m
+[32m+[m[32m    audit_procedure: Mapped[str] = mapped_column(Text)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 内控相关表 ====================[m
+[32m+[m
+[32m+[m[32mclass InternalControl(Base):[m
+[32m+[m[32m    __tablename__ = "internal_controls"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    control_code: Mapped[str] = mapped_column(String(50))  # PC-001, SC-001[m
+[32m+[m[32m    control_name: Mapped[str] = mapped_column(String(200))[m
+[32m+[m[32m    control_type: Mapped[str] = mapped_column(String(50))  # preventive/detective/corrective[m
+[32m+[m[32m    control_category: Mapped[str] = mapped_column(String(50))  # authorization/segregation/approval/reconciliation[m
+[32m+[m[41m    [m
+[32m+[m[32m    description: Mapped[str] = mapped_column(Text)[m
+[32m+[m[32m    objective: Mapped[str] = mapped_column(Text)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 触发条件[m
+[32m+[m[32m    trigger_conditions: Mapped[list] = mapped_column(JSON, default=list)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 证据要求[m
+[32m+[m[32m    evidence_required: Mapped[list] = mapped_column(JSON, default=list)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 频率要求[m
+[32m+[m[32m    frequency: Mapped[str] = mapped_column(String(50))  # per_transaction/daily/monthly[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 行业适用性[m
+[32m+[m[32m    industries: Mapped[list] = mapped_column(JSON, default=list)[m
+[32m+[m[32m    company_size: Mapped[str] = mapped_column(String(50))  # large/medium/small[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 风险关联[m
+[32m+[m[32m    risk_category: Mapped[str] = mapped_column(String(100))[m
+[32m+[m[32m    inherent_risk: Mapped[str] = mapped_column(String(40))  # high/medium/low[m
+[32m+[m[32m    control_risk: Mapped[str] = mapped_column(String(40))  # high/medium/low[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass ControlTest(Base):[m
+[32m+[m[32m    __tablename__ = "control_tests"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    control_id: Mapped[int] = mapped_column(ForeignKey("internal_controls.id"))[m
+[32m+[m[32m    transaction_id: Mapped[int | None] = mapped_column(Integer, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 测试结果[m
+[32m+[m[32m    is_executed: Mapped[bool] = mapped_column(Boolean, default=False)[m
+[32m+[m[32m    evidence_found: Mapped[list] = mapped_column(JSON, default=list)[m
+[32m+[m[32m    evidence_missing: Mapped[list] = mapped_column(JSON, default=list)[m
+[32m+[m[32m    execution_quality: Mapped[str] = mapped_column(String(50))  # full/partial/none[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 风险评估[m
+[32m+[m[32m    inherent_risk: Mapped[float] = mapped_column(Float, default=0.5)[m
+[32m+[m[32m    control_risk: Mapped[float] = mapped_column(Float, default=0.5)[m
+[32m+[m[32m    detection_risk: Mapped[float] = mapped_column(Float, default=0.5)[m
+[32m+[m[32m    overall_risk: Mapped[float] = mapped_column(Float, default=0.5)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 预警[m
+[32m+[m[32m    alert_level: Mapped[str] = mapped_column(String(40))  # critical/high/medium/low[m
+[32m+[m[32m    alert_message: Mapped[str] = mapped_column(Text)[m
+[32m+[m[32m    suggested_procedure: Mapped[str] = mapped_column(Text)[m
+[32m+[m[41m    [m
+[32m+[m[32m    tested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    tester: Mapped[str] = mapped_column(String(100), default="system")[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass ControlAlert(Base):[m
+[32m+[m[32m    __tablename__ = "control_alerts"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[32m    control_id: Mapped[int] = mapped_column(ForeignKey("internal_controls.id"))[m
+[32m+[m[32m    test_id: Mapped[int | None] = mapped_column(ForeignKey("control_tests.id"), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    alert_level: Mapped[str] = mapped_column(String(40))[m
+[32m+[m[32m    business_type: Mapped[str] = mapped_column(String(50))[m
+[32m+[m[32m    affected_transaction: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    evidence_involved: Mapped[list] = mapped_column(JSON, default=list)[m
+[32m+[m[41m    [m
+[32m+[m[32m    problem_type: Mapped[str] = mapped_column(String(50))  # missing_evidence/incomplete_evidence/delayed_evidence[m
+[32m+[m[32m    description: Mapped[str] = mapped_column(Text)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 风险量化[m
+[32m+[m[32m    inherent_risk: Mapped[float] = mapped_column(Float, default=0.5)[m
+[32m+[m[32m    control_risk: Mapped[float] = mapped_column(Float, default=0.5)[m
+[32m+[m[32m    detection_risk: Mapped[float] = mapped_column(Float, default=0.5)[m
+[32m+[m[32m    overall_risk: Mapped[float] = mapped_column(Float, default=0.5)[m
+[32m+[m[41m    [m
+[32m+[m[32m    suggested_procedure: Mapped[str] = mapped_column(Text)[m
+[32m+[m[32m    priority: Mapped[int] = mapped_column(Integer, default=1)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 文档解析相关表 ====================[m
+[32m+[m
+[32m+[m[32mclass Contract(Base):[m
+[32m+[m[32m    __tablename__ = "contracts"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 基本信息[m
+[32m+[m[32m    contract_no: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    contract_type: Mapped[str] = mapped_column(String(50))  # purchase/sales/service/framework[m
+[32m+[m[32m    contract_name: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 时间信息[m
+[32m+[m[32m    sign_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 金额信息[m
+[32m+[m[32m    contract_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    currency: Mapped[str] = mapped_column(String(10), default="CNY")[m
+[32m+[m[32m    tax_rate: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)[m
+[32m+[m[32m    tax_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 履约义务（收入准则）[m
+[32m+[m[32m    performance_obligations: Mapped[dict] = mapped_column(JSON, default=dict)[m
+[32m+[m[32m    transaction_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    standalone_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 分时段履约[m
+[32m+[m[32m    is_over_time: Mapped[bool] = mapped_column(Boolean, default=False)[m
+[32m+[m[32m    progress_method: Mapped[str | None] = mapped_column(String(50), nullable=True)  # input/output[m
+[32m+[m[32m    completion_percentage: Mapped[float] = mapped_column(Numeric(5, 2), default=0.0)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 审计标记[m
+[32m+[m[32m    revenue_recognition_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # point_in_time/over_time[m
+[32m+[m[32m    risk_flags: Mapped[dict] = mapped_column(JSON, default=dict)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 元数据[m
+[32m+[m[32m    source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)[m
+[32m+[m[32m    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[32m    confidence_score: Mapped[float] = mapped_column(Float, default=0.8)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass ContractParty(Base):[m
+[32m+[m[32m    __tablename__ = "contract_parties"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id"))[m
+[32m+[m[32m    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    party_role: Mapped[str] = mapped_column(String(50))  # party_a/party_b/guarantor/witness[m
+[32m+[m[32m    party_type: Mapped[str] = mapped_column(String(50))  # enterprise/individual/government[m
+[32m+[m[32m    party_name: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    party_code: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 统一社会信用代码/身份证号[m
+[32m+[m[32m    party_address: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    party_contact: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    party_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    legal_representative: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass ContractPerformanceObligation(Base):[m
+[32m+[m[32m    __tablename__ = "contract_performance_obligations"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    obligation_no: Mapped[str] = mapped_column(String(50))[m
+[32m+[m[32m    obligation_name: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    obligation_description: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 价格分摊[m
+[32m+[m[32m    standalone_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    allocated_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    allocation_method: Mapped[str | None] = mapped_column(String(50), nullable=True)  # market_adjustment/cost_plus/residual[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 履约进度[m
+[32m+[m[32m    is_over_time: Mapped[bool] = mapped_column(Boolean, default=False)[m
+[32m+[m[32m    progress_method: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    completion_percentage: Mapped[float] = mapped_column(Numeric(5, 2), default=0.0)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 收入确认[m
+[32m+[m[32m    revenue_recognized: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    revenue_pending: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 审计标记[m
+[32m+[m[32m    risk_flags: Mapped[dict] = mapped_column(JSON, default=dict)[m
+[32m+[m[32m    audit_notes: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass ContractPaymentTerm(Base):[m
+[32m+[m[32m    __tablename__ = "contract_payment_terms"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    term_no: Mapped[int] = mapped_column(Integer)[m
+[32m+[m[32m    term_name: Mapped[str] = mapped_column(String(200))  # 预付款/进度款/尾款[m
+[32m+[m[32m    term_type: Mapped[str] = mapped_column(String(50))  # fixed_amount/percentage/milestone[m
+[32m+[m[41m    [m
+[32m+[m[32m    amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    percentage: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)[m
+[32m+[m[32m    milestone: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    due_condition: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 实际执行[m
+[32m+[m[32m    actual_paid: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    paid_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass Invoice(Base):[m
+[32m+[m[32m    __tablename__ = "invoices"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 发票基本信息[m
+[32m+[m[32m    invoice_no: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    invoice_code: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    invoice_type: Mapped[str] = mapped_column(String(50))  # 增值税专用发票/普通发票/电子发票[m
+[32m+[m[32m    invoice_status: Mapped[str] = mapped_column(String(50), default="normal")  # normal/canceled/red[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 开票信息[m
+[32m+[m[32m    invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 购买方[m
+[32m+[m[32m    buyer_name: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    buyer_tax_no: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    buyer_address: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    buyer_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    buyer_bank: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[32m    buyer_account: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 销售方[m
+[32m+[m[32m    seller_name: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    seller_tax_no: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    seller_address: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    seller_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    seller_bank: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[32m    seller_account: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 金额信息[m
+[32m+[m[32m    amount_excluding_tax: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    tax_rate: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)[m
+[32m+[m[32m    tax_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    total_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 审计关联[m
+[32m+[m[32m    related_contract_id: Mapped[int | None] = mapped_column(ForeignKey("contracts.id"), nullable=True)[m
+[32m+[m[32m    related_order_no: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 元数据[m
+[32m+[m[32m    source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)[m
+[32m+[m[32m    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[32m    confidence_score: Mapped[float] = mapped_column(Float, default=0.8)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass InvoiceItem(Base):[m
+[32m+[m[32m    __tablename__ = "invoice_items"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    item_no: Mapped[int] = mapped_column(Integer)[m
+[32m+[m[32m    goods_name: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    specification: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[32m    unit: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    quantity: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)[m
+[32m+[m[32m    unit_price: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)[m
+[32m+[m[32m    amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    tax_rate: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)[m
+[32m+[m[32m    tax_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass InventoryDocument(Base):[m
+[32m+[m[32m    __tablename__ = "inventory_documents"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 基本信息[m
+[32m+[m[32m    document_no: Mapped[str] = mapped_column(String(100))[m
+[32m+[m[32m    document_type: Mapped[str] = mapped_column(String(50))  # inventory_in/inventory_out/material_issue/return[m
+[32m+[m[32m    document_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 仓库信息[m
+[32m+[m[32m    warehouse_name: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[32m    warehouse_code: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 往来方[m
+[32m+[m[32m    counterparty_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # supplier/customer/department[m
+[32m+[m[32m    counterparty_name: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    counterparty_code: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 金额[m
+[32m+[m[32m    total_quantity: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)[m
+[32m+[m[32m    total_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 审计关联[m
+[32m+[m[32m    related_contract_id: Mapped[int | None] = mapped_column(ForeignKey("contracts.id"), nullable=True)[m
+[32m+[m[32m    related_order_no: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    related_invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 验收信息[m
+[32m+[m[32m    inspector: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    inspect_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    inspect_result: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 元数据[m
+[32m+[m[32m    source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)[m
+[32m+[m[32m    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[32m    confidence_score: Mapped[float] = mapped_column(Float, default=0.8)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass InventoryItem(Base):[m
+[32m+[m[32m    __tablename__ = "inventory_items"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    document_id: Mapped[int] = mapped_column(ForeignKey("inventory_documents.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    item_no: Mapped[int] = mapped_column(Integer)[m
+[32m+[m[32m    goods_name: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    specification: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[32m    unit: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    quantity: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)[m
+[32m+[m[32m    unit_price: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)[m
+[32m+[m[32m    amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    batch_no: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass BankStatement(Base):[m
+[32m+[m[32m    __tablename__ = "bank_statements"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 交易信息[m
+[32m+[m[32m    transaction_no: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    transaction_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    transaction_time: Mapped[str | None] = mapped_column(String(20), nullable=True)[m
+[32m+[m[32m    transaction_type: Mapped[str] = mapped_column(String(50))  # income/expense[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 本方账户[m
+[32m+[m[32m    account_name: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    account_no: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    bank_name: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 对方账户[m
+[32m+[m[32m    counterparty_name: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    counterparty_account: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    counterparty_bank: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 金额[m
+[32m+[m[32m    amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    balance: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 摘要[m
+[32m+[m[32m    summary: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    purpose: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    remark: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 审计关联[m
+[32m+[m[32m    related_contract_id: Mapped[int | None] = mapped_column(ForeignKey("contracts.id"), nullable=True)[m
+[32m+[m[32m    related_invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 元数据[m
+[32m+[m[32m    source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)[m
+[32m+[m[32m    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[32m    confidence_score: Mapped[float] = mapped_column(Float, default=0.8)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 企业信息相关表 ====================[m
+[32m+[m
+[32m+[m[32mclass Company(Base):[m
+[32m+[m[32m    __tablename__ = "companies"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 基本信息[m
+[32m+[m[32m    company_name: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    unified_social_credit_code: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    company_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 有限责任公司/股份有限公司等[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 税务信息[m
+[32m+[m[32m    taxpayer_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 一般纳税人/小规模纳税人[m
+[32m+[m[32m    tax_registration_no: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    tax_authority: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 注册信息[m
+[32m+[m[32m    registered_capital: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    paid_in_capital: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    establishment_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    business_term: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    registration_status: Mapped[str] = mapped_column(String(50), default="active")  # active/revoked/canceled[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 经营信息[m
+[32m+[m[32m    business_scope: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[32m    registered_address: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[32m    actual_address: Mapped[str | None] = mapped_column(String(500), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 联系信息[m
+[32m+[m[32m    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    email: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    website: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 行业信息[m
+[32m+[m[32m    industry_code: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    industry_name: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 元数据[m
+[32m+[m[32m    data_source: Mapped[str] = mapped_column(String(50), default="manual")[m
+[32m+[m[32m    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass CompanyPersonnel(Base):[m
+[32m+[m[32m    __tablename__ = "company_personnel"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[32m    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 人员信息[m
+[32m+[m[32m    person_name: Mapped[str] = mapped_column(String(100))[m
+[32m+[m[32m    person_type: Mapped[str] = mapped_column(String(50))  # legal_representative/shareholder/financial_manager/supervisor/director/executive[m
+[32m+[m[32m    id_card_no: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 脱敏[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 职务信息[m
+[32m+[m[32m    position: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[32m    appointment_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    resignation_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 股东信息[m
+[32m+[m[32m    shareholding_ratio: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)[m
+[32m+[m[32m    subscribed_capital: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[32m    paid_capital: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 联系信息[m
+[32m+[m[32m    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)[m
+[32m+[m[32m    email: Mapped[str | None] = mapped_column(String(100), nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass RelatedPartyRelation(Base):[m
+[32m+[m[32m    __tablename__ = "related_party_relations"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关联双方[m
+[32m+[m[32m    company_a_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))[m
+[32m+[m[32m    company_b_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关联关系[m
+[32m+[m[32m    relation_type: Mapped[str] = mapped_column(String(100))  # parent_subsidiary/brother/same_control/key_management_family[m
+[32m+[m[32m    relation_description: Mapped[str | None] = mapped_column(Text, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 关联人（如果是人员关联）[m
+[32m+[m[32m    person_a_id: Mapped[int | None] = mapped_column(ForeignKey("company_personnel.id"), nullable=True)[m
+[32m+[m[32m    person_b_id: Mapped[int | None] = mapped_column(ForeignKey("company_personnel.id"), nullable=True)[m
+[32m+[m[32m    person_relation: Mapped[str | None] = mapped_column(String(100), nullable=True)  # spouse/parent/child/sibling[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 有效性[m
+[32m+[m[32m    is_active: Mapped[bool] = mapped_column(Boolean, default=True)[m
+[32m+[m[32m    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[32m    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 发现来源[m
+[32m+[m[32m    discovery_source: Mapped[str] = mapped_column(String(50), default="system")  # system/manual[m
+[32m+[m[32m    confidence_score: Mapped[float] = mapped_column(Float, default=0.9)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 字段别名映射表 ====================[m
+[32m+[m
+[32m+[m[32mclass FieldAliasMapping(Base):[m
+[32m+[m[32m    __tablename__ = "field_alias_mappings"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    document_type: Mapped[str] = mapped_column(String(50))  # contract/invoice/inventory/bank_statement[m
+[32m+[m[32m    field_name: Mapped[str] = mapped_column(String(100))  # 标准字段名[m
+[32m+[m[32m    alias: Mapped[str] = mapped_column(String(200))  # 别名[m
+[32m+[m[32m    alias_type: Mapped[str] = mapped_column(String(50))  # chinese/english/abbreviation/industry_term[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 置信度[m
+[32m+[m[32m    confidence: Mapped[float] = mapped_column(Float, default=1.0)[m
+[32m+[m[32m    verified: Mapped[bool] = mapped_column(Boolean, default=False)[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ==================== 文档标签表 ====================[m
+[32m+[m
+[32m+[m[32mclass DocumentTag(Base):[m
+[32m+[m[32m    __tablename__ = "document_tags"[m
+[32m+[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(Integer, primary_key=True)[m
+[32m+[m[41m    [m
+[32m+[m[32m    document_id: Mapped[int] = mapped_column(Integer)  # 关联的源文件ID[m
+[32m+[m[32m    document_type: Mapped[str] = mapped_column(String(50))[m
+[32m+[m[41m    [m
+[32m+[m[32m    tag: Mapped[str] = mapped_column(String(500))[m
+[32m+[m[32m    tag_type: Mapped[str] = mapped_column(String(50))  # business/risk/relation/time/amount/status[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 向量存储信息[m
+[32m+[m[32m    vector_id: Mapped[str | None] = mapped_column(String(200), nullable=True)[m
+[32m+[m[32m    vector_stored: Mapped[bool] = mapped_column(Boolean, default=False)[m
+[32m+[m[41m    [m
+[32m+[m[32m    # 元数据[m
+[32m+[m[32m    confidence: Mapped[float] = mapped_column(Float, default=0.8)[m
+[32m+[m[32m    source: Mapped[str] = mapped_column(String(50), default="rule")  # rule/ai/manual[m
+[32m+[m[41m    [m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)[m
+[1mdiff --git a/backend/app/main.py b/backend/app/main.py[m
+[1mindex 7752338..2390ca7 100644[m
+[1m--- a/backend/app/main.py[m
+[1m+++ b/backend/app/main.py[m
+[36m@@ -1,15 +1,120 @@[m
+[32m+[m[32mfrom sqlalchemy import inspect, text[m
+ from fastapi import FastAPI[m
+ from fastapi.middleware.cors import CORSMiddleware[m
+ [m
+[32m+[m[32mfrom app.api.routes_accounting_periods import router as accounting_periods_router[m
+[32m+[m[32mfrom app.api.routes_accounting_units import router as accounting_units_router[m
+[32m+[m[32mfrom app.api.routes_agent import router as agent_router[m
+[32m+[m[32mfrom app.api.routes_audit_export import router as audit_export_router[m
+[32m+[m[32mfrom app.api.routes_audit_tests import router as audit_tests_router[m
+[32m+[m[32mfrom app.api.routes_business_cycles import router as business_cycles_router[m
+[32m+[m[32mfrom app.api.routes_coa import router as coa_router[m
+[32m+[m[32mfrom app.api.routes_counterparties import router as counterparties_router[m
+[32m+[m[32mfrom app.api.routes_dashboard import router as dashboard_router[m
+[32m+[m[32mfrom app.api.routes_document_parsing import router as document_parsing_router[m
+[32m+[m[32mfrom app.api.routes_entities import router as entities_router[m
+ from app.api.routes_entries import router as entries_router[m
+[32m+[m[32mfrom app.api.routes_entry_generation import router as entry_generation_router[m
+[32m+[m[32mfrom app.api.routes_entry_tags import router as entry_tags_router[m
+[32m+[m[32mfrom app.api.routes_export import router as export_router[m
+ from app.api.routes_files import router as files_router[m
+ from app.api.routes_imports import router as imports_router[m
+[32m+[m[32mfrom app.api.routes_internal_controls import router as internal_controls_router[m
+[32m+[m[32mfrom app.api.routes_ledger import router as ledger_router[m
+[32m+[m[32mfrom app.api.routes_materials import router as materials_router[m
+[32m+[m[32mfrom app.api.routes_opening_balances import router as opening_balances_router[m
+[32m+[m[32mfrom app.api.routes_reports import router as reports_router[m
+ from app.api.routes_risks import router as risks_router[m
+[32m+[m[32mfrom app.api.routes_transactions import router as transactions_router[m
+[32m+[m[32mfrom app.api.routes_auth import router as auth_router[m
+[32m+[m[32mfrom app.api.routes_project import router as project_router[m
+[32m+[m[32mfrom app.api.routes_lifecycle import router as lifecycle_router[m
+[32m+[m[32mfrom app.api.routes_team import router as team_router[m
+ from app.db import models[m
+ from app.db.session import Base, engine[m
+ [m
+ Base.metadata.create_all(bind=engine)[m
+ [m
+[32m+[m
+[32m+[m[32mdef _ensure_local_sqlite_schema() -> None:[m
+[32m+[m[32m    if engine.dialect.name != "sqlite":[m
+[32m+[m[32m        return[m
+[32m+[m[32m    inspector = inspect(engine)[m
+[32m+[m[32m    table_names = inspector.get_table_names()[m
+[32m+[m[32m    with engine.begin() as connection:[m
+[32m+[m[32m        if "audit_reports" not in table_names:[m
+[32m+[m[32m            connection.execute(text("""[m
+[32m+[m[32m                CREATE TABLE audit_reports ([m
+[32m+[m[32m                    id INTEGER NOT NULL,[m
+[32m+[m[32m                    import_job_id INTEGER NOT NULL,[m
+[32m+[m[32m                    report_payload JSON,[m
+[32m+[m[32m                    created_at DATETIME,[m
+[32m+[m[32m                    updated_at DATETIME,[m
+[32m+[m[32m                    PRIMARY KEY (id),[m
+[32m+[m[32m                    CONSTRAINT uq_audit_reports_import_job_id UNIQUE (import_job_id),[m
+[32m+[m[32m                    FOREIGN KEY(import_job_id) REFERENCES import_jobs (id)[m
+[32m+[m[32m                )[m
+[32m+[m[32m            """))[m
+[32m+[m
+[32m+[m[32m        if "source_files" in table_names:[m
+[32m+[m[32m            source_file_columns = {column["name"] for column in inspector.get_columns("source_files")}[m
+[32m+[m[32m            missing_columns = {[m
+[32m+[m[32m                "text_extract_status": "ALTER TABLE source_files ADD COLUMN text_extract_status VARCHAR(40) DEFAULT 'pending' NOT NULL",[m
+[32m+[m[32m                "extracted_text": "ALTER TABLE source_files ADD COLUMN extracted_text TEXT",[m
+[32m+[m[32m                "ledger_id": "ALTER TABLE source_files ADD COLUMN ledger_id INTEGER",[m
+[32m+[m[32m                "counterparty_id": "ALTER TABLE source_files ADD COLUMN counterparty_id INTEGER",[m
+[32m+[m[32m                "customer_match_source": "ALTER TABLE source_files ADD COLUMN customer_match_source VARCHAR(80)",[m
+[32m+[m[32m                "customer_confidence_note": "ALTER TABLE source_files ADD COLUMN customer_confidence_note VARCHAR(300)",[m
+[32m+[m[32m            }[m
+[32m+[m[32m            for column_name, ddl in missing_columns.items():[m
+[32m+[m[32m                if column_name not in source_file_columns:[m
+[32m+[m[32m                    connection.execute(text(ddl))[m
+[32m+[m
+[32m+[m[32m        if "import_jobs" in table_names:[m
+[32m+[m[32m            import_job_columns = {column["name"] for column in inspector.get_columns("import_jobs")}[m
+[32m+[m[32m            if "ledger_id" not in import_job_columns:[m
+[32m+[m[32m                connection.execute(text("ALTER TABLE import_jobs ADD COLUMN ledger_id INTEGER"))[m
+[32m+[m
+[32m+[m[32m        if "accounting_periods" in table_names:[m
+[32m+[m[32m            period_columns = {column["name"] for column in inspector.get_columns("accounting_periods")}[m
+[32m+[m[32m            period_missing_columns = {[m
+[32m+[m[32m                "ledger_id": "ALTER TABLE accounting_periods ADD COLUMN ledger_id INTEGER",[m
+[32m+[m[32m                "closed_at": "ALTER TABLE accounting_periods ADD COLUMN closed_at DATETIME",[m
+[32m+[m[32m                "reopened_at": "ALTER TABLE accounting_periods ADD COLUMN reopened_at DATETIME",[m
+[32m+[m[32m            }[m
+[32m+[m[32m            for column_name, ddl in period_missing_columns.items():[m
+[32m+[m[32m                if column_name not in period_columns:[m
+[32m+[m[32m                    connection.execute(text(ddl))[m
+[32m+[m
+[32m+[m[32m        if "chart_of_accounts" in table_names:[m
+[32m+[m[32m            account_columns = {column["name"] for column in inspector.get_columns("chart_of_accounts")}[m
+[32m+[m[32m            account_missing_columns = {[m
+[32m+[m[32m                "account_category": "ALTER TABLE chart_of_accounts ADD COLUMN account_category VARCHAR(40)",[m
+[32m+[m[32m                "account_subcategory": "ALTER TABLE chart_of_accounts ADD COLUMN account_subcategory VARCHAR(40)",[m
+[32m+[m[32m                "equity_subcategory": "ALTER TABLE chart_of_accounts ADD COLUMN equity_subcategory VARCHAR(40)",[m
+[32m+[m[32m                "include_in_dividend_base": "ALTER TABLE chart_of_accounts ADD COLUMN include_in_dividend_base BOOLEAN",[m
+[32m+[m[32m            }[m
+[32m+[m[32m            for column_name, ddl in account_missing_columns.items():[m
+[32m+[m[32m                if column_name not in account_columns:[m
+[32m+[m[32m                    connection.execute(text(ddl))[m
+[32m+[m
+[32m+[m[32m        if "counterparties" in table_names:[m
+[32m+[m[32m            counterparty_columns = {column["name"] for column in inspector.get_columns("counterparties")}[m
+[32m+[m[32m            counterparty_missing_columns = {[m
+[32m+[m[32m                "unified_credit_no": "ALTER TABLE counterparties ADD COLUMN unified_credit_no VARCHAR(40)",[m
+[32m+[m[32m                "is_related_party": "ALTER TABLE counterparties ADD COLUMN is_related_party BOOLEAN DEFAULT 0 NOT NULL",[m
+[32m+[m[32m                "default_entity_id": "ALTER TABLE counterparties ADD COLUMN default_entity_id INTEGER",[m
+[32m+[m[32m                "is_active": "ALTER TABLE counterparties ADD COLUMN is_active BOOLEAN DEFAULT 1 NOT NULL",[m
+[32m+[m[32m                "created_at": "ALTER TABLE counterparties ADD COLUMN created_at DATETIME",[m
+[32m+[m[32m                "updated_at": "ALTER TABLE counterparties ADD COLUMN updated_at DATETIME",[m
+[32m+[m[32m            }[m
+[32m+[m[32m            for column_name, ddl in counterparty_missing_columns.items():[m
+[32m+[m[32m                if column_name not in counterparty_columns:[m
+[32m+[m[32m                    connection.execute(text(ddl))[m
+[32m+[m
+[32m+[m
+[32m+[m[32m_ensure_local_sqlite_schema()[m
+[32m+[m
+ app = FastAPI(title="财务向量审计风险识别系统", version="0.1.0")[m
+ app.add_middleware([m
+     CORSMiddleware,[m
+[36m@@ -18,10 +123,39 @@[m [mapp.add_middleware([m
+     allow_methods=["*"],[m
+     allow_headers=["*"],[m
+ )[m
+[32m+[m[32mapp.include_router(auth_router)[m
+ app.include_router(imports_router)[m
+ app.include_router(entries_router)[m
+[32m+[m[32mapp.include_router(export_router)[m
+ app.include_router(files_router)[m
+ app.include_router(risks_router)[m
+[32m+[m[32mapp.include_router(accounting_periods_router)[m
+[32m+[m[32mapp.include_router(accounting_units_router)[m
+[32m+[m[32mapp.include_router(agent_router)[m
+[32m+[m[32mapp.include_router(audit_tests_router)[m
+[32m+[m[32mapp.include_router(audit_export_router)[m
+[32m+[m[32mapp.include_router(document_parsing_router)[m
+[32m+[m[32mapp.include_router(entities_router)[m
+[32m+[m[32mapp.include_router(coa_router)[m
+[32m+[m[32mapp.include_router(counterparties_router)[m
+[32m+[m[32mapp.include_router(opening_balances_router)[m
+[32m+[m[32mapp.include_router(reports_router)[m
+[32m+[m[32mapp.include_router(entry_generation_router)[m
+[32m+[m[32mapp.include_router(entry_tags_router)[m
+[32m+[m[32mapp.include_router(business_cycles_router)[m
+[32m+[m[32mapp.include_router(internal_controls_router)[m
+[32m+[m[32mapp.include_router(ledger_router)[m
+[32m+[m[32mapp.include_router(dashboard_router)[m
+[32m+[m[32mapp.include_router(transactions_router)[m
+[32m+[m[32mapp.include_router(materials_router)[m
+[32m+[m[32mapp.include_router(project_router)[m
+[32m+[m[32mapp.include_router(lifecycle_router)[m
+[32m+[m[32mapp.include_router(team_router)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@app.get("/")[m
+[32m+[m[32mdef root() -> dict[str, str]:[m
+[32m+[m[32m    return {"status": "ok", "service": "finance-vector-audit-backend"}[m
+ [m
+ [m
+ @app.get("/health")[m

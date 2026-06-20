@@ -1,0 +1,22 @@
+# Checklist
+
+- [x] User 模型已创建，包含 username/phone/email/hashed_password/is_active/agreed_terms/agreed_privacy
+- [x] 密码哈希使用 bcrypt/passlib，不存储明文
+- [x] JWT Token 生成与验证正确
+- [x] POST /api/auth/register 可注册新用户
+- [x] POST /api/auth/login/password 支持账号密码登录
+- [x] POST /api/auth/login/sms 支持验证码登录
+- [x] POST /api/auth/sms/code 可获取验证码（开发环境直接返回）
+- [x] GET /api/auth/me 返回当前用户信息
+- [x] 注册时必须勾选用户协议和隐私政策
+- [x] 用户协议和隐私政策内容可查看（Modal）
+- [x] 前端登录页面 `/login` 可访问
+- [x] 前端注册页面 `/register` 可访问
+- [x] 登录成功后自动跳转 `/workspace`
+- [x] 未登录访问 `/workspace` 自动重定向 `/login`
+- [x] 已登录访问 `/login` 自动跳转 `/workspace`
+- [x] API 请求自动携带 Authorization Header
+- [x] Token 过期时前端自动清除并跳转登录
+- [x] 后端认证测试通过
+- [x] 后端全量 pytest 通过
+- [x] 前端 `npm run lint` 通过

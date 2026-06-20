@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: finance-vector-audit-backend
+Version: 0.1.0
+Summary: Finance voucher import and vector audit risk backend
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.111.0
+Requires-Dist: uvicorn[standard]>=0.30.0
+Requires-Dist: sqlalchemy>=2.0.30
+Requires-Dist: psycopg[binary]>=3.1.19
+Requires-Dist: pydantic-settings>=2.3.0
+Requires-Dist: python-multipart>=0.0.9
+Requires-Dist: pandas>=2.2.2
+Requires-Dist: openpyxl>=3.1.4
+Requires-Dist: pdfplumber>=0.11.0
+Requires-Dist: qdrant-client>=1.9.1
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: pytest>=8.2.0

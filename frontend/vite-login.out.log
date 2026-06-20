@@ -1,0 +1,114 @@
+
+> dev
+> vite --host 127.0.0.1 --port 5173
+
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m1127[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m21:20:22[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:20:29[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:20:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:20:38[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step4ReviewEntries.tsx, /src/pages/Auth/LoginPage.tsx, /src/pages/AccountingPeriodsPage.tsx, /src/pages/Reports/BalanceSheetPage.tsx, /src/pages/AgentChatPage.tsx, /src/pages/HomePage.tsx, /src/pages/EntriesPageRoute.tsx, /src/pages/Reports/TrialBalancePage.tsx, /src/pages/LedgerManagementPage.tsx, /src/pages/AuditMode/Step6ExportReport.tsx, /src/pages/Auth/RegisterPage.tsx, /src/pages/TeamManagementPage.tsx, /src/pages/LedgerLifecyclePage.tsx, /src/pages/RisksPageRoute.tsx, /src/pages/OnboardingPage.tsx, /src/pages/WorkspacePage.tsx, /src/pages/AccountingMode/Step5Export.tsx, /src/pages/BasicData/OpeningBalancesPage.tsx, /src/pages/AuditMode/Step5ReviewFindings.tsx, /src/pages/Reports/IncomeStatementPage.tsx, /src/pages/AuditMode/Step2ImportSource.tsx, /src/pages/ProjectsPage.tsx, /src/pages/AuditMode/Step3ImportEntries.tsx, /src/pages/LedgerFilesPage.tsx, /src/pages/AccountingMode/Step3GenerateEntries.tsx, /src/pages/AuditMode/Step4RunTests.tsx, /src/pages/AccountingMode/Step2ImportSource.tsx, /src/pages/EntriesPage.tsx, /src/components/PeriodSelector.tsx, /src/pages/RisksPage.tsx, /src/components/LedgerSelector.tsx[22m
+[2m21:20:39[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:20:49[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m21:20:51[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/WorkspacePage.tsx[22m
+[2m21:20:58[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/WorkspacePage.tsx[22m
+[2m21:21:05[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/WorkspacePage.tsx[22m
+[2m21:22:38[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:22:44[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:22:50[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:25:51[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:26:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:26:09[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:30:42[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:30:49[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:30:55[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:31:01[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m21:37:27[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step4ReviewEntries.tsx, /src/pages/Auth/LoginPage.tsx, /src/pages/AccountingPeriodsPage.tsx, /src/pages/Reports/BalanceSheetPage.tsx, /src/pages/AgentChatPage.tsx, /src/pages/HomePage.tsx, /src/pages/EntriesPageRoute.tsx, /src/pages/Reports/TrialBalancePage.tsx, /src/pages/LedgerManagementPage.tsx, /src/pages/AuditMode/Step6ExportReport.tsx, /src/pages/Auth/RegisterPage.tsx, /src/pages/TeamManagementPage.tsx, /src/pages/LedgerLifecyclePage.tsx, /src/pages/RisksPageRoute.tsx, /src/pages/OnboardingPage.tsx, /src/pages/WorkspacePage.tsx, /src/pages/AccountingMode/Step5Export.tsx, /src/pages/BasicData/OpeningBalancesPage.tsx, /src/pages/AuditMode/Step5ReviewFindings.tsx, /src/pages/Reports/IncomeStatementPage.tsx, /src/pages/AuditMode/Step2ImportSource.tsx, /src/pages/ProjectsPage.tsx, /src/pages/AuditMode/Step3ImportEntries.tsx, /src/pages/LedgerFilesPage.tsx, /src/pages/AccountingMode/Step3GenerateEntries.tsx, /src/pages/AuditMode/Step4RunTests.tsx, /src/pages/AccountingMode/Step2ImportSource.tsx, /src/pages/EntriesPage.tsx, /src/components/PeriodSelector.tsx, /src/pages/RisksPage.tsx, /src/components/LedgerSelector.tsx[22m
+[2m21:37:38[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m21:38:16[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m21:38:28[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m21:52:53[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step4ReviewEntries.tsx, /src/pages/Auth/LoginPage.tsx, /src/pages/AccountingPeriodsPage.tsx, /src/pages/Reports/BalanceSheetPage.tsx, /src/pages/AgentChatPage.tsx, /src/pages/HomePage.tsx, /src/pages/EntriesPageRoute.tsx, /src/pages/Reports/TrialBalancePage.tsx, /src/pages/LedgerManagementPage.tsx, /src/pages/AuditMode/Step6ExportReport.tsx, /src/pages/Auth/RegisterPage.tsx, /src/pages/TeamManagementPage.tsx, /src/pages/LedgerLifecyclePage.tsx, /src/pages/RisksPageRoute.tsx, /src/pages/OnboardingPage.tsx, /src/pages/WorkspacePage.tsx, /src/pages/AccountingMode/Step5Export.tsx, /src/pages/BasicData/OpeningBalancesPage.tsx, /src/pages/AuditMode/Step5ReviewFindings.tsx, /src/pages/Reports/IncomeStatementPage.tsx, /src/pages/AuditMode/Step2ImportSource.tsx, /src/pages/ProjectsPage.tsx, /src/pages/AuditMode/Step3ImportEntries.tsx, /src/pages/LedgerFilesPage.tsx, /src/pages/AccountingMode/Step3GenerateEntries.tsx, /src/pages/AuditMode/Step4RunTests.tsx, /src/pages/AccountingMode/Step2ImportSource.tsx, /src/pages/EntriesPage.tsx, /src/components/PeriodSelector.tsx, /src/pages/RisksPage.tsx, /src/components/LedgerSelector.tsx[22m
+[2m21:53:00[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgentChatPage.tsx[22m
+[2m21:53:06[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgentChatPage.tsx[22m
+[2m21:53:17[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgentChatPage.tsx[22m
+[2m22:06:37[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgentChatPage.tsx[22m
+[2m22:06:37[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step4ReviewEntries.tsx, /src/pages/Auth/LoginPage.tsx, /src/pages/AccountingPeriodsPage.tsx, /src/pages/Reports/BalanceSheetPage.tsx, /src/pages/AgentChatPage.tsx, /src/pages/HomePage.tsx, /src/pages/EntriesPageRoute.tsx, /src/pages/Reports/TrialBalancePage.tsx, /src/pages/LedgerManagementPage.tsx, /src/pages/AuditMode/Step6ExportReport.tsx, /src/pages/Auth/RegisterPage.tsx, /src/pages/TeamManagementPage.tsx, /src/pages/LedgerLifecyclePage.tsx, /src/pages/RisksPageRoute.tsx, /src/pages/OnboardingPage.tsx, /src/pages/WorkspacePage.tsx, /src/pages/AccountingMode/Step5Export.tsx, /src/pages/BasicData/OpeningBalancesPage.tsx, /src/pages/AuditMode/Step5ReviewFindings.tsx, /src/pages/Reports/IncomeStatementPage.tsx, /src/pages/AuditMode/Step2ImportSource.tsx, /src/pages/ProjectsPage.tsx, /src/pages/AuditMode/Step3ImportEntries.tsx, /src/pages/LedgerFilesPage.tsx, /src/pages/AccountingMode/Step3GenerateEntries.tsx, /src/pages/AuditMode/Step4RunTests.tsx, /src/pages/AccountingMode/Step2ImportSource.tsx, /src/pages/EntriesPage.tsx, /src/components/PeriodSelector.tsx, /src/pages/RisksPage.tsx, /src/components/LedgerSelector.tsx[22m
+[2m22:07:12[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:07:52[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:18:39[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step4ReviewEntries.tsx, /src/pages/Auth/LoginPage.tsx, /src/pages/AccountingPeriodsPage.tsx, /src/pages/Reports/BalanceSheetPage.tsx, /src/pages/AgentChatPage.tsx, /src/pages/HomePage.tsx, /src/pages/EntriesPageRoute.tsx, /src/pages/Reports/TrialBalancePage.tsx, /src/pages/LedgerManagementPage.tsx, /src/pages/AuditMode/Step6ExportReport.tsx, /src/pages/Auth/RegisterPage.tsx, /src/pages/TeamManagementPage.tsx, /src/pages/LedgerLifecyclePage.tsx, /src/pages/RisksPageRoute.tsx, /src/pages/OnboardingPage.tsx, /src/pages/WorkspacePage.tsx, /src/pages/AccountingMode/Step5Export.tsx, /src/pages/BasicData/OpeningBalancesPage.tsx, /src/pages/AuditMode/Step5ReviewFindings.tsx, /src/pages/Reports/IncomeStatementPage.tsx, /src/pages/AuditMode/Step2ImportSource.tsx, /src/pages/ProjectsPage.tsx, /src/pages/AuditMode/Step3ImportEntries.tsx, /src/pages/LedgerFilesPage.tsx, /src/pages/AccountingMode/Step3GenerateEntries.tsx, /src/pages/AuditMode/Step4RunTests.tsx, /src/pages/AccountingMode/Step2ImportSource.tsx, /src/pages/EntriesPage.tsx, /src/components/PeriodSelector.tsx, /src/pages/RisksPage.tsx, /src/components/LedgerSelector.tsx[22m
+[2m22:18:39[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgentChatPage.tsx[22m
+[2m22:19:40[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:23:31[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:23:39[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:23:49[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:23:57[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:24:07[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:24:17[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:24:28[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step4ReviewEntries.tsx, /src/pages/Auth/LoginPage.tsx, /src/pages/AccountingPeriodsPage.tsx, /src/pages/Reports/BalanceSheetPage.tsx, /src/pages/AgentChatPage.tsx, /src/pages/HomePage.tsx, /src/pages/EntriesPageRoute.tsx, /src/pages/Reports/TrialBalancePage.tsx, /src/pages/LedgerManagementPage.tsx, /src/pages/AuditMode/Step6ExportReport.tsx, /src/pages/Auth/RegisterPage.tsx, /src/pages/TeamManagementPage.tsx, /src/pages/LedgerLifecyclePage.tsx, /src/pages/RisksPageRoute.tsx, /src/pages/OnboardingPage.tsx, /src/pages/WorkspacePage.tsx, /src/pages/AccountingMode/Step5Export.tsx, /src/pages/BasicData/OpeningBalancesPage.tsx, /src/pages/AuditMode/Step5ReviewFindings.tsx, /src/pages/Reports/IncomeStatementPage.tsx, /src/pages/AuditMode/Step2ImportSource.tsx, /src/pages/ProjectsPage.tsx, /src/pages/AuditMode/Step3ImportEntries.tsx, /src/pages/LedgerFilesPage.tsx, /src/pages/AccountingMode/Step3GenerateEntries.tsx, /src/pages/AuditMode/Step4RunTests.tsx, /src/pages/AccountingMode/Step2ImportSource.tsx, /src/pages/EntriesPage.tsx, /src/components/PeriodSelector.tsx, /src/pages/RisksPage.tsx, /src/components/LedgerSelector.tsx[22m
+[2m22:24:38[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step4ReviewEntries.tsx, /src/pages/Auth/LoginPage.tsx, /src/pages/AccountingPeriodsPage.tsx, /src/pages/Reports/BalanceSheetPage.tsx, /src/pages/AgentChatPage.tsx, /src/pages/HomePage.tsx, /src/pages/EntriesPageRoute.tsx, /src/pages/Reports/TrialBalancePage.tsx, /src/pages/LedgerManagementPage.tsx, /src/pages/AuditMode/Step6ExportReport.tsx, /src/pages/Auth/RegisterPage.tsx, /src/pages/TeamManagementPage.tsx, /src/pages/LedgerLifecyclePage.tsx, /src/pages/RisksPageRoute.tsx, /src/pages/OnboardingPage.tsx, /src/pages/WorkspacePage.tsx, /src/pages/AccountingMode/Step5Export.tsx, /src/pages/BasicData/OpeningBalancesPage.tsx, /src/pages/AuditMode/Step5ReviewFindings.tsx, /src/pages/Reports/IncomeStatementPage.tsx, /src/pages/AuditMode/Step2ImportSource.tsx, /src/pages/ProjectsPage.tsx, /src/pages/AuditMode/Step3ImportEntries.tsx, /src/pages/LedgerFilesPage.tsx, /src/pages/AccountingMode/Step3GenerateEntries.tsx, /src/pages/AuditMode/Step4RunTests.tsx, /src/pages/AccountingMode/Step2ImportSource.tsx, /src/pages/EntriesPage.tsx, /src/components/PeriodSelector.tsx, /src/pages/RisksPage.tsx, /src/components/LedgerSelector.tsx[22m
+[2m22:40:33[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:40:44[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:40:53[22m [36m[1m[vite][22m[39m [32mvite.config.ts changed, restarting server...[39m
+[2m22:40:53[22m [36m[1m[vite][22m[39m server restarted.
+[2m22:47:53[22m [36m[1m[vite][22m[39m [32mvite.config.ts changed, restarting server...[39m
+[2m22:47:53[22m [36m[1m[vite][22m[39m server restarted.
+[2m22:48:01[22m [36m[1m[vite][22m[39m [32mvite.config.ts changed, restarting server...[39m
+[2m22:48:01[22m [36m[1m[vite][22m[39m server restarted.
+[2m22:49:47[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:49:54[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:50:02[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:50:08[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m22:50:20[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m23:14:56[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/RisksPageRoute.tsx, /src/pages/Reports/TrialBalancePage.tsx, /src/pages/HomePage.tsx, /src/pages/AccountingMode/Step4ReviewEntries.tsx, /src/pages/Auth/RegisterPage.tsx, /src/pages/AgentChatPage.tsx, /src/pages/Reports/BalanceSheetPage.tsx, /src/pages/EntriesPageRoute.tsx, /src/pages/LedgerLifecyclePage.tsx, /src/pages/AccountingPeriodsPage.tsx, /src/pages/ProjectsPage.tsx, /src/pages/WorkspacePage.tsx, /src/pages/AccountingMode/Step5Export.tsx, /src/pages/Reports/IncomeStatementPage.tsx, /src/pages/Auth/LoginPage.tsx, /src/pages/AccountingMode/Step3GenerateEntries.tsx, /src/pages/AuditMode/Step2ImportSource.tsx, /src/pages/BasicData/OpeningBalancesPage.tsx, /src/pages/AuditMode/Step4RunTests.tsx, /src/pages/LedgerFilesPage.tsx, /src/pages/TeamManagementPage.tsx, /src/pages/OnboardingPage.tsx, /src/pages/LedgerManagementPage.tsx, /src/pages/AuditMode/Step6ExportReport.tsx, /src/pages/AuditMode/Step5ReviewFindings.tsx, /src/pages/AuditMode/Step3ImportEntries.tsx, /src/pages/AccountingMode/Step2ImportSource.tsx, /src/pages/RisksPage.tsx, /src/pages/EntriesPage.tsx, /src/components/PeriodSelector.tsx, /src/components/LedgerSelector.tsx[22m
+[2m23:14:56[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgentChatPage.tsx[22m
+[2m23:15:01[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/RisksPageRoute.tsx, /src/pages/Reports/TrialBalancePage.tsx, /src/pages/HomePage.tsx, /src/pages/AccountingMode/Step4ReviewEntries.tsx, /src/pages/Auth/RegisterPage.tsx, /src/pages/AgentChatPage.tsx, /src/pages/Reports/BalanceSheetPage.tsx, /src/pages/EntriesPageRoute.tsx, /src/pages/LedgerLifecyclePage.tsx, /src/pages/AccountingPeriodsPage.tsx, /src/pages/ProjectsPage.tsx, /src/pages/WorkspacePage.tsx, /src/pages/AccountingMode/Step5Export.tsx, /src/pages/Reports/IncomeStatementPage.tsx, /src/pages/Auth/LoginPage.tsx, /src/pages/AccountingMode/Step3GenerateEntries.tsx, /src/pages/AuditMode/Step2ImportSource.tsx, /src/pages/BasicData/OpeningBalancesPage.tsx, /src/pages/AuditMode/Step4RunTests.tsx, /src/pages/LedgerFilesPage.tsx, /src/pages/TeamManagementPage.tsx, /src/pages/OnboardingPage.tsx, /src/pages/LedgerManagementPage.tsx, /src/pages/AuditMode/Step6ExportReport.tsx, /src/pages/AuditMode/Step5ReviewFindings.tsx, /src/pages/AuditMode/Step3ImportEntries.tsx, /src/pages/AccountingMode/Step2ImportSource.tsx, /src/pages/RisksPage.tsx, /src/pages/EntriesPage.tsx, /src/components/PeriodSelector.tsx, /src/components/LedgerSelector.tsx[22m
+[2m23:15:02[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m23:15:02[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/FlowNav.tsx[22m
+[2m23:15:02[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/LedgerSelector.tsx[22m
+[2m23:15:02[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/PeriodSelector.tsx[22m
+[2m23:15:02[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layout/MainShell.tsx[22m
+[2m23:15:02[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step1SelectType.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step3GenerateEntries.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step4ReviewEntries.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingMode/Step5Export.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AccountingPeriodsPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgentChatPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AuditMode/Step1SelectScope.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AuditMode/Step2ImportSource.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AuditMode/Step3ImportEntries.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AuditMode/Step4RunTests.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AuditMode/Step5ReviewFindings.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AuditMode/Step6ExportReport.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/LoginPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Auth/RegisterPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/BasicData/ChartOfAccountsPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/BasicData/CounterpartiesPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/BasicData/OpeningBalancesPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/BasicData/OrganizationUnitsPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/BasicData/PersonnelPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/EntriesPageRoute.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/HomePage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/LedgerFilesPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/LedgerLifecyclePage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/LedgerManagementPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/OnboardingPage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PlaceholderModulePage.tsx[22m
+[2m23:15:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/ProjectsPage.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Reports/BalanceSheetPage.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Reports/IncomeStatementPage.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Reports/TrialBalancePage.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/RisksPageRoute.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/WorkspacePage.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Workspaces/AuditWorkspace.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Workspaces/BankWorkspace.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Workspaces/BasicDataWorkspace.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Workspaces/FixedAssetsWorkspace.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Workspaces/InventoryWorkspace.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Workspaces/LedgerWorkspace.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Workspaces/TaxWorkspace.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/stores/authStore.tsx[22m
+[2m23:15:04[22m [36m[1m[vite][22m[39m [32mvite.config.ts changed, restarting server...[39m
+[2m23:15:04[22m [36m[1m[vite][22m[39m server restarted.

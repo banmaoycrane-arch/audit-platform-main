@@ -1,0 +1,24 @@
+EXIT_CODE=0
+--- STDOUT LAST 20 LINES ---
+tests/test_opening_balances_api.py::test_bulk_upsert_and_trial_balance
+  E:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\opening_balance_service.py:50: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    record.updated_at = datetime.utcnow()
+
+tests/test_period_close_pl_transfer.py::test_pl_transfer_makes_balance_sheet_balanced
+tests/test_period_close_pl_transfer.py::test_pl_transfer_idempotent_blocked_until_reversed
+tests/test_period_close_pl_transfer.py::test_pl_transfer_idempotent_blocked_until_reversed
+  E:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\period_close_service.py:158: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    period.updated_at = datetime.utcnow()
+
+tests/test_period_close_pl_transfer.py::test_pl_transfer_idempotent_blocked_until_reversed
+  E:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\period_close_service.py:188: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    period.updated_at = datetime.utcnow()
+
+tests/test_transactions_api.py::test_manual_rollback_pending_transaction
+  E:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\transaction_manager.py:84: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    transaction.rolled_back_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+143 passed, 1398 warnings in 74.56s (0:01:14)
+--- STDERR ---
+

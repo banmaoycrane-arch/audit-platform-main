@@ -1,0 +1,3 @@
+﻿voucher_no,voucher_date,summary,account_code,account_name,debit_amount,credit_amount,counterparty
+,2026-01-03,无凭证号A,1001,库存现金,100,0,
+,2026-01-03,无凭证号B,1001,库存现金,200,0,

@@ -1,0 +1,101 @@
+........................................................................ [ 47%]
+........................................................................ [ 94%]
+........                                                                 [100%]
+============================== warnings summary ===============================
+C:\Users\banmao\AppData\Local\Programs\Python\Python313\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\banmao\AppData\Local\Programs\Python\Python313\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_accounting_period_api.py: 24 warnings
+tests/test_accounting_period_service.py: 195 warnings
+tests/test_accounting_units_api.py: 71 warnings
+tests/test_adaptive_import_engine_acceptance.py: 38 warnings
+tests/test_app.py: 2 warnings
+tests/test_audit_day_book_import.py: 19 warnings
+tests/test_audit_export.py: 12 warnings
+tests/test_audit_report_service.py: 4 warnings
+tests/test_audit_tests_api.py: 141 warnings
+tests/test_basic_data_api.py: 316 warnings
+tests/test_business_cycles_api.py: 22 warnings
+tests/test_dashboard_api.py: 15 warnings
+tests/test_document_parsing_api.py: 27 warnings
+tests/test_entities_api.py: 24 warnings
+tests/test_entry_generation_api.py: 16 warnings
+tests/test_entry_line_number.py: 77 warnings
+tests/test_entry_tags_api.py: 39 warnings
+tests/test_export_api.py: 16 warnings
+tests/test_internal_controls_api.py: 69 warnings
+tests/test_materials_api.py: 15 warnings
+tests/test_opening_balances_api.py: 24 warnings
+tests/test_period_close_pl_transfer.py: 78 warnings
+tests/test_reports_api.py: 84 warnings
+tests/test_transactions_api.py: 20 warnings
+  C:\Users\banmao\AppData\Roaming\Python\Python313\site-packages\sqlalchemy\sql\schema.py:3623: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+tests/test_accounting_period_api.py: 3 warnings
+tests/test_accounting_period_service.py: 14 warnings
+  e:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\accounting_period_service.py:80: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_accounting_period_api.py::test_accounting_period_api_create_close_reopen_and_summary_source
+tests/test_accounting_period_service.py::test_close_period_closes_period_and_creates_log
+tests/test_accounting_period_service.py::test_close_period_fails_when_period_already_closed
+tests/test_accounting_period_service.py::test_reopen_period_reopens_period_invalidates_snapshot_and_creates_log
+tests/test_accounting_period_service.py::test_close_period_after_reopen_creates_new_valid_snapshot_version
+tests/test_accounting_period_service.py::test_close_period_after_reopen_creates_new_valid_snapshot_version
+tests/test_accounting_period_service.py::test_ensure_period_open_for_date_raises_for_closed_period_date
+  e:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\accounting_period_service.py:148: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    period.closed_at = datetime.utcnow()
+
+tests/test_accounting_period_api.py::test_accounting_period_api_create_close_reopen_and_summary_source
+tests/test_accounting_period_service.py::test_reopen_period_reopens_period_invalidates_snapshot_and_creates_log
+tests/test_accounting_period_service.py::test_close_period_after_reopen_creates_new_valid_snapshot_version
+  e:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\accounting_period_service.py:189: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_audit_tests_api.py::test_review_audit_finding_records_action
+  e:\projects\finance-vector-audit\wroksapce20260616\backend\app\api\routes_audit_tests.py:206: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    finding.updated_at = datetime.utcnow()
+
+tests/test_auth_api.py: 5 warnings
+tests/test_dashboard_api.py: 4 warnings
+tests/test_project_api.py: 20 warnings
+  e:\projects\finance-vector-audit\wroksapce20260616\backend\app\core\security.py:30: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+
+tests/test_dashboard_api.py::test_dashboard_summary_with_data_returns_counts
+  E:\projects\finance-vector-audit\wroksapce20260616\backend\tests\test_dashboard_api.py:176: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+tests/test_entry_line_number.py::test_same_voucher_assigns_continuous_line_numbers
+tests/test_entry_line_number.py::test_different_vouchers_have_independent_line_numbers
+tests/test_entry_line_number.py::test_missing_voucher_no_defaults_to_one
+tests/test_entry_tags_api.py::test_delete_tag_success
+  C:\Users\banmao\AppData\Local\Programs\Python\Python313\Lib\site-packages\qdrant_client\qdrant_remote.py:290: UserWarning: Failed to obtain server version. Unable to check client-server compatibility. Set check_compatibility=False to skip version check.
+    show_warning(
+
+tests/test_opening_balances_api.py::test_repeat_upsert_does_not_duplicate
+tests/test_opening_balances_api.py::test_bulk_upsert_and_trial_balance
+  e:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\opening_balance_service.py:50: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    record.updated_at = datetime.utcnow()
+
+tests/test_period_close_pl_transfer.py::test_pl_transfer_makes_balance_sheet_balanced
+tests/test_period_close_pl_transfer.py::test_pl_transfer_idempotent_blocked_until_reversed
+tests/test_period_close_pl_transfer.py::test_pl_transfer_idempotent_blocked_until_reversed
+  e:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\period_close_service.py:158: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    period.updated_at = datetime.utcnow()
+
+tests/test_period_close_pl_transfer.py::test_pl_transfer_idempotent_blocked_until_reversed
+  e:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\period_close_service.py:188: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    period.updated_at = datetime.utcnow()
+
+tests/test_transactions_api.py::test_manual_rollback_pending_transaction
+  e:\projects\finance-vector-audit\wroksapce20260616\backend\app\services\transaction_manager.py:84: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    transaction.rolled_back_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+152 passed, 1418 warnings in 83.72s (0:01:23)
+
+
+EXIT_CODE=0

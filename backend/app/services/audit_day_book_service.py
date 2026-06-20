@@ -1,0 +1,503 @@
+# -*- coding: utf-8 -*-
+"""
+序时簿导入专用处理服务
+
+模块功能：对审计模式下的序时簿导入数据进行专用处理，包括凭证合并、
+          借贷平衡校验、凭证号连续性检测等。
+
+业务场景：审计人员从被审计单位导入序时簿（按行记录的分录明细），
+          需要按凭证号合并为完整凭证，并检测凭证完整性。
+
+政策依据：
+    - 《中国注册会计师审计准则第1101号》——审计证据的完整性
+    - 会计基础工作规范——记账凭证必须借贷平衡
+
+输入数据：序时簿 CSV/Excel 文件，每行一条分录，包含 voucher_no 字段
+输出结果：序时簿检测报告（DayBookReport），包含凭证完整性评分与问题清单
+
+创建日期：2026-06-18
+更新记录：
+    2026-06-18  初始版本，实现序时簿导入核心逻辑
+"""
+
+from dataclasses import dataclass, field
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any
+
+from sqlalchemy.orm import Session
+
+from app.db.models import AccountingEntry, EntryTag, ImportJob, SourceFile
+from app.services.data_validator import generate_quality_report
+from app.services.entry_tags_service import build_semantic_text, generate_entry_tags
+from app.services.file_parser_service import ParseResult, parse_entries
+from app.services.logic_check_service import (
+    BatchCheckReport,
+    check_entry_logic,
+    generate_batch_report,
+)
+from app.services.risk_case_library import enhance_entry_with_risk_analysis
+from app.services.tagging_service import suggest_tags, suggest_voucher_type
+from app.services.vector_store_service import chunk_hash, chunk_text, safe_vector_store
+from app.core.config import get_settings
+from uuid import uuid4
+from app.db.models import DocumentChunk
+
+
+# 会计凭证文件类型
+ACCOUNTING_FILE_TYPES = {".xlsx", ".xls", ".csv"}
+
+
+@dataclass
+class UnbalancedVoucher:
+    """不平衡凭证信息"""
+    voucher_no: str
+    debit_total: Decimal
+    credit_total: Decimal
+    difference: Decimal
+    entry_count: int
+
+
+@dataclass
+class DayBookReport:
+    """
+    序时簿检测报告
+
+    功能描述：汇总序时簿导入后的凭证完整性检测结果
+    业务逻辑：
+        1. 按 voucher_no 分组统计凭证数量
+        2. 检测凭证号是否连续（跳号识别）
+        3. 逐凭证校验借贷平衡
+        4. 计算完整性评分
+
+    会计口径：
+        - 凭证号连续性：基于字符串排序后的自然数序列检测
+        - 借贷平衡：借方合计必须等于贷方合计，差异为 0.00
+        - 完整性评分：满分 100，跳号与不平衡各按比例扣分
+    """
+    total_vouchers: int          # 凭证总数（按 voucher_no 分组）
+    total_entries: int           # 分录总行数
+    skip_count: int              # 跳号数量（缺失的凭证号个数）
+    unbalanced_count: int        # 不平衡凭证数量
+    completeness_score: float    # 完整性评分（0-100）
+    missing_voucher_nos: list[str] = field(default_factory=list)      # 缺失的凭证号列表
+    unbalanced_vouchers: list[UnbalancedVoucher] = field(default_factory=list)  # 不平衡凭证列表
+
+
+@dataclass
+class DayBookProcessingResult:
+    """序时簿处理结果"""
+    success: bool
+    entries_created: int = 0
+    report: DayBookReport | None = None
+    error_message: str | None = None
+
+
+def _amount_to_decimal(value: Any) -> Decimal:
+    """
+    将金额转换为 Decimal 类型
+
+    功能描述：统一金额数据类型，避免浮点误差
+    会计口径：保留 2 位小数，四舍五入规则 ROUND_HALF_UP
+
+    Args:
+        value: 输入金额（float, int, str, Decimal 均可）
+
+    Returns:
+        Decimal: 标准化后的金额，精度 0.00
+    """
+    if value is None:
+        return Decimal("0.00")
+    if isinstance(value, Decimal):
+        return value.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)
+    try:
+        return Decimal(str(value)).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)
+    except Exception:
+        return Decimal("0.00")
+
+
+def _extract_voucher_number(voucher_no: str) -> str:
+    """
+    提取凭证号中的数字部分
+
+    功能描述：用于凭证号排序和连续性检测
+    业务逻辑：将 "记-001" 提取为 "001"，便于数字排序
+
+    Args:
+        voucher_no: 原始凭证号字符串
+
+    Returns:
+        str: 提取后的数字字符串，若无数字则返回原字符串
+    """
+    digits = ""
+    for char in voucher_no:
+        if char.isdigit():
+            digits += char
+    return digits if digits else voucher_no
+
+
+def _detect_voucher_number_skips(voucher_nos: list[str]) -> list[str]:
+    """
+    检测凭证号跳号
+
+    功能描述：对凭证号列表排序后，检测是否存在不连续的数字序列
+    业务逻辑：
+        1. 提取每个凭证号的数字部分
+        2. 按数字大小排序
+        3. 相邻数字差大于 1 时，判定为跳号
+        4. 记录缺失的凭证号（基于第一个凭证号的前缀格式）
+
+    会计口径：
+        - 仅检测数字部分连续，前缀（如"记-"）保持一致
+        - 非数字凭证号不参与跳号检测
+
+    Args:
+        voucher_nos: 凭证号列表
+
+    Returns:
+        list[str]: 缺失的凭证号列表（按原格式补全）
+    """
+    if not voucher_nos:
+        return []
+
+    # 提取数字并保留原始映射
+    numbered_vouchers: list[tuple[int, str, str]] = []
+    for voucher_no in voucher_nos:
+        digits = _extract_voucher_number(voucher_no)
+        if digits.isdigit():
+            numbered_vouchers.append((int(digits), digits, voucher_no))
+
+    if not numbered_vouchers:
+        return []
+
+    # 按数字排序
+    numbered_vouchers.sort(key=lambda x: x[0])
+
+    # 推断前缀格式（取第一个凭证号中非数字部分）
+    first_original = numbered_vouchers[0][2]
+    prefix = ""
+    for char in first_original:
+        if not char.isdigit():
+            prefix += char
+        else:
+            break
+
+    # 检测跳号
+    missing: list[str] = []
+    for i in range(1, len(numbered_vouchers)):
+        prev_num = numbered_vouchers[i - 1][0]
+        curr_num = numbered_vouchers[i][0]
+        gap = curr_num - prev_num
+        if gap > 1:
+            # 记录缺失的凭证号
+            for missing_num in range(prev_num + 1, curr_num):
+                missing_voucher = f"{prefix}{str(missing_num).zfill(len(numbered_vouchers[0][1]))}"
+                missing.append(missing_voucher)
+
+    return missing
+
+
+def _validate_voucher_balance(
+    entries: list[dict[str, Any]],
+) -> tuple[bool, Decimal, Decimal, Decimal]:
+    """
+    校验单个凭证的借贷平衡
+
+    功能描述：对同一凭证号下的所有分录，汇总借方和贷方金额并校验是否相等
+    业务逻辑：
+        1. 遍历该凭证的所有分录
+        2. 使用 Decimal 累加借方金额和贷方金额
+        3. 比较借方合计与贷方合计
+
+    会计口径：
+        - 记账凭证借贷必须平衡，借方合计 = 贷方合计
+        - 金额精度统一为 2 位小数
+
+    Args:
+        entries: 同一凭证号下的分录列表
+
+    Returns:
+        tuple[bool, Decimal, Decimal, Decimal]: 
+            (是否平衡, 借方合计, 贷方合计, 差异金额)
+    """
+    total_debit = Decimal("0.00")
+    total_credit = Decimal("0.00")
+
+    for entry in entries:
+        debit = _amount_to_decimal(entry.get("debit_amount", 0))
+        credit = _amount_to_decimal(entry.get("credit_amount", 0))
+        total_debit += debit
+        total_credit += credit
+
+    total_debit = total_debit.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)
+    total_credit = total_credit.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)
+    difference = (total_debit - total_credit).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)
+
+    is_balanced = difference == Decimal("0.00")
+    return is_balanced, total_debit, total_credit, difference
+
+
+def _index_text(db: Session, organization_id: int, source_type: str, source_id: int, text: str, payload: dict) -> None:
+    """索引文本到向量存储（复用 import_service 中的逻辑）"""
+    store = safe_vector_store()
+    for chunk in chunk_text(text):
+        point_id = uuid4().hex
+        digest = chunk_hash(chunk)
+        db.add(
+            DocumentChunk(
+                organization_id=organization_id,
+                source_type=source_type,
+                source_id=source_id,
+                chunk_text=chunk,
+                chunk_hash=digest,
+                vector_collection=get_settings().qdrant_collection,
+                vector_point_id=point_id,
+            )
+        )
+        if store:
+            try:
+                store.upsert_text(point_id, chunk, payload | {"source_type": source_type, "source_id": source_id, "chunk_hash": digest})
+            except Exception:
+                pass
+
+
+def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingResult:
+    """
+    处理序时簿导入任务
+
+    功能描述：按 voucher_no 分组合并分录为凭证，校验借贷平衡，检测跳号，生成检测报告
+    业务逻辑：
+        1. 获取任务关联的源文件
+        2. 解析文件得到分录列表
+        3. 按 voucher_no 分组，为每组分配连续行号
+        4. 逐凭证校验借贷平衡
+        5. 检测凭证号连续性（跳号）
+        6. 生成 DayBookReport 并保存分录到数据库
+        7. 执行逻辑校验、风险案例匹配、向量索引
+
+    会计口径：
+        - 同凭证号分录按导入顺序分配 entry_line_no
+        - 借贷平衡校验使用 Decimal 精确计算
+        - 跳号检测基于凭证号数字部分排序
+
+    Args:
+        db: 数据库会话
+        job: 导入任务对象
+
+    Returns:
+        DayBookProcessingResult: 处理结果，包含检测报告和创建的分录数
+
+    注意事项：
+        1. 仅处理 .xlsx, .xls, .csv 格式的会计凭证文件
+        2. 缺少 voucher_no 的分录会被单独分组（以 __no_voucher__:index 标识）
+        3. 跳号检测仅适用于包含数字的凭证号
+    """
+    try:
+        # 获取任务关联的源文件
+        files = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
+
+        all_entries: list[dict[str, Any]] = []
+        total_created = 0
+
+        for source_file in files:
+            file_type = source_file.file_type.lower()
+            if file_type not in {"xlsx", "xls", "csv"}:
+                continue
+
+            # 解析文件
+            parse_result = parse_entries(source_file.storage_path)
+            if parse_result.entries:
+                all_entries.extend(parse_result.entries)
+
+        if not all_entries:
+            return DayBookProcessingResult(
+                success=False,
+                error_message="未解析到有效分录数据",
+            )
+
+        # 按 voucher_no 分组
+        voucher_groups: dict[str, list[dict[str, Any]]] = {}
+        for idx, entry_data in enumerate(all_entries):
+            voucher_no = entry_data.get("voucher_no") or f"__no_voucher__:{idx}"
+            if voucher_no not in voucher_groups:
+                voucher_groups[voucher_no] = []
+            voucher_groups[voucher_no].append(entry_data)
+
+        # 为每个凭证组分配连续行号
+        voucher_line_counter: dict[str, int] = {}
+        for voucher_no in voucher_groups:
+            voucher_line_counter[voucher_no] = 0
+
+        # 准备逻辑校验数据
+        entries_for_check: list[dict] = []
+        voucher_types: list[str | None] = []
+
+        for entry_data in all_entries:
+            voucher_no = entry_data.get("voucher_no") or f"__no_voucher__:{all_entries.index(entry_data)}"
+            voucher_line_counter[voucher_no] += 1
+            entry_data["entry_line_no"] = voucher_line_counter[voucher_no]
+
+            # 提取凭证字用于逻辑校验
+            class MockEntry:
+                def __init__(self, d):
+                    self.summary = d.get("summary", "")
+                    self.account_name = d.get("account_name", "")
+                    self.debit_amount = d.get("debit_amount", 0)
+                    self.credit_amount = d.get("credit_amount", 0)
+                    self.voucher_date = None
+                    self.account_code = d.get("account_code", "")
+
+            mock_entry = MockEntry(entry_data)
+            voucher_type, _ = suggest_voucher_type(mock_entry)
+            voucher_types.append(voucher_type)
+
+            entries_for_check.append({
+                "summary": entry_data.get("summary", ""),
+                "debit_account": entry_data.get("account_name", ""),
+                "credit_account": entry_data.get("account_name", ""),
+                "debit_amount": entry_data.get("debit_amount", 0),
+                "credit_amount": entry_data.get("credit_amount", 0),
+            })
+
+        # 执行逻辑校验
+        logic_check_results = []
+        for i, (entry_data, voucher_type) in enumerate(zip(entries_for_check, voucher_types)):
+            check_result = check_entry_logic(
+                entry_index=i,
+                summary=entry_data["summary"],
+                debit_account=entry_data["debit_account"],
+                credit_account=entry_data["credit_account"],
+                debit_amount=entry_data["debit_amount"],
+                credit_amount=entry_data["credit_amount"],
+                voucher_type=voucher_type,
+            )
+            logic_check_results.append(check_result)
+
+        # 生成校验报告
+        logic_report = generate_batch_report(logic_check_results)
+
+        # 逐凭证校验借贷平衡
+        unbalanced_vouchers: list[UnbalancedVoucher] = []
+        for voucher_no, entries in voucher_groups.items():
+            if voucher_no.startswith("__no_voucher__"):
+                continue  # 跳过无凭证号的分录
+            is_balanced, debit_total, credit_total, difference = _validate_voucher_balance(entries)
+            if not is_balanced:
+                unbalanced_vouchers.append(
+                    UnbalancedVoucher(
+                        voucher_no=voucher_no,
+                        debit_total=debit_total,
+                        credit_total=credit_total,
+                        difference=difference,
+                        entry_count=len(entries),
+                    )
+                )
+
+        # 检测跳号
+        all_voucher_nos = [v for v in voucher_groups.keys() if not v.startswith("__no_voucher__")]
+        missing_voucher_nos = _detect_voucher_number_skips(all_voucher_nos)
+
+        # 计算完整性评分
+        total_vouchers = len(voucher_groups)
+        skip_count = len(missing_voucher_nos)
+        unbalanced_count = len(unbalanced_vouchers)
+
+        completeness_score = 100.0
+        if total_vouchers > 0:
+            # 跳号扣分：每个跳号扣 2 分，最多扣 20 分
+            skip_penalty = min(skip_count * 2, 20)
+            # 不平衡扣分：每个不平衡凭证扣 5 分，最多扣 30 分
+            balance_penalty = min(unbalanced_count * 5, 30)
+            completeness_score = max(0.0, 100.0 - skip_penalty - balance_penalty)
+
+        day_book_report = DayBookReport(
+            total_vouchers=total_vouchers,
+            total_entries=len(all_entries),
+            skip_count=skip_count,
+            unbalanced_count=unbalanced_count,
+            completeness_score=round(completeness_score, 2),
+            missing_voucher_nos=missing_voucher_nos,
+            unbalanced_vouchers=unbalanced_vouchers,
+        )
+
+        # 保存分录到数据库（复用现有逻辑）
+        model_fields = {
+            "voucher_no",
+            "voucher_date",
+            "summary",
+            "account_code",
+            "account_name",
+            "debit_amount",
+            "credit_amount",
+            "counterparty",
+            "original_row",
+            "normalized_text",
+            "entry_line_no",
+        }
+
+        for i, entry_data in enumerate(all_entries):
+            tags = generate_entry_tags(entry_data)
+            entry_data["tags"] = tags
+            entry_data = enhance_entry_with_risk_analysis(entry_data)
+            semantic_text = build_semantic_text(entry_data, tags)
+
+            entry_kwargs = {k: v for k, v in entry_data.items() if k in model_fields}
+            entry = AccountingEntry(
+                organization_id=job.organization_id,
+                import_job_id=job.id,
+                **entry_kwargs,
+            )
+            db.add(entry)
+            db.flush()
+
+            # 保存 tags
+            for tag in tags:
+                db.add(EntryTag(entry_id=entry.id, tag_name=tag, confidence=1.0))
+
+            # 保存逻辑校验结果到 tags
+            check_result = logic_check_results[i]
+            if not check_result.is_consistent:
+                for issue in check_result.issues:
+                    tag_name = f"逻辑校验:{issue.severity}:{issue.issue_type}"
+                    db.add(EntryTag(entry_id=entry.id, tag_name=tag_name, confidence=0.9))
+
+            # 保存风险案例匹配结果
+            for case in check_result.matched_risk_cases:
+                tag_name = f"风险案例:{case['risk_type']}:{case['id']}"
+                db.add(EntryTag(entry_id=entry.id, tag_name=tag_name, confidence=0.9))
+
+            # 向量索引
+            _index_text(
+                db,
+                job.organization_id,
+                "accounting_entry",
+                entry.id,
+                semantic_text,
+                {
+                    "organization_id": job.organization_id,
+                    "import_job_id": job.id,
+                    "voucher_no": entry.voucher_no,
+                    "voucher_date": str(entry.voucher_date) if entry.voucher_date else None,
+                    "account_name": entry.account_name,
+                    "amount": float(entry.debit_amount or entry.credit_amount or 0),
+                    "counterparty": entry.counterparty,
+                    "tags": tags,
+                    "is_consistent": check_result.is_consistent,
+                    "risk_count": len(check_result.matched_risk_cases),
+                },
+            )
+            total_created += 1
+
+        db.commit()
+
+        return DayBookProcessingResult(
+            success=True,
+            entries_created=total_created,
+            report=day_book_report,
+        )
+
+    except Exception as exc:
+        db.rollback()
+        return DayBookProcessingResult(
+            success=False,
+            error_message=str(exc),
+        )

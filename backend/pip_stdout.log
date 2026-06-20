@@ -1,0 +1,18 @@
+Using pip 24.3.1 from E:\projects\finance-vector-audit\wroksapce20260616\backend\venv\Lib\site-packages\pip (python 3.13)
+Non-user install because user site-packages disabled
+Created temporary directory: C:\Users\banmao\AppData\Local\Temp\pip-build-tracker-qg0psnvm
+Initialized build tracking at C:\Users\banmao\AppData\Local\Temp\pip-build-tracker-qg0psnvm
+Created build tracker: C:\Users\banmao\AppData\Local\Temp\pip-build-tracker-qg0psnvm
+Entered build tracker: C:\Users\banmao\AppData\Local\Temp\pip-build-tracker-qg0psnvm
+Created temporary directory: C:\Users\banmao\AppData\Local\Temp\pip-install-lnmjnl07
+Created temporary directory: C:\Users\banmao\AppData\Local\Temp\pip-ephem-wheel-cache-bvph_e7d
+Requirement already satisfied: onnxruntime in e:\projects\finance-vector-audit\wroksapce20260616\backend\venv\lib\site-packages (1.27.0)
+Requirement already satisfied: flatbuffers in e:\projects\finance-vector-audit\wroksapce20260616\backend\venv\lib\site-packages (from onnxruntime) (25.12.19)
+Requirement already satisfied: numpy>=1.21.6 in e:\projects\finance-vector-audit\wroksapce20260616\backend\venv\lib\site-packages (from onnxruntime) (2.4.6)
+Requirement already satisfied: packaging in e:\projects\finance-vector-audit\wroksapce20260616\backend\venv\lib\site-packages (from onnxruntime) (26.2)
+Requirement already satisfied: protobuf>=4.25.8 in e:\projects\finance-vector-audit\wroksapce20260616\backend\venv\lib\site-packages (from onnxruntime) (7.35.1)
+Created temporary directory: C:\Users\banmao\AppData\Local\Temp\pip-unpack-pk5th0ri
+Remote version of pip: 26.1.2
+Local version of pip:  24.3.1
+Was pip installed by pip? True
+Removed build tracker: 'C:\\Users\\banmao\\AppData\\Local\\Temp\\pip-build-tracker-qg0psnvm'

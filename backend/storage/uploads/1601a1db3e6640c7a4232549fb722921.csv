@@ -1,0 +1,4 @@
+﻿voucher_no,voucher_date,summary,account_code,account_name,debit_amount,credit_amount,counterparty
+记-001,2026-01-01,采购,1403,原材料,1000,0,供应商A
+记-001,2026-01-01,采购,2202,应付账款,0,1000,供应商A
+记-001,2026-01-01,进项税,2221,应交税费,130,0,供应商A

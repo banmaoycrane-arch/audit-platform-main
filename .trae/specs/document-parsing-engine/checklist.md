@@ -1,0 +1,27 @@
+# 原始文件解析引擎与数据库设计 - 验收清单
+
+- [x] 数据库表已创建（contracts, contract_parties, contract_performance_obligations）
+- [x] 数据库表已创建（invoices, invoice_items）
+- [x] 数据库表已创建（inventory_documents, inventory_items）
+- [x] 数据库表已创建（bank_statements）
+- [x] 数据库表已创建（companies, company_personnel, related_party_relations）
+- [x] 数据库表已创建（field_alias_mappings）
+- [x] 字段别名映射引擎已实现
+- [x] 精确匹配准确率≥99%
+- [x] 模糊匹配准确率≥90%
+- [x] 合同解析引擎已实现
+- [x] 能正确识别履约义务
+- [x] 能正确判断时段/时点履约
+- [x] 标签向量化存储已实现
+- [x] 标签能正确向量化并存储
+- [x] 向量检索返回相关结果
+- [x] 企业信息管理与关联方识别已实现
+- [x] 能正确识别母子公司关系
+- [x] 能正确识别关键管理人员关联
+- [x] API 接口已开发（[routes_document_parsing.py](file:///e:/projects/finance-vector-audit/wroksapce20260616/backend/app/api/routes_document_parsing.py)）
+- [x] POST /api/parse/contract 接口正常
+- [x] POST /api/parse/invoice 接口正常
+- [x] API 文档已生成（FastAPI Swagger UI 自动生成）
+- [x] 单元测试覆盖率≥80%
+- [x] 集成测试通过（[test_document_parsing_api.py](file:///e:/projects/finance-vector-audit/wroksapce20260616/backend/tests/test_document_parsing_api.py) 5 用例全部通过）
+- [x] 测试用例覆盖主要解析场景

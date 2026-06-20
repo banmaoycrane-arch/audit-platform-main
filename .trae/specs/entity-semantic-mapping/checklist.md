@@ -1,0 +1,23 @@
+# 会计主体语义映射设计 - 验收清单
+
+- [x] 数据库表已创建（entities, entity_tags, entity_scopes, entity_versions）
+- [x] 会计主体数据模型符合设计规范
+- [x] 语义映射引擎已实现（基于精确名 + 别名标签 ilike 模糊匹配）
+- [ ] 语义匹配准确率≥95%（待大规模语料验证）
+- [ ] 支持至少100种主体名称变体（待样本扩充）
+- [x] 分录主体标识改造完成（AccountingEntry.original_entity_name 已支持）
+- [x] 分录导入时正确提取主体标识
+- [x] 不依赖二级科目也能识别主体
+- [x] 合同主体解析增强完成（已支持从 extracted_text 解析并写入 ContractParty）
+- [ ] 合同主体提取准确率≥90%（规则样例通过，待大样本验证）
+- [x] 支持三方及以上合同解析（已覆盖甲/乙/丙/丁等多方主体）
+- [x] 主体范围动态切换引擎已实现（scopes/virtual-sets 接口）
+- [ ] 主体切换响应时间<1秒（待性能基准）
+- [ ] 支持至少100个并发查询（待压测）
+- [x] API 接口已开发
+- [x] GET /api/entities 接口正常
+- [x] POST /api/entities/scope 接口正常（POST /api/entities/scopes）
+- [x] API 文档已生成（FastAPI 自动 OpenAPI）
+- [ ] 单元测试覆盖率≥80%（待覆盖率工具接入）
+- [x] 集成测试通过（test_entities_api.py 7 passed，全量 39 passed）
+- [x] 测试用例覆盖主要场景（创建、搜索、过滤、虚拟集合、范围、混淆识别）
