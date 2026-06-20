@@ -49,7 +49,8 @@ import { Step6ExportReport } from './pages/AuditMode/Step6ExportReport'
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
   const location = useLocation()
-  if (!isLoggedIn) {
+  const hasToken = localStorage.getItem('token')
+  if (!isLoggedIn && !hasToken) {
     return <Navigate to="/login" replace state={{ from: location }} />
   }
   return <>{children}</>
@@ -57,7 +58,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 function LoggedInRedirect({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
-  if (isLoggedIn) {
+  const hasToken = localStorage.getItem('token')
+  if (isLoggedIn || hasToken) {
     return <Navigate to="/workspace" replace />
   }
   return <>{children}</>
