@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card, Table, Select, Space, InputNumber, Button, Alert, message, Typography, Tag } from 'antd'
 import { api, type OpeningBalance, type AccountingPeriod, type TrialBalance } from '../../api/client'
+import { useAuthStore } from '../../stores/authStore'
 
 const { Title, Text } = Typography
 
@@ -35,6 +36,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 }
 
 export function OpeningBalancesPage() {
+  const { currentLedgerId } = useAuthStore()
   const [periods, setPeriods] = useState<AccountingPeriod[]>([])
   const [coa, setCoa] = useState<CoaItem[]>([])
   const [periodId, setPeriodId] = useState<number | null>(null)
@@ -49,7 +51,7 @@ export function OpeningBalancesPage() {
     void (async () => {
       try {
         const [p, coaResp] = await Promise.all([
-          api.listAccountingPeriods(),
+          api.listAccountingPeriods(undefined, currentLedgerId || undefined),
           fetch(`${API_BASE}/api/coa`).then((r) => r.json()),
         ])
         setPeriods(p)
@@ -57,13 +59,16 @@ export function OpeningBalancesPage() {
         if (p.length > 0) {
           setPeriodId(p[0].id)
           setOrganizationId(p[0].organization_id)
+        } else {
+          setPeriodId(null)
+          setOrganizationId(null)
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         message.error(`加载初始数据失败：${detail}`)
       }
     })()
-  }, [])
+  }, [currentLedgerId])
 
   const reload = async () => {
     if (!periodId || !organizationId) return

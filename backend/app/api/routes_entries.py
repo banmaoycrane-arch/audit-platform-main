@@ -10,6 +10,9 @@ from app.services.vector_store_service import safe_vector_store
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
 
+VALID_ENTRY_REVIEW_STATUSES = {"draft", "verified", "ready"}
+
+
 class EntryTagCreate(BaseModel):
     tag_name: str | None = None
     tag_type: str | None = None
@@ -18,6 +21,15 @@ class EntryTagCreate(BaseModel):
     tag_source: str = "manual"
     confidence: float = 1.0
     reviewed_by_user: bool = True
+
+
+class EntryReviewUpdate(BaseModel):
+    review_status: str
+
+
+class EntryBatchReviewUpdate(BaseModel):
+    entry_ids: list[int]
+    review_status: str
 
 
 def _tag_to_dict(tag: EntryTag) -> dict:
@@ -142,3 +154,35 @@ def delete_tag(entry_id: int, tag_id: int, db: Session = Depends(get_db)) -> dic
     db.delete(tag)
     db.commit()
     return {"deleted": 1}
+
+
+@router.patch("/{entry_id}/review", response_model=AccountingEntryRead)
+def update_entry_review(
+    entry_id: int,
+    payload: EntryReviewUpdate,
+    db: Session = Depends(get_db),
+) -> AccountingEntry:
+    if payload.review_status not in VALID_ENTRY_REVIEW_STATUSES:
+        raise HTTPException(status_code=400, detail="无效的复核状态")
+    entry = db.get(AccountingEntry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="分录不存在")
+    entry.review_status = payload.review_status
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.post("/batch-review")
+def batch_update_entry_review(payload: EntryBatchReviewUpdate, db: Session = Depends(get_db)) -> dict:
+    if payload.review_status not in VALID_ENTRY_REVIEW_STATUSES:
+        raise HTTPException(status_code=400, detail="无效的复核状态")
+    if not payload.entry_ids:
+        return {"updated": 0}
+    updated = (
+        db.query(AccountingEntry)
+        .filter(AccountingEntry.id.in_(payload.entry_ids))
+        .update({AccountingEntry.review_status: payload.review_status}, synchronize_session=False)
+    )
+    db.commit()
+    return {"updated": updated}

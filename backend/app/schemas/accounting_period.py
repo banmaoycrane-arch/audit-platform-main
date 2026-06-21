@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 
 class AccountingPeriodCreate(BaseModel):
-    organization_id: int
+    organization_id: int | None = None
     ledger_id: int | None = None
     period_code: str
     start_date: date

@@ -145,6 +145,11 @@ def _ensure_local_sqlite_schema() -> None:
             connection.execute(text("CREATE INDEX ix_sms_verification_codes_created_at ON sms_verification_codes (created_at)"))
             connection.execute(text("CREATE INDEX ix_sms_verification_codes_expires_at ON sms_verification_codes (expires_at)"))
 
+        if "accounting_entries" in table_names:
+            entry_columns = {column["name"] for column in inspector.get_columns("accounting_entries")}
+            if "review_status" not in entry_columns:
+                connection.execute(text("ALTER TABLE accounting_entries ADD COLUMN review_status VARCHAR(20) DEFAULT 'draft' NOT NULL"))
+
 
 _ensure_local_sqlite_schema()
 

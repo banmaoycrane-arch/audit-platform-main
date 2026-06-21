@@ -7,65 +7,99 @@ import { FlowNav } from '../../components/FlowNav'
 
 const { Title } = Typography
 
+const REVIEW_STATUS_LABEL: Record<string, string> = {
+  draft: '待复核',
+  verified: '已复核',
+  ready: '待确认入账',
+}
+
+function isVerifiedStatus(status: string) {
+  return status === 'verified' || status === 'ready'
+}
+
 export function Step4ReviewEntries() {
-const navigate = useNavigate()
-const location = useLocation()
-const stepPath = (step: number) => location.pathname.startsWith('/ledger/vouchers/step/') ? `/ledger/vouchers/step/${step}` : `/accounting/step/${step}`
-const [searchParams] = useSearchParams()
-const jobId = Number(searchParams.get('jobId') || 0)
-const periodId = Number(searchParams.get('periodId') || 0)
-const currentStep = 3
+  const navigate = useNavigate()
+  const location = useLocation()
+  const stepPath = (step: number) => location.pathname.startsWith('/ledger/vouchers/step/') ? `/ledger/vouchers/step/${step}` : `/accounting/step/${step}`
+  const [searchParams] = useSearchParams()
+  const jobId = Number(searchParams.get('jobId') || 0)
+  const periodId = Number(searchParams.get('periodId') || 0)
+  const currentStep = 3
 
-const [entries, setEntries] = useState<AccountingEntry[]>([])
-const [loading, setLoading] = useState(false)
-const [verifiedMap, setVerifiedMap] = useState<Map<number, boolean>>(new Map())
-const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
+  const [entries, setEntries] = useState<AccountingEntry[]>([])
+  const [loading, setLoading] = useState(false)
+  const [savingIds, setSavingIds] = useState<Set<number>>(new Set())
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
+  const [batchStatus, setBatchStatus] = useState('verified')
 
-useEffect(() => {
-const loadEntries = async () => {
-if (!jobId) return
-setLoading(true)
-try {
-const list = await api.listEntries(jobId)
-setEntries(list)
-} catch (error) {
-console.error('获取分录失败', error)
-message.error('获取分录失败')
-} finally {
-setLoading(false)
-}
-}
-loadEntries()
-}, [jobId])
+  const loadEntries = async () => {
+    if (!jobId) return
+    setLoading(true)
+    try {
+      const list = await api.listEntries(jobId)
+      setEntries(list)
+    } catch (error) {
+      console.error('获取分录失败', error)
+      message.error('获取分录失败')
+    } finally {
+      setLoading(false)
+    }
+  }
 
-const onSelectChange = (keys: React.Key[]) => {
-setSelectedRowKeys(keys)
-}
+  useEffect(() => {
+    void loadEntries()
+  }, [jobId])
 
-const rowSelection = {
-selectedRowKeys,
-onChange: onSelectChange
-}
+  const onSelectChange = (keys: React.Key[]) => {
+    setSelectedRowKeys(keys)
+  }
 
-const isVerified = (id: number) => verifiedMap.get(id) === true
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: onSelectChange,
+  }
 
-const toggleVerified = (id: number) => {
-setVerifiedMap((prev) => {
-const next = new Map(prev)
-next.set(id, !next.get(id))
-return next
-})
- }
+  const isVerified = (entry: AccountingEntry) => isVerifiedStatus(entry.review_status)
 
-  const batchVerify = () => {
-    setVerifiedMap((prev) => {
-      const next = new Map(prev)
-      for (const key of selectedRowKeys) {
-        next.set(Number(key), true)
-      }
-      return next
-    })
-    setSelectedRowKeys([])
+  const updateEntryStatus = async (entryId: number, reviewStatus: string) => {
+    setSavingIds((prev) => new Set(prev).add(entryId))
+    try {
+      const updated = await api.reviewEntry(entryId, reviewStatus)
+      setEntries((prev) => prev.map((item) => (item.id === entryId ? updated : item)))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      message.error(`更新复核状态失败：${detail}`)
+    } finally {
+      setSavingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(entryId)
+        return next
+      })
+    }
+  }
+
+  const toggleVerified = async (entry: AccountingEntry) => {
+    const nextStatus = isVerified(entry) ? 'draft' : 'verified'
+    await updateEntryStatus(entry.id, nextStatus)
+  }
+
+  const batchVerify = async () => {
+    const ids = selectedRowKeys.map((key) => Number(key))
+    if (ids.length === 0) return
+    setLoading(true)
+    try {
+      await api.batchReviewEntries(ids, batchStatus)
+      setEntries((prev) =>
+        prev.map((item) => (ids.includes(item.id) ? { ...item, review_status: batchStatus } : item))
+      )
+      setSelectedRowKeys([])
+      message.success(`已批量更新 ${ids.length} 条分录`)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      message.error(`批量复核失败：${detail}`)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const columns: ColumnsType<AccountingEntry> = [
@@ -75,27 +109,39 @@ return next
       width: 80,
       render: (_: unknown, record: AccountingEntry) => (
         <Checkbox
-          checked={isVerified(record.id)}
-          onChange={() => toggleVerified(record.id)}
+          checked={isVerified(record)}
+          disabled={savingIds.has(record.id)}
+          onChange={() => void toggleVerified(record)}
         />
-      )
+      ),
+    },
+    {
+      title: '复核',
+      dataIndex: 'review_status',
+      key: 'review_status',
+      width: 110,
+      render: (status: string) => (
+        <Tag color={status === 'verified' ? 'green' : status === 'ready' ? 'blue' : 'default'}>
+          {REVIEW_STATUS_LABEL[status] || status}
+        </Tag>
+      ),
     },
     {
       title: '凭证号',
       dataIndex: 'voucher_no',
       key: 'voucher_no',
-      render: (val: string | null) => val || '-'
+      render: (val: string | null) => val || '-',
     },
     {
       title: '行号',
       dataIndex: 'entry_line_no',
-      key: 'entry_line_no'
+      key: 'entry_line_no',
     },
     {
       title: '日期',
       dataIndex: 'voucher_date',
       key: 'voucher_date',
-      render: (val: string | null) => val || '-'
+      render: (val: string | null) => val || '-',
     },
     {
       title: '科目',
@@ -105,9 +151,9 @@ return next
         <Input
           defaultValue={val || ''}
           style={{ width: '150px' }}
-          disabled={isVerified(record.id)}
+          disabled={isVerified(record)}
         />
-      )
+      ),
     },
     {
       title: '摘要',
@@ -116,31 +162,31 @@ return next
       render: (val: string | null, record: AccountingEntry) => (
         <Input
           defaultValue={val || ''}
-          disabled={isVerified(record.id)}
+          disabled={isVerified(record)}
         />
-      )
+      ),
     },
     {
       title: '借方金额',
       dataIndex: 'debit_amount',
       key: 'debit_amount',
-      render: (val: number) => (Number(val) > 0 ? `¥${Number(val).toLocaleString()}` : '-')
+      render: (val: number) => (Number(val) > 0 ? `¥${Number(val).toLocaleString()}` : '-'),
     },
     {
       title: '贷方金额',
       dataIndex: 'credit_amount',
       key: 'credit_amount',
-      render: (val: number) => (Number(val) > 0 ? `¥${Number(val).toLocaleString()}` : '-')
+      render: (val: number) => (Number(val) > 0 ? `¥${Number(val).toLocaleString()}` : '-'),
     },
     {
       title: '对方单位',
       dataIndex: 'counterparty',
       key: 'counterparty',
-      render: (val: string | null) => val || '-'
-    }
+      render: (val: string | null) => val || '-',
+    },
   ]
 
-  const verifiedCount = entries.filter((e) => isVerified(e.id)).length
+  const verifiedCount = entries.filter((e) => isVerified(e)).length
   const allVerified = entries.length > 0 && verifiedCount === entries.length
 
   const goPrev = () => {
@@ -168,7 +214,7 @@ return next
           { title: '导入资料' },
           { title: '生成草稿' },
           { title: '复核调整' },
-          { title: '确认入账与导出' }
+          { title: '确认入账与导出' },
         ]}
         style={{ marginBottom: '32px' }}
       />
@@ -195,7 +241,7 @@ return next
       <Card loading={loading}>
         <Alert
           title="当前步骤用于复核调整待复核凭证草稿"
-          description="请重点复核摘要、科目、金额、往来单位和借贷平衡；全部标记已复核后，可进入确认入账与导出步骤。这里不代表完整总账过账或结账流程。"
+          description="请重点复核摘要、科目、金额、往来单位和借贷平衡；全部标记已复核后，可进入确认入账与导出步骤。复核状态会保存到服务器。"
           type="info"
           showIcon
           style={{ marginBottom: '16px' }}
@@ -203,12 +249,12 @@ return next
         <div style={{ marginBottom: '16px', display: 'flex', gap: '12px', alignItems: 'center' }}>
           <Button
             type="primary"
-            onClick={batchVerify}
+            onClick={() => void batchVerify()}
             disabled={selectedRowKeys.length === 0}
           >
             批量标记已复核 ({selectedRowKeys.length})
           </Button>
-          <Select placeholder="复核状态" style={{ width: 150 }}>
+          <Select value={batchStatus} onChange={setBatchStatus} style={{ width: 150 }}>
             <Select.Option value="draft">待复核</Select.Option>
             <Select.Option value="verified">已复核</Select.Option>
             <Select.Option value="ready">待确认入账与导出</Select.Option>

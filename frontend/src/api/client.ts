@@ -25,6 +25,7 @@ export type AccountingEntry = {
   counterparty: string | null
   normalized_text: string
   entry_line_no: number
+  review_status: string
   created_at: string
 }
 
@@ -638,7 +639,12 @@ export const api = {
         ledger_id: ledgerId || undefined,
       })
     }),
-  listImportJobs: () => request<ImportJob[]>('/api/import-jobs'),
+  listImportJobs: (ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<ImportJob[]>(`/api/import-jobs${query ? `?${query}` : ''}`)
+  },
   getImportJob: (jobId: number) => request<ImportJob>(`/api/import-jobs/${jobId}`),
   uploadFile: (jobId: number, file: File) => {
     const form = new FormData()
@@ -663,6 +669,18 @@ export const api = {
     const query = params.toString()
     return request<AccountingEntry[]>(`/api/entries${query ? `?${query}` : ''}`)
   },
+  reviewEntry: (entryId: number, reviewStatus: string) =>
+    request<AccountingEntry>(`/api/entries/${entryId}/review`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ review_status: reviewStatus }),
+    }),
+  batchReviewEntries: (entryIds: number[], reviewStatus: string) =>
+    request<{ updated: number }>('/api/entries/batch-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry_ids: entryIds, review_status: reviewStatus }),
+    }),
   listRisks: (jobId?: number, ledgerId?: number) => {
     const params = new URLSearchParams()
     if (jobId) params.set('import_job_id', String(jobId))
@@ -761,7 +779,7 @@ export const api = {
   deleteFile: (fileId: number) =>
     request<{ deleted: number; message: string }>(`/api/files/${fileId}`, { method: 'DELETE' }),
   createAccountingPeriod: (payload: {
-    organization_id: number
+    organization_id?: number
     ledger_id?: number
     period_code: string
     start_date: string

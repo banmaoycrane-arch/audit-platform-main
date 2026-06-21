@@ -58,6 +58,15 @@ def get_dashboard_summary(
         voucher_q = voucher_q.filter(AccountingEntry.ledger_id == effective_ledger_id)
     voucher_count = voucher_q.scalar() or 0
 
+    pending_voucher_q = db.query(func.count(AccountingEntry.id)).filter(
+        AccountingEntry.review_status.in_(["draft", "pending"])
+    )
+    if organization_id:
+        pending_voucher_q = pending_voucher_q.filter(AccountingEntry.organization_id == organization_id)
+    if effective_ledger_id:
+        pending_voucher_q = pending_voucher_q.filter(AccountingEntry.ledger_id == effective_ledger_id)
+    pending_vouchers = pending_voucher_q.scalar() or 0
+
     # 未结账期间
     period_q = db.query(func.count(AccountingPeriod.id)).filter(
         AccountingPeriod.status == "open"
@@ -106,7 +115,7 @@ def get_dashboard_summary(
         "notifications": 0,
         "module_status": {
             "ledger": {
-                "pending_vouchers": int(voucher_count),
+                "pending_vouchers": int(pending_vouchers),
                 "unclosed_periods": int(unclosed_periods),
             },
             "audit": {

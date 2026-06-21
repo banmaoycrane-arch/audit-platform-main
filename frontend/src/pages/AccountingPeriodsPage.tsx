@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Tag, Button, Space, Modal, Form, Input, DatePicker, message, Popconfirm } from 'antd'
+import { Card, Table, Tag, Button, Space, Modal, Form, Input, DatePicker, message, Popconfirm, Alert } from 'antd'
 import { api, type AccountingPeriod } from '../api/client'
+import { useAuthStore } from '../stores/authStore'
 
 export function AccountingPeriodsPage() {
+  const { currentLedgerId } = useAuthStore()
   const [list, setList] = useState<AccountingPeriod[]>([])
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
@@ -11,19 +13,22 @@ export function AccountingPeriodsPage() {
   const load = async () => {
     setLoading(true)
     try {
-      setList(await api.listAccountingPeriods())
+      setList(await api.listAccountingPeriods(undefined, currentLedgerId || undefined))
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => {
+    void load()
+  }, [currentLedgerId])
 
   const handleCreate = async () => {
     const values = await form.validateFields()
     try {
       await api.createAccountingPeriod({
-        organization_id: values.organization_id,
+        ledger_id: currentLedgerId || undefined,
+        organization_id: list[0]?.organization_id,
         period_code: values.period_code,
         start_date: values.start_date.format('YYYY-MM-DD'),
         end_date: values.end_date.format('YYYY-MM-DD'),
@@ -83,7 +88,23 @@ export function AccountingPeriodsPage() {
   }
 
   return (
-    <Card title="会计期间" extra={<Button type="primary" onClick={() => setOpen(true)}>新增</Button>}>
+    <Card
+      title="会计期间"
+      extra={(
+        <Button type="primary" onClick={() => setOpen(true)} disabled={!currentLedgerId}>
+          新增
+        </Button>
+      )}
+    >
+      {!currentLedgerId && (
+        <Alert
+          type="warning"
+          showIcon
+          title="请先选择账套"
+          description="会计期间按当前账套过滤，请先在顶部选择账套。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
       <Table
         rowKey="id"
         dataSource={list}
@@ -92,7 +113,6 @@ export function AccountingPeriodsPage() {
         pagination={{ pageSize: 20 }}
         columns={[
           { title: 'ID', dataIndex: 'id', key: 'id' },
-          { title: '组织', dataIndex: 'organization_id', key: 'organization_id' },
           { title: '期间编码', dataIndex: 'period_code', key: 'period_code' },
           { title: '开始', dataIndex: 'start_date', key: 'start_date' },
           { title: '结束', dataIndex: 'end_date', key: 'end_date' },
@@ -164,9 +184,6 @@ export function AccountingPeriodsPage() {
       />
       <Modal title="新增会计期间" open={open} onOk={handleCreate} onCancel={() => setOpen(false)} okText="创建">
         <Form form={form} layout="vertical">
-          <Form.Item name="organization_id" label="组织 ID" rules={[{ required: true }]}>
-            <Input type="number" />
-          </Form.Item>
           <Form.Item name="period_code" label="期间编码" rules={[{ required: true }]}>
             <Input placeholder="如 2026-01" />
           </Form.Item>

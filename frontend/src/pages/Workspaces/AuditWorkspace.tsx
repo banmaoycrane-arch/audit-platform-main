@@ -1,8 +1,7 @@
-import { useState } from 'react'
-import { Card, Typography, Row, Col, Button, Statistic, Table, Select, Space, Tag, Steps, Progress } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Card, Typography, Row, Col, Button, Statistic, Table, Select, Space, Tag, Steps, Progress, Empty } from 'antd'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
-  AuditOutlined,
   FileSearchOutlined,
   ExperimentOutlined,
   WarningOutlined,
@@ -10,6 +9,8 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons'
+import { api, type AuditRisk, type Project, type ImportJob, type AuditTestReport } from '../../api/client'
+import { useAuthStore } from '../../stores/authStore'
 
 const { Title, Paragraph } = Typography
 
@@ -20,50 +21,146 @@ const functionsList = [
   { key: 'report', icon: <ExportOutlined />, label: '报告导出', path: '/audit/step/6' },
 ]
 
-const testProgressColumns = [
-  { title: '测试名称', dataIndex: 'name', key: 'name' },
-  { title: '进度', dataIndex: 'progress', key: 'progress', render: (p: number) => <Progress percent={p} size="small" /> },
-  { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={s === '已完成' ? 'success' : 'warning'}>{s}</Tag> },
-]
+const RISK_LEVEL_LABEL: Record<string, string> = {
+  high: '高',
+  medium: '中',
+  low: '低',
+}
 
-const testProgressData = [
-  { name: '完整性测试', progress: 100, status: '已完成' },
-  { name: '准确性测试', progress: 80, status: '进行中' },
-  { name: '截止性测试', progress: 40, status: '进行中' },
-  { name: '分类测试', progress: 0, status: '待开始' },
-]
+const RISK_STATUS_LABEL: Record<string, string> = {
+  pending_review: '待复核',
+  confirmed: '已确认',
+  dismissed: '已驳回',
+}
 
-const riskColumns = [
-  { title: '风险标题', dataIndex: 'title', key: 'title' },
-  { title: '等级', dataIndex: 'level', key: 'level', render: (l: string) => <Tag color={l === '高' ? 'red' : 'orange'}>{l}</Tag> },
-  { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag>{s}</Tag> },
-]
-
-const riskData = [
-  { title: '收入确认截止性异常', level: '高', status: '待复核' },
-  { title: '关联方交易未披露', level: '中', status: '待复核' },
-]
+function deriveCurrentStep(job: ImportJob | null, report: AuditTestReport | null, riskCount: number): number {
+  if (!job) return 0
+  if (riskCount > 0) return 4
+  if (report && report.total_transactions > 0) return 3
+  if (job.entry_count > 0) return 2
+  if (job.file_count > 0) return 1
+  return 0
+}
 
 export function AuditWorkspace() {
   const location = useLocation()
   const navigate = useNavigate()
-  const [project, setProject] = useState('2026年报审计')
+  const { currentLedgerId } = useAuthStore()
+  const [projects, setProjects] = useState<Project[]>([])
+  const [risks, setRisks] = useState<AuditRisk[]>([])
+  const [jobs, setJobs] = useState<ImportJob[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
+  const [testReport, setTestReport] = useState<AuditTestReport | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([
+      api.listProjects(),
+      currentLedgerId ? api.listRisks(undefined, currentLedgerId) : Promise.resolve([]),
+      currentLedgerId ? api.listImportJobs(currentLedgerId) : api.listImportJobs(),
+      currentLedgerId ? api.getDashboardSummary(currentLedgerId) : api.getDashboardSummary(),
+    ])
+      .then(([projectList, riskList, jobList]) => {
+        setProjects(projectList)
+        setRisks(riskList)
+        setJobs(jobList)
+        if (projectList.length > 0) {
+          setSelectedProjectId(projectList[0].id)
+        }
+      })
+      .catch(() => {
+        setProjects([])
+        setRisks([])
+        setJobs([])
+      })
+      .finally(() => setLoading(false))
+  }, [currentLedgerId])
+
+  const latestJob = jobs[0] || null
+
+  useEffect(() => {
+    if (!latestJob) {
+      setTestReport(null)
+      return
+    }
+    api.getAuditTestReport(latestJob.id)
+      .then(setTestReport)
+      .catch(() => setTestReport(null))
+  }, [latestJob?.id])
+
+  const activeProjects = projects.filter((p) => p.status === 'active').length
+  const pendingTests = testReport
+    ? Math.max(testReport.summary.total_findings, testReport.findings.filter((f) => f.status === 'pending_review').length)
+    : risks.filter((r) => r.status === 'pending_review').length
+  const currentStep = deriveCurrentStep(latestJob, testReport, risks.length)
+  const selectedProject = projects.find((p) => p.id === selectedProjectId)
+
+  const testProgressData = useMemo(() => {
+    if (!testReport) {
+      return [
+        { key: 'integrity', name: '完整性测试', progress: latestJob?.entry_count ? 50 : 0, status: latestJob?.entry_count ? '进行中' : '待开始' },
+        { key: 'accuracy', name: '准确性测试', progress: risks.length > 0 ? 80 : 0, status: risks.length > 0 ? '进行中' : '待开始' },
+      ]
+    }
+    const items = [
+      { key: 'completeness', name: '完整性测试', result: testReport.completeness_result },
+      { key: 'accuracy', name: '准确性测试', result: testReport.accuracy_result },
+      { key: 'cutoff', name: '截止性测试', result: testReport.cutoff_result },
+      { key: 'classification', name: '分类测试', result: testReport.classification_result },
+    ]
+    return items.map((item) => {
+      const passed = Boolean((item.result as { passed?: boolean }).passed)
+      const findings = Number((item.result as { findings_count?: number }).findings_count || 0)
+      return {
+        key: item.key,
+        name: item.name,
+        progress: passed ? 100 : findings > 0 ? 60 : testReport.tested_transactions > 0 ? 40 : 0,
+        status: passed ? '已完成' : testReport.tested_transactions > 0 ? '进行中' : '待开始',
+      }
+    })
+  }, [testReport, latestJob, risks.length])
+
+  const riskData = risks.slice(0, 10).map((risk) => ({
+    key: String(risk.id),
+    title: risk.title,
+    level: RISK_LEVEL_LABEL[risk.risk_level] || risk.risk_level,
+    status: RISK_STATUS_LABEL[risk.status] || risk.status,
+  }))
+
+  const testProgressColumns = [
+    { title: '测试名称', dataIndex: 'name', key: 'name' },
+    { title: '进度', dataIndex: 'progress', key: 'progress', render: (p: number) => <Progress percent={p} size="small" /> },
+    { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={s === '已完成' ? 'success' : 'warning'}>{s}</Tag> },
+  ]
+
+  const riskColumns = [
+    { title: '风险标题', dataIndex: 'title', key: 'title' },
+    { title: '等级', dataIndex: 'level', key: 'level', render: (l: string) => <Tag color={l === '高' ? 'red' : 'orange'}>{l}</Tag> },
+    { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag>{s}</Tag> },
+  ]
 
   return (
     <div>
       <Title level={4}>审计工作台</Title>
       <Paragraph type="secondary">管理审计项目、执行测试、复核风险与导出报告</Paragraph>
 
-      {/* 顶部操作栏 */}
-      <Card style={{ marginBottom: 16 }}>
+      <Card style={{ marginBottom: 16 }} loading={loading}>
         <Row justify="space-between" align="middle">
           <Col>
             <Space>
-              <Select value={project} onChange={setProject} style={{ width: 200 }}>
-                <Select.Option value="2026年报审计">2026年报审计</Select.Option>
-                <Select.Option value="2026内控审计">2026内控审计</Select.Option>
-              </Select>
-              <Tag icon={<ClockCircleOutlined />} color="processing">进行中</Tag>
+              <Select
+                value={selectedProjectId || undefined}
+                onChange={setSelectedProjectId}
+                style={{ width: 220 }}
+                placeholder="选择审计项目"
+                options={projects.map((p) => ({ value: p.id, label: p.name }))}
+              />
+              {selectedProject && (
+                <Tag icon={<ClockCircleOutlined />} color="processing">
+                  {selectedProject.status === 'completed' ? '已完成' : '进行中'}
+                </Tag>
+              )}
             </Space>
           </Col>
           <Col>
@@ -80,7 +177,6 @@ export function AuditWorkspace() {
       </Card>
 
       <Row gutter={16}>
-        {/* 左侧功能列表 */}
         <Col span={6}>
           <Card title="功能导航" size="small">
             <Space direction="vertical" style={{ width: '100%' }}>
@@ -99,59 +195,66 @@ export function AuditWorkspace() {
           </Card>
         </Col>
 
-        {/* 右侧数据卡片区 */}
         <Col span={18}>
           <Row gutter={[16, 16]}>
             <Col span={8}>
-              <Card>
-                <Statistic title="活跃项目" value={2} valueStyle={{ color: '#1890ff' }} />
+              <Card loading={loading}>
+                <Statistic title="活跃项目" value={activeProjects || projects.length} valueStyle={{ color: '#1890ff' }} />
               </Card>
             </Col>
             <Col span={8}>
-              <Card>
-                <Statistic title="待执行测试" value={2} valueStyle={{ color: '#cf1322' }} />
+              <Card loading={loading}>
+                <Statistic title="待执行测试" value={pendingTests} valueStyle={{ color: '#cf1322' }} />
               </Card>
             </Col>
             <Col span={8}>
-              <Card>
-                <Statistic title="风险发现" value={2} valueStyle={{ color: '#faad14' }} />
+              <Card loading={loading}>
+                <Statistic title="风险发现" value={risks.length} valueStyle={{ color: '#faad14' }} />
               </Card>
             </Col>
           </Row>
 
-          <Card title="项目进度" style={{ marginTop: 16 }}>
+          <Card title="项目进度" style={{ marginTop: 16 }} loading={loading}>
             <Steps
               size="small"
-              current={3}
+              current={currentStep}
               items={[
-                { title: '选择范围', icon: <CheckCircleOutlined /> },
-                { title: '导入证据', icon: <CheckCircleOutlined /> },
-                { title: '导入序时簿', icon: <CheckCircleOutlined /> },
-                { title: '执行测试', icon: <ClockCircleOutlined /> },
-                { title: '复核发现', icon: <ClockCircleOutlined /> },
+                { title: '选择范围', icon: currentStep > 0 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
+                { title: '导入证据', icon: currentStep > 1 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
+                { title: '导入序时簿', icon: currentStep > 2 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
+                { title: '执行测试', icon: currentStep > 3 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
+                { title: '复核发现', icon: currentStep > 4 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
                 { title: '导出报告', icon: <ClockCircleOutlined /> },
               ]}
             />
           </Card>
 
-          <Card title="测试统计" style={{ marginTop: 16 }}>
-            <Table
-              size="small"
-              columns={testProgressColumns}
-              dataSource={testProgressData}
-              pagination={false}
-              rowKey="name"
-            />
+          <Card title="测试统计" style={{ marginTop: 16 }} loading={loading}>
+            {testProgressData.length === 0 ? (
+              <Empty description="暂无测试数据，请先创建审计导入任务" />
+            ) : (
+              <Table
+                size="small"
+                columns={testProgressColumns}
+                dataSource={testProgressData}
+                pagination={false}
+                rowKey="key"
+              />
+            )}
           </Card>
 
-          <Card title="风险清单" style={{ marginTop: 16 }}>
-            <Table
-              size="small"
-              columns={riskColumns}
-              dataSource={riskData}
-              pagination={false}
-              rowKey="title"
-            />
+          <Card title="风险清单" style={{ marginTop: 16 }} loading={loading}>
+            {riskData.length === 0 ? (
+              <Empty description="暂无风险发现" />
+            ) : (
+              <Table
+                size="small"
+                columns={riskColumns}
+                dataSource={riskData}
+                pagination={false}
+                rowKey="key"
+              />
+            )}
           </Card>
         </Col>
       </Row>

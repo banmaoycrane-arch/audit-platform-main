@@ -187,5 +187,5 @@ def test_dashboard_summary_with_data_returns_counts(client):
     assert data["voucher_count"] == 2
     assert data["unclosed_periods"] == 2
     assert data["pending_risks"] == 2
-    assert data["module_status"]["ledger"]["pending_vouchers"] == 2
+    assert data["module_status"]["ledger"]["pending_vouchers"] == 3
     assert data["module_status"]["audit"]["active_projects"] == 1

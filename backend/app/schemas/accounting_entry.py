@@ -16,6 +16,7 @@ class AccountingEntryRead(BaseModel):
     counterparty: str | None
     normalized_text: str
     entry_line_no: int
+    review_status: str = "draft"
     created_at: datetime
 
     model_config = {"from_attributes": True}

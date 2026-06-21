@@ -260,6 +260,26 @@ function AppRoutes() {
           )}
         />
         <Route
+          path="/tax/invoice-issuance-ledger"
+          element={(
+            <PlaceholderModulePage
+              title="发票开具台账"
+              description="发票开具台账用于汇总销项发票开具记录，跟踪开票金额、税率和对应收入确认情况。"
+              items={['销项发票汇总', '开票金额统计', '收入勾稽']}
+            />
+          )}
+        />
+        <Route
+          path="/tax/certification-deduction-ledger"
+          element={(
+            <PlaceholderModulePage
+              title="认证抵扣台账"
+              description="认证抵扣台账用于管理进项发票认证、抵扣状态和可抵扣税额，辅助增值税申报。"
+              items={['进项认证状态', '可抵扣税额', '申报勾稽']}
+            />
+          )}
+        />
+        <Route
           path="/tax/assistant"
           element={(
             <PlaceholderModulePage

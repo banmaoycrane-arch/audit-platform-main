@@ -85,14 +85,23 @@ def create_period(payload: AccountingPeriodCreate, db: Session = Depends(get_db)
     if payload.start_date > payload.end_date:
         raise HTTPException(status_code=400, detail="期间开始日期不能晚于结束日期")
 
-    organization = db.get(Organization, payload.organization_id)
+    organization_id = payload.organization_id
+    if payload.ledger_id is not None:
+        resolved_org_id = resolve_organization_id_for_ledger(db, payload.ledger_id)
+        if resolved_org_id is not None:
+            organization_id = resolved_org_id
+
+    if organization_id is None:
+        raise HTTPException(status_code=400, detail="无法确定组织，请先完成账套导入或指定组织 ID")
+
+    organization = db.get(Organization, organization_id)
     if not organization:
         raise HTTPException(status_code=404, detail="组织不存在")
 
     overlapped_period = (
         db.query(AccountingPeriod)
         .filter(
-            AccountingPeriod.organization_id == payload.organization_id,
+            AccountingPeriod.organization_id == organization_id,
             AccountingPeriod.start_date <= payload.end_date,
             AccountingPeriod.end_date >= payload.start_date,
         )
@@ -102,7 +111,7 @@ def create_period(payload: AccountingPeriodCreate, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail="同一组织内会计期间日期不能重叠")
 
     period = AccountingPeriod(
-        organization_id=payload.organization_id,
+        organization_id=organization_id,
         ledger_id=payload.ledger_id,
         period_code=payload.period_code,
         period_type=payload.period_type,
