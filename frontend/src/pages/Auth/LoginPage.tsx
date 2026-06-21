@@ -18,9 +18,8 @@ export function LoginPage() {
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [smsLoginError, setSmsLoginError] = useState<string | null>(null)
   const [showSetPassword, setShowSetPassword] = useState(false)
-  const [pendingToken, setPendingToken] = useState<string | null>(null)
 
-  const finishLogin = async (accessToken: string, needsPasswordSetup: boolean = false) => {
+  const finishLogin = async (accessToken: string) => {
     localStorage.setItem('token', accessToken)
     try {
       const context = await api.getAuthContext()
@@ -33,9 +32,7 @@ export function LoginPage() {
       setUserLedgers(context.ledgers)
       setCurrentLedger(context.current_ledger_id)
 
-      // 如果需要设置密码，弹出设置密码弹窗
-      if (needsPasswordSetup) {
-        setPendingToken(accessToken)
+      if (!context.user.has_password) {
         setShowSetPassword(true)
         return
       }
@@ -74,9 +71,7 @@ export function LoginPage() {
     try {
       setSmsLoginLoading(true)
       const res = await api.loginSms(values.phone, values.code)
-      // 验证码登录后，检查是否需要设置密码
-      // 如果用户名为空，说明是通过手机号注册的，需要设置密码
-      await finishLogin(res.access_token, true)
+      await finishLogin(res.access_token)
     } catch (e: any) {
       const errorMsg = e.message || '验证码登录失败'
       // 根据错误消息类型显示友好的错误提示

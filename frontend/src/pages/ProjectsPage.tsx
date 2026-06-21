@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Typography, Button, Space, Tag, message, Row, Col, Statistic, Modal, Input, Empty, Dropdown } from 'antd'
+import { Card, Typography, Button, Space, Tag, message, Row, Col, Statistic, Modal, Input, Empty, Dropdown, Form, Select } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import {
   PlusOutlined,
@@ -15,7 +15,7 @@ import {
   UserOutlined,
   DollarOutlined,
 } from '@ant-design/icons'
-import { api } from '../api/client'
+import { api, type Team } from '../api/client'
 
 const { Title, Paragraph, Text } = Typography
 
@@ -23,6 +23,8 @@ export type Project = {
   id: number
   name: string
   description?: string | null
+  team_id?: number
+  type?: string
   status: 'active' | 'completed' | 'paused' | 'draft' | 'cancelled'
   start_date: string | null
   end_date: string | null
@@ -70,21 +72,44 @@ export function ProjectsPage() {
     title: string
   }>({ open: false, projectId: null, action: '', title: '' })
   const [reason, setReason] = useState('')
+  const [createOpen, setCreateOpen] = useState(false)
+  const [teams, setTeams] = useState<Team[]>([])
+  const [createForm] = Form.useForm()
 
   const filteredProjects = statusFilter === 'all' ? projects : projects.filter(p => p.status === statusFilter)
 
   useEffect(() => {
     setLoading(true)
-    api
-      .listProjects()
-      .then((res) => {
-        setProjects(res)
+    Promise.all([api.listProjects(), api.listTeams()])
+      .then(([projectRes, teamRes]) => {
+        setProjects(projectRes)
+        setTeams(teamRes)
       })
       .catch(() => {
         message.error('加载项目列表失败')
       })
       .finally(() => setLoading(false))
   }, [])
+
+  const handleCreateProject = async () => {
+    const values = await createForm.validateFields()
+    try {
+      const created = await api.createProject({
+        team_id: values.team_id,
+        name: values.name,
+        project_type: values.project_type,
+        status: 'active',
+        start_date: values.start_date || null,
+        end_date: values.end_date || null,
+      })
+      setProjects((prev) => [created, ...prev])
+      message.success('项目创建成功')
+      setCreateOpen(false)
+      createForm.resetFields()
+    } catch (error: any) {
+      message.error(error.message || '项目创建失败')
+    }
+  }
 
   const handleLifecycleAction = async (projectId: number, action: string) => {
     const titles: Record<string, string> = {
@@ -157,6 +182,7 @@ export function ProjectsPage() {
     const borderColor = statusBorderMap[project.status] || '#d9d9d9'
     const statusConfig = statusMap[project.status] || statusMap.draft
     const actions = getAvailableActions(project.status)
+    const teamName = teams.find((team) => team.id === project.team_id)?.name
     
     const menuItems = [
       { key: 'view', label: '查看项目', onClick: () => message.info(`查看项目 ${project.name}`) },
@@ -199,6 +225,12 @@ export function ProjectsPage() {
         )}
         
         <div style={{ fontSize: 12, color: '#666', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {teamName && (
+            <div>
+              <ProjectOutlined style={{ marginRight: 4 }} />
+              {teamName}
+            </div>
+          )}
           {project.manager && (
             <div>
               <UserOutlined style={{ marginRight: 4 }} />
@@ -222,71 +254,6 @@ export function ProjectsPage() {
     )
   }
 
-  const columns = [
-    { title: '项目名称', dataIndex: 'name', key: 'name' },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (s: string) => {
-        const cfg = statusMap[s] || statusMap.draft
-        return <Tag color={cfg.color} icon={cfg.icon}>{cfg.label}</Tag>
-      },
-    },
-    { title: '负责人', dataIndex: 'manager', key: 'manager', render: (v: string | null) => v || '-' },
-    {
-      title: '预算',
-      dataIndex: 'budget',
-      key: 'budget',
-      render: (v: number | null) => (v !== null ? `¥ ${v.toLocaleString()}` : '-'),
-    },
-    {
-      title: '开始日期',
-      dataIndex: 'start_date',
-      key: 'start_date',
-      render: (v: string | null) => v || '-',
-    },
-    {
-      title: '结束日期',
-      dataIndex: 'end_date',
-      key: 'end_date',
-      render: (v: string | null) => v || '-',
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_: unknown, record: Project) => {
-        const actions = getAvailableActions(record.status)
-        return (
-          <Space size="small">
-            <Button type="link" size="small" onClick={() => message.info(`查看项目 ${record.name}`)}>
-              查看
-            </Button>
-            <Button type="link" size="small" onClick={() => message.info(`编辑项目 ${record.name}`)}>
-              编辑
-            </Button>
-            {actions.map((action) => {
-              const btn = actionButtonMap[action]
-              return (
-                <Button
-                  key={action}
-                  type="link"
-                  size="small"
-                  danger={btn.danger}
-                  icon={btn.icon}
-                  loading={actionLoading[record.id]}
-                  onClick={() => handleLifecycleAction(record.id, action)}
-                >
-                  {btn.label}
-                </Button>
-              )
-            })}
-          </Space>
-        )
-      },
-    },
-  ]
-
   const activeCount = projects.filter((p) => p.status === 'active').length
   const completedCount = projects.filter((p) => p.status === 'completed').length
   const pausedCount = projects.filter((p) => p.status === 'paused').length
@@ -302,7 +269,7 @@ export function ProjectsPage() {
           <Paragraph type="secondary">管理核算项目、审计项目与业务项目</Paragraph>
         </Col>
         <Col>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => message.info('新增项目功能待实现')}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
             新增项目
           </Button>
         </Col>
@@ -351,7 +318,7 @@ export function ProjectsPage() {
             description={statusFilter === 'all' ? '暂无项目' : `暂无${statusFilters.find(f => f.key === statusFilter)?.label}的项目`}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           >
-            <Button type="primary" onClick={() => message.info('新增项目功能待实现')}>
+            <Button type="primary" onClick={() => setCreateOpen(true)}>
               创建第一个项目
             </Button>
           </Empty>
@@ -365,6 +332,42 @@ export function ProjectsPage() {
           </Row>
         )}
       </Card>
+
+      <Modal
+        title="新增项目"
+        open={createOpen}
+        onOk={handleCreateProject}
+        onCancel={() => setCreateOpen(false)}
+        okText="创建"
+        cancelText="取消"
+      >
+        <Form form={createForm} layout="vertical" initialValues={{ project_type: 'audit' }}>
+          <Form.Item name="team_id" label="所属团队" rules={[{ required: true, message: '请选择团队' }]}>
+            <Select
+              options={teams.map((team) => ({ value: team.id, label: team.name }))}
+              placeholder={teams.length ? '请选择团队' : '请先在团队管理中创建团队'}
+            />
+          </Form.Item>
+          <Form.Item name="name" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
+            <Input placeholder="例如：XX公司2026年度审计" />
+          </Form.Item>
+          <Form.Item name="project_type" label="项目类型">
+            <Select
+              options={[
+                { value: 'audit', label: '审计项目' },
+                { value: 'accounting', label: '核算项目' },
+                { value: 'tax', label: '税务项目' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="start_date" label="开始日期">
+            <Input placeholder="2026-01-01" />
+          </Form.Item>
+          <Form.Item name="end_date" label="结束日期">
+            <Input placeholder="2026-12-31" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title={reasonModal.title}
