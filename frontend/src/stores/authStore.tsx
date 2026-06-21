@@ -35,6 +35,7 @@ interface AuthState {
   setCurrentLedger: (ledgerId: number | null) => void
   setUserLedgers: (ledgers: Ledger[]) => void
   setAuthContext: (context: AuthContextState) => void
+  refreshAuthContext: () => Promise<void>
   logout: () => void
 }
 
@@ -78,6 +79,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthContextState(context)
   }, [])
 
+  const refreshAuthContext = useCallback(async () => {
+    const context = await api.getAuthContext()
+    setUserState({
+      id: context.user.id,
+      username: context.user.username || '',
+      phone: context.user.phone || '',
+    })
+    setUserLedgersState(context.ledgers)
+    setCurrentLedgerIdState(context.current_ledger_id)
+    setAuthContextState({
+      missing_bindings: context.missing_bindings,
+      temporary_status: context.temporary_status,
+      next_action: context.next_action,
+    })
+    if (context.current_ledger_id !== null) {
+      localStorage.setItem('current_ledger_id', String(context.current_ledger_id))
+    } else {
+      localStorage.removeItem('current_ledger_id')
+    }
+  }, [])
+
   const logout = useCallback(() => {
     localStorage.removeItem('token')
     localStorage.removeItem('current_ledger_id')
@@ -91,28 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!token) return
-    api.getAuthContext()
-      .then((context) => {
-        setUserState({
-          id: context.user.id,
-          username: context.user.username || '',
-          phone: context.user.phone || '',
-        })
-        setUserLedgersState(context.ledgers)
-        setCurrentLedgerIdState(context.current_ledger_id)
-        setAuthContextState({
-          missing_bindings: context.missing_bindings,
-          temporary_status: context.temporary_status,
-          next_action: context.next_action,
-        })
-        if (context.current_ledger_id !== null) {
-          localStorage.setItem('current_ledger_id', String(context.current_ledger_id))
-        } else {
-          localStorage.removeItem('current_ledger_id')
-        }
-      })
-      .catch(() => logout())
-  }, [token, logout])
+    refreshAuthContext().catch(() => logout())
+  }, [token, logout, refreshAuthContext])
 
   return (
     <AuthContext.Provider
@@ -128,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setCurrentLedger,
         setUserLedgers,
         setAuthContext,
+        refreshAuthContext,
         logout,
       }}
     >
