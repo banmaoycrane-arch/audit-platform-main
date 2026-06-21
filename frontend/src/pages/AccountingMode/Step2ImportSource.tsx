@@ -34,6 +34,13 @@ interface UploadedFile {
   fileType: string
   jobId?: number
   fileId?: number
+  registerSummary?: string
+  moduleRegistrations?: Array<{
+    module_key: string
+    module_label: string
+    module_path: string
+    register_count: number
+  }>
 }
 
 interface ManualEntryLine {
@@ -322,7 +329,7 @@ export function Step2AccountingImportSource() {
       }
 
       // 调用 API 上传文件
-      const result = await api.uploadFile(jobId, file)
+      const result = await api.uploadFile(jobId, file, selectedTypes)
 
       const fileInfo: UploadedFile = {
         name: file.name,
@@ -336,12 +343,34 @@ export function Step2AccountingImportSource() {
       // 上传后自动触发生成（同步处理所有文件）
       message.loading({ content: '正在解析上传文件，请稍候...', key: 'parsing' })
       try {
-        const result = await api.processImportJobSync(jobId)
-        const reportSummary = result.report as { output_path?: string; total_entries?: number }
-        setOutputPath(reportSummary.output_path || 'ai_draft')
+        const syncResult = await api.processImportJobSync(jobId)
+        const reportSummary = syncResult.report as {
+          output_path?: string
+          total_entries?: number
+          register_summary?: Array<{
+            filename: string
+            register_summary?: string
+            module_registrations?: UploadedFile['moduleRegistrations']
+            module_label?: string
+          }>
+        }
+        setOutputPath(reportSummary.output_path || 'register_ledger')
         setEntryCount(reportSummary.total_entries || 0)
-        message.success({ content: `文件解析完成，${file.name} 已处理`, key: 'parsing' })
-        console.debug('Parse report:', result)
+
+        const fileRegister = reportSummary.register_summary?.find((item) => item.filename === file.name)
+        setUploadedFiles(prev => prev.map((item) => {
+          if (item.name !== file.name) return item
+          return {
+            ...item,
+            registerSummary: fileRegister?.module_registrations?.length
+              ? fileRegister.module_registrations.map((reg) => reg.module_label).join('、')
+              : fileRegister?.module_label,
+            moduleRegistrations: fileRegister?.module_registrations,
+          }
+        }))
+
+        message.success({ content: `文件已登记为模块台账底稿：${file.name}`, key: 'parsing' })
+        console.debug('Parse report:', syncResult)
       } catch (err) {
         message.warning({ content: `${file.name} 上传成功，但解析失败：${err instanceof Error ? err.message : String(err)}`, key: 'parsing' })
       }
@@ -1071,13 +1100,15 @@ export function Step2AccountingImportSource() {
       <FlowNav prev={stepPath(1)} next={stepPath(3)} style={{ marginBottom: '16px' }} />
 
       <Title level={4}>导入原始资料</Title>
-      <Text type="secondary">当前为 AI 智能生成路径，请上传用于识别并生成会计凭证草稿的原始资料（PDF/图片等）。结构化 Excel/CSV 请改用「序时簿导入」模式。</Text>
+      <Text type="secondary">
+        当前为 AI 智能生成路径。上传的发票、银行流水、合同、表格等资料会先登记为各功能模块台账底稿（税务/银行/往来/采购/销售），再由 AI 结合台账生成会计凭证草稿，不会直接写入会计分录。
+      </Text>
 
       {outputPath && (
         <Alert
           title={`当前输出路径：${outputPath}`}
-          description={outputPath === 'ai_draft'
-            ? '原始资料将索引为证据，在下一步由 AI 生成凭证草稿。'
+          description={outputPath === 'register_ledger'
+            ? '原始资料识别后登记到功能模块台账（非会计分录），下一步结合台账证据生成凭证草稿。'
             : '结构化文件已解析为分录预览，请改用序时簿导入模式生成正式凭证。'}
           type="info"
           showIcon
@@ -1087,7 +1118,7 @@ export function Step2AccountingImportSource() {
 
       <Card style={{ marginTop: '16px' }}>
         <Title level={5}>1. 提供原始资料类型辅助信息</Title>
-        <Text type="secondary">原始资料类型仅作为 AI 识别辅助信息，可多选；凭证输入模式已经在上一步确认。</Text>
+        <Text type="secondary">原始资料类型作为 AI 识别辅助信息，可多选；系统将据此登记到对应功能模块台账。</Text>
 
         <div style={{ marginTop: '16px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           {[...SOURCE_DOCUMENT_TYPES.filter(t => t.type !== 'other'), ...customTypes].map((item) => (
@@ -1122,7 +1153,7 @@ export function Step2AccountingImportSource() {
           <div style={{ marginTop: '16px', padding: '12px', background: '#f6ffed', borderRadius: '6px' }}>
             <Text type="secondary">
               <RobotOutlined style={{ color: '#52c41a', marginRight: '8px' }} />
-              已提供 {selectedTypes.length} 个资料类型辅助信息，AI 将结合文件内容识别业务事实并生成凭证草稿
+              已提供 {selectedTypes.length} 个资料类型辅助信息，上传后将优先登记到对应模块台账（发票→税务、流水→银行、合同→往来/采购/销售）
             </Text>
           </div>
         )}
@@ -1143,7 +1174,7 @@ export function Step2AccountingImportSource() {
           </p>
           <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
           <p className="ant-upload-hint">
-            支持多种格式，可多选上传。系统会创建导入任务，并由 AI 识别原始资料后生成待复核凭证草稿
+            支持 PDF/图片/Excel/CSV 等。资料将保存为底稿并 AI 解析登记到税务、银行、往来、采购、销售等功能模块台账，不直接生成会计分录。
           </p>
         </Dragger>
 
@@ -1155,7 +1186,21 @@ export function Step2AccountingImportSource() {
               <List.Item>
                 <List.Item.Meta
                   title={file.name}
-                  description={`${(file.size / 1024).toFixed(1)} KB`}
+                  description={
+                    <Space direction="vertical" size={2}>
+                      <Text type="secondary">{(file.size / 1024).toFixed(1)} KB</Text>
+                      {file.registerSummary && (
+                        <Text type="success">已登记：{file.registerSummary}</Text>
+                      )}
+                      {file.moduleRegistrations && file.moduleRegistrations.length > 0 && (
+                        <Space wrap size={[4, 4]}>
+                          {file.moduleRegistrations.map((reg) => (
+                            <Tag key={reg.module_key} color="blue">{reg.module_label}</Tag>
+                          ))}
+                        </Space>
+                      )}
+                    </Space>
+                  }
                 />
               </List.Item>
             )}

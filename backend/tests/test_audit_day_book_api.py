@@ -226,7 +226,7 @@ def test_ai_generated_structured_file_does_not_create_entries(client):
     process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
     assert process_response.status_code == 200
     payload = process_response.json()
-    assert payload["report"]["output_path"] == "ai_draft"
+    assert payload["report"]["output_path"] == "register_ledger"
     assert payload["report"]["total_entries"] == 0
 
     db = TestingSessionLocal()

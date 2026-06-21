@@ -647,9 +647,12 @@ export const api = {
     }),
   listImportJobs: () => request<ImportJob[]>('/api/import-jobs'),
   getImportJob: (jobId: number) => request<ImportJob>(`/api/import-jobs/${jobId}`),
-  uploadFile: (jobId: number, file: File) => {
+  uploadFile: (jobId: number, file: File, documentTypeHints?: string[]) => {
     const form = new FormData()
     form.append('file', file)
+    if (documentTypeHints && documentTypeHints.length > 0) {
+      form.append('document_type_hints', documentTypeHints.join(','))
+    }
     return request<SourceFileRead>(`/api/import-jobs/${jobId}/files`, { method: 'POST', body: form })
   },
   parseUploadedFile: (jobId: number, fileId: number) =>

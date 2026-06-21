@@ -25,10 +25,13 @@ def get_import_output_path(source_type: str) -> str:
     """返回导入任务的稳定输出路径标识。
 
     - ``direct_entries``：结构化分录已生成，进入复核（Step4）
-    - ``ai_draft``：原始资料已索引，进入 AI 草稿生成（Step3）
+    - ``register_ledger``：原始资料已登记功能模块台账，进入 AI 凭证草稿（Step3）
+    - ``ai_draft``：兼容旧路径别名，等同 register_ledger
     """
     if source_type in DIRECT_ENTRY_SOURCE_TYPES:
         return "direct_entries"
+    if source_type in AI_EVIDENCE_SOURCE_TYPES:
+        return "register_ledger"
     return "ai_draft"
 
 

@@ -16,7 +16,7 @@ from app.services.period_detection_service import (
 def test_import_output_path_is_stable_by_source_type():
     assert get_import_output_path("ledger_day_book") == "direct_entries"
     assert get_import_output_path("audit_day_book") == "direct_entries"
-    assert get_import_output_path("ai_generated") == "ai_draft"
+    assert get_import_output_path("ai_generated") == "register_ledger"
     assert get_import_output_path("manual_entry") == "direct_entries"
 
 

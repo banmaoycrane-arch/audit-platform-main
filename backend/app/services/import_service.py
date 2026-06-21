@@ -32,7 +32,9 @@ from app.services.audit_day_book_service import (
     DayBookReport,
     process_day_book_import,
 )
+from app.services.register_ingestion_service import classify_and_ingest_register
 from app.services.import_routing_service import (
+    AI_EVIDENCE_SOURCE_TYPES,
     get_import_output_path,
     is_day_book_source_type,
     should_persist_structured_entries,
@@ -72,7 +74,7 @@ DOCUMENT_TYPE_LABELS = {
 @dataclass
 class ProcessingResult:
     """处理结果"""
-    file_type: str  # "accounting_entry" | "source_file"
+    file_type: str  # "accounting_entry" | "source_file" | "register_ledger"
     filename: str
     success: bool
     entries_created: int = 0
@@ -80,6 +82,13 @@ class ProcessingResult:
     template_name: str | None = None
     quality_score: float = 0.0
     error_message: str | None = None
+    register_type: str | None = None
+    register_count: int = 0
+    register_ids: list[int] = field(default_factory=list)
+    module_label: str | None = None
+    module_path: str | None = None
+    module_registrations: list[dict[str, Any]] = field(default_factory=list)
+    draft_only: bool = False
 
 
 @dataclass
@@ -93,6 +102,7 @@ class ImportReport:
     output_path: str = "ai_draft"
     period_suggestion: dict[str, Any] | None = None
     day_book_report: DayBookReport | None = None
+    register_summary: list[dict[str, Any]] | None = None
     quality_report: ImportQualityReport | None = None
     file_results: list[ProcessingResult] = field(default_factory=list)
     logic_report: BatchCheckReport | None = None  # 合并的逻辑校验报告
@@ -467,6 +477,120 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
         )
 
 
+def _load_document_type_hints(source_file: SourceFile) -> list[str]:
+    if not source_file.notes:
+        return []
+    try:
+        parsed = json.loads(source_file.notes)
+        if isinstance(parsed, dict):
+            hints = parsed.get("document_type_hints")
+            if isinstance(hints, list):
+                return [str(item) for item in hints if item]
+    except json.JSONDecodeError:
+        pass
+    return []
+
+
+def _process_ai_register_file(db: Session, job: ImportJob, source_file: SourceFile) -> ProcessingResult:
+    """AI 路径：原始资料识别并登记到功能模块台账（非会计分录）。"""
+    try:
+        hints = _load_document_type_hints(source_file)
+        classification, ingestion = classify_and_ingest_register(
+            db,
+            job.organization_id,
+            source_file,
+            document_type_hints=hints or None,
+        )
+        feedback = _extract_source_summary(classification)
+        feedback.update(
+            {
+                "register_type": ingestion.document_type,
+                "module_label": ingestion.module_label,
+                "module_path": ingestion.module_path,
+                "register_ids": ingestion.register_ids,
+                "register_count": ingestion.register_count,
+                "register_summary": ingestion.summary,
+                "module_registrations": [
+                    {
+                        "module_key": item.module_key,
+                        "module_label": item.module_label,
+                        "module_path": item.module_path,
+                        "register_ids": item.register_ids,
+                        "register_count": item.register_count,
+                    }
+                    for item in ingestion.module_registrations
+                ],
+                "draft_only": ingestion.draft_only,
+                "output_path": "register_ledger",
+            }
+        )
+        if ingestion.error_message:
+            feedback["error_message"] = ingestion.error_message
+
+        raw_text = classification.raw_text or extract_text(source_file.storage_path) or ""
+        _save_parse_feedback(source_file, feedback, raw_text)
+        source_file.text_extract_status = "register_ingested" if ingestion.success else "extracted"
+
+        if raw_text:
+            _index_text(
+                db,
+                job.organization_id,
+                "source_file_chunk",
+                source_file.id,
+                raw_text,
+                {
+                    "organization_id": job.organization_id,
+                    "import_job_id": job.id,
+                    "filename": source_file.filename,
+                    "register_type": ingestion.document_type,
+                },
+            )
+
+        return ProcessingResult(
+            file_type="register_ledger",
+            filename=source_file.filename,
+            success=ingestion.success,
+            text_extracted=raw_text[:200] + "..." if len(raw_text) > 200 else raw_text,
+            register_type=ingestion.document_type,
+            register_count=ingestion.register_count,
+            register_ids=ingestion.register_ids,
+            module_label=ingestion.module_label,
+            module_path=ingestion.module_path,
+            module_registrations=[
+                {
+                    "module_key": item.module_key,
+                    "module_label": item.module_label,
+                    "module_path": item.module_path,
+                    "register_ids": item.register_ids,
+                    "register_count": item.register_count,
+                }
+                for item in ingestion.module_registrations
+            ],
+            draft_only=ingestion.draft_only,
+            error_message=ingestion.error_message,
+        )
+    except Exception as exc:
+        source_file.text_extract_status = "failed"
+        _save_parse_feedback(
+            source_file,
+            {
+                "document_type": "unknown",
+                "document_type_label": "台账登记失败",
+                "confidence": 0.0,
+                "summary": "文件已保存为底稿，但 AI 台账登记失败",
+                "error_message": str(exc),
+                "output_path": "register_ledger",
+            },
+            "",
+        )
+        return ProcessingResult(
+            file_type="register_ledger",
+            filename=source_file.filename,
+            success=False,
+            error_message=str(exc),
+        )
+
+
 def _process_structured_preview(db: Session, job: ImportJob, source_file: SourceFile) -> ProcessingResult:
     """
     AI 路径下的结构化文件预览：解析但不落库，引导用户使用序时簿导入模式。
@@ -731,6 +855,11 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
 
             # 根据文件类型选择处理方式
             if _is_accounting_file(file_type):
+                if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
+                    result = _process_ai_register_file(db, job, source_file)
+                    file_results.append(result)
+                    continue
+
                 if not should_persist_structured_entries(job.source_type):
                     result = _process_structured_preview(db, job, source_file)
                     file_results.append(result)
@@ -748,7 +877,10 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
                     all_entries.extend(parsed_entries)
 
             elif _is_source_file(file_type):
-                result = _process_source_file(db, job, source_file)
+                if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
+                    result = _process_ai_register_file(db, job, source_file)
+                else:
+                    result = _process_source_file(db, job, source_file)
                 file_results.append(result)
 
             else:
@@ -796,6 +928,22 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
         if total_entries > 0 and is_day_book_source_type(job.source_type):
             period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
 
+        register_summary = [
+            {
+                "filename": item.filename,
+                "register_type": item.register_type,
+                "register_count": item.register_count,
+                "register_ids": item.register_ids,
+                "module_label": item.module_label,
+                "module_path": item.module_path,
+                "module_registrations": item.module_registrations,
+                "draft_only": item.draft_only,
+                "success": item.success,
+            }
+            for item in file_results
+            if item.file_type == "register_ledger"
+        ] or None
+
         return ImportReport(
             job_id=job.id,
             total_files=len(file_results),
@@ -805,6 +953,7 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
             output_path=output_path,
             period_suggestion=period_suggestion,
             quality_report=quality_report,
+            register_summary=register_summary,
             file_results=file_results,
         )
 
@@ -839,6 +988,9 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
     if report.period_suggestion is not None:
         summary["period_suggestion"] = report.period_suggestion
 
+    if report.register_summary is not None:
+        summary["register_summary"] = report.register_summary
+
     if report.day_book_report is not None:
         report_data = report.day_book_report
         summary["day_book_report"] = {
@@ -870,6 +1022,14 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
             file_info["entries"] = result.entries_created
             file_info["template"] = result.template_name
             file_info["quality_score"] = result.quality_score
+        if result.file_type == "register_ledger":
+            file_info["register_type"] = result.register_type
+            file_info["register_count"] = result.register_count
+            file_info["register_ids"] = result.register_ids
+            file_info["module_label"] = result.module_label
+            file_info["module_path"] = result.module_path
+            file_info["module_registrations"] = result.module_registrations
+            file_info["draft_only"] = result.draft_only
         if result.error_message:
             file_info["error"] = result.error_message
 

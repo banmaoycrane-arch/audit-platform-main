@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.db.models import ImportJob, SourceFile
@@ -116,11 +116,22 @@ def _source_file_response(source_file: SourceFile) -> dict:
 
 
 @router.post("/{job_id}/files")
-def upload_file(job_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)) -> dict:
+def upload_file(
+    job_id: int,
+    file: UploadFile = File(...),
+    document_type_hints: str | None = Form(None),
+    db: Session = Depends(get_db),
+) -> dict:
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
     source_file = attach_file(db, job, file)
+    if document_type_hints:
+        hints = [hint.strip() for hint in document_type_hints.split(",") if hint.strip()]
+        if hints:
+            source_file.notes = json.dumps({"document_type_hints": hints}, ensure_ascii=False)
+            db.commit()
+            db.refresh(source_file)
     return _source_file_response(source_file)
 
 
