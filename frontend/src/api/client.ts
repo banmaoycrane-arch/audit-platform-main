@@ -154,6 +154,13 @@ export type SourceFileRead = {
   created_at: string
 }
 
+export type ImportPeriodSuggestion = {
+  detected_month: string | null
+  suggested_period: AccountingPeriodSuggestion | null
+  matched_period: (AccountingPeriod & { id: number }) | null
+  reason: string
+}
+
 export type AccountingPeriodSuggestion = {
   period_code: string
   period_type: string
@@ -656,6 +663,7 @@ export const api = {
     ),
   getImportReport: (jobId: number) => request<any>(`/api/import-jobs/${jobId}/report`),
   getDayBookReport: (jobId: number) => request<DayBookReport>(`/api/import-jobs/${jobId}/day-book-report`),
+  getImportPeriodSuggestion: (jobId: number) => request<ImportPeriodSuggestion>(`/api/import-jobs/${jobId}/period-suggestion`),
   listEntries: (jobId?: number) => request<AccountingEntry[]>(`/api/entries${jobId ? `?import_job_id=${jobId}` : ''}`),
   listRisks: (jobId?: number) => request<AuditRisk[]>(`/api/risks${jobId ? `?import_job_id=${jobId}` : ''}`),
   getRisk: (riskId: number) => request<RiskDetail>(`/api/risks/${riskId}`),

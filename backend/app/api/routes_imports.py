@@ -9,6 +9,8 @@ from app.schemas.import_job import DayBookReportRead, ImportJobCreate, ImportJob
 from app.services.import_service import attach_file, create_import_job, get_import_summary, process_import_job
 from app.services.audit_day_book_service import DayBookReport, process_day_book_import
 from app.services.entry_generation_service import _normalize_evidence_type
+from app.services.import_routing_service import is_day_book_source_type
+from app.services.period_detection_service import suggest_period_for_job
 
 router = APIRouter(prefix="/api/import-jobs", tags=["import-jobs"])
 
@@ -169,6 +171,8 @@ def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict:
     # 保存报告
     summary = get_import_summary(report)
     _import_reports[job_id] = summary
+    if report.day_book_report is not None:
+        _day_book_reports[job_id] = report.day_book_report
     return {
         "job": ImportJobRead.model_validate(job).model_dump(mode="json"),
         "report": summary,
@@ -248,7 +252,7 @@ def get_day_book_report(job_id: int, db: Session = Depends(get_db)) -> DayBookRe
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
 
-    if job.source_type != "audit_day_book":
+    if not is_day_book_source_type(job.source_type):
         raise HTTPException(status_code=400, detail="该任务不是序时簿导入任务")
 
     # 优先从内存缓存获取
@@ -332,6 +336,15 @@ def get_day_book_report(job_id: int, db: Session = Depends(get_db)) -> DayBookRe
         missing_voucher_nos=missing_voucher_nos,
         unbalanced_vouchers=unbalanced_vouchers,
     )
+
+
+@router.get("/{job_id}/period-suggestion")
+def get_period_suggestion(job_id: int, db: Session = Depends(get_db)) -> dict:
+    """根据导入分录凭证日期推荐会计期间（主要用于序时簿导入）。"""
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    return suggest_period_for_job(db, job_id, job.organization_id)
 
 
 @router.get("/{job_id}/files")

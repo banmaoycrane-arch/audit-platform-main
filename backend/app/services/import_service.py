@@ -32,6 +32,12 @@ from app.services.audit_day_book_service import (
     DayBookReport,
     process_day_book_import,
 )
+from app.services.import_routing_service import (
+    get_import_output_path,
+    is_day_book_source_type,
+    should_persist_structured_entries,
+)
+from app.services.period_detection_service import suggest_period_for_job
 from app.services.data_validator import EntryQuality, ImportQualityReport, generate_quality_report
 from app.services.entry_tags_service import build_semantic_text, generate_entry_tags
 from app.services.file_parser_service import ParseResult, extract_text, parse_entries
@@ -84,6 +90,9 @@ class ImportReport:
     success_files: int
     failed_files: int
     total_entries: int
+    output_path: str = "ai_draft"
+    period_suggestion: dict[str, Any] | None = None
+    day_book_report: DayBookReport | None = None
     quality_report: ImportQualityReport | None = None
     file_results: list[ProcessingResult] = field(default_factory=list)
     logic_report: BatchCheckReport | None = None  # 合并的逻辑校验报告
@@ -458,6 +467,94 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
         )
 
 
+def _process_structured_preview(db: Session, job: ImportJob, source_file: SourceFile) -> ProcessingResult:
+    """
+    AI 路径下的结构化文件预览：解析但不落库，引导用户使用序时簿导入模式。
+    """
+    try:
+        parse_result = parse_entries(source_file.storage_path)
+        entry_count = len(parse_result.entries)
+        if entry_count == 0:
+            _save_parse_feedback(
+                source_file,
+                {
+                    "document_type": "structured_ledger",
+                    "document_type_label": "结构化序时簿/凭证表",
+                    "confidence": 0.0,
+                    "summary": "文件为表格格式但未识别到有效分录，请检查列名或改用序时簿导入模式",
+                    "voucher_date": None,
+                    "amount": None,
+                    "counterparty": None,
+                    "error_message": "未解析到有效分录数据",
+                    "entry_count": 0,
+                    "recommended_mode": "day_book_import",
+                },
+                None,
+            )
+            source_file.text_extract_status = "structured_preview"
+            return ProcessingResult(
+                file_type="structured_preview",
+                filename=source_file.filename,
+                success=False,
+                error_message="未解析到有效分录数据",
+            )
+
+        sample_dates = [entry.get("voucher_date") for entry in parse_result.entries if entry.get("voucher_date")]
+        preview_summary = (
+            f"识别到 {entry_count} 条结构化分录"
+            + (f"，样例日期 {sample_dates[0]}" if sample_dates else "")
+            + "。请使用「序时簿导入」模式生成正式会计凭证。"
+        )
+        _save_parse_feedback(
+            source_file,
+            {
+                "document_type": "structured_ledger",
+                "document_type_label": "结构化序时簿/凭证表",
+                "confidence": 1.0,
+                "summary": preview_summary,
+                "voucher_date": sample_dates[0] if sample_dates else None,
+                "amount": None,
+                "counterparty": None,
+                "entry_count": entry_count,
+                "recommended_mode": "day_book_import",
+                "recommended_source_type": "ledger_day_book",
+            },
+            None,
+        )
+        source_file.text_extract_status = "structured_preview"
+        return ProcessingResult(
+            file_type="structured_preview",
+            filename=source_file.filename,
+            success=True,
+            entries_created=0,
+            template_name=parse_result.template_name,
+            quality_score=parse_result.quality_score,
+        )
+    except Exception as exc:
+        _save_parse_feedback(
+            source_file,
+            {
+                "document_type": "structured_ledger",
+                "document_type_label": "结构化序时簿/凭证表",
+                "confidence": 0.0,
+                "summary": "结构化文件解析失败，请检查格式或改用序时簿导入模式",
+                "voucher_date": None,
+                "amount": None,
+                "counterparty": None,
+                "error_message": str(exc),
+                "recommended_mode": "day_book_import",
+            },
+            None,
+        )
+        source_file.text_extract_status = "structured_preview"
+        return ProcessingResult(
+            file_type="structured_preview",
+            filename=source_file.filename,
+            success=False,
+            error_message=str(exc),
+        )
+
+
 def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -> ProcessingResult:
     """
     处理原始文件
@@ -566,8 +663,10 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
     job.error_message = None
     db.commit()
 
-    # 审计序时簿模式：调用专用处理逻辑
-    if job.source_type == "audit_day_book":
+    output_path = get_import_output_path(job.source_type)
+
+    # 序时簿模式（审计 / 记账）：调用专用处理逻辑
+    if is_day_book_source_type(job.source_type):
         day_book_result = process_day_book_import(db, job)
         if not day_book_result.success:
             job.status = "failed"
@@ -579,10 +678,11 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
                 success_files=0,
                 failed_files=0,
                 total_entries=0,
+                output_path=output_path,
                 file_results=[
                     ProcessingResult(
                         file_type="accounting_entry",
-                        filename="audit_day_book",
+                        filename=job.source_type,
                         success=False,
                         error_message=day_book_result.error_message or "序时簿处理失败",
                     )
@@ -593,9 +693,10 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
         job.status = "completed"
         db.commit()
 
-        # 生成风险
+        period_suggestion = None
         if day_book_result.entries_created > 0:
             generate_risks(db, job.id)
+            period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
 
         return ImportReport(
             job_id=job.id,
@@ -603,10 +704,13 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
             success_files=1,
             failed_files=0,
             total_entries=day_book_result.entries_created,
+            output_path=output_path,
+            period_suggestion=period_suggestion,
+            day_book_report=day_book_result.report,
             file_results=[
                 ProcessingResult(
                     file_type="accounting_entry",
-                    filename="audit_day_book",
+                    filename=job.source_type,
                     success=True,
                     entries_created=day_book_result.entries_created,
                 )
@@ -627,6 +731,11 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
 
             # 根据文件类型选择处理方式
             if _is_accounting_file(file_type):
+                if not should_persist_structured_entries(job.source_type):
+                    result = _process_structured_preview(db, job, source_file)
+                    file_results.append(result)
+                    continue
+
                 result, tags, logic_report, parsed_entries = _process_accounting_file(db, job, source_file)
                 total_entries += result.entries_created
                 file_results.append(result)
@@ -683,12 +792,18 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
         success_files = sum(1 for r in file_results if r.success)
         failed_files = len(file_results) - success_files
 
+        period_suggestion = None
+        if total_entries > 0 and is_day_book_source_type(job.source_type):
+            period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
+
         return ImportReport(
             job_id=job.id,
             total_files=len(file_results),
             success_files=success_files,
             failed_files=failed_files,
             total_entries=total_entries,
+            output_path=output_path,
+            period_suggestion=period_suggestion,
             quality_report=quality_report,
             file_results=file_results,
         )
@@ -704,6 +819,7 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
             success_files=0,
             failed_files=len(file_results),
             total_entries=total_entries,
+            output_path=output_path,
             file_results=file_results,
         )
 
@@ -716,8 +832,33 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
         "success_files": report.success_files,
         "failed_files": report.failed_files,
         "total_entries": report.total_entries,
+        "output_path": report.output_path,
         "file_summary": [],
     }
+
+    if report.period_suggestion is not None:
+        summary["period_suggestion"] = report.period_suggestion
+
+    if report.day_book_report is not None:
+        report_data = report.day_book_report
+        summary["day_book_report"] = {
+            "total_vouchers": report_data.total_vouchers,
+            "total_entries": report_data.total_entries,
+            "skip_count": report_data.skip_count,
+            "unbalanced_count": report_data.unbalanced_count,
+            "completeness_score": report_data.completeness_score,
+            "missing_voucher_nos": report_data.missing_voucher_nos,
+            "unbalanced_vouchers": [
+                {
+                    "voucher_no": item.voucher_no,
+                    "debit_total": str(item.debit_total),
+                    "credit_total": str(item.credit_total),
+                    "difference": str(item.difference),
+                    "entry_count": item.entry_count,
+                }
+                for item in report_data.unbalanced_vouchers
+            ],
+        }
 
     for result in report.file_results:
         file_info = {

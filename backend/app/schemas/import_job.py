@@ -13,7 +13,7 @@ class ImportJobCreate(BaseModel):
         organization_name: 企业名称
         industry: 行业类型
         fiscal_year: 会计年度
-        source_type: 数据来源类型，默认 "voucher_import"，可选 "audit_day_book"
+        source_type: 数据来源类型，默认 "voucher_import"，可选 "audit_day_book"、"ledger_day_book"
     """
     organization_name: str = "默认企业"
     industry: str | None = None

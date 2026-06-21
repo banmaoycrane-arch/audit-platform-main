@@ -1,10 +1,10 @@
-import { Card, Upload, Button, Steps, Typography, message, Tag, Space, Modal, Input, List, DatePicker, Table, InputNumber, Alert, Select } from 'antd'
+import { Card, Upload, Button, Steps, Typography, message, Tag, Space, Modal, Input, List, DatePicker, Table, InputNumber, Alert, Select, Statistic } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { DeleteOutlined, InboxOutlined, PlusOutlined, RobotOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
-import { api, type AccountingPeriod, type ChartOfAccount, type Counterparty, type EntryDraft } from '../../api/client'
+import { api, type AccountingPeriod, type ChartOfAccount, type Counterparty, type DayBookReport, type EntryDraft, type ImportPeriodSuggestion } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -99,6 +99,7 @@ export function Step2AccountingImportSource() {
   const { currentLedgerId } = useAuthStore()
   const inputMode = searchParams.get('inputMode') || 'ai_generated'
   const isManualEntry = inputMode === 'manual_entry'
+  const isDayBookImport = inputMode === 'day_book_import'
   const stepPath = (step: number) => location.pathname.startsWith('/ledger/vouchers/step/') ? `/ledger/vouchers/step/${step}` : `/accounting/step/${step}`
   const currentStep = 1
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
@@ -131,6 +132,12 @@ export function Step2AccountingImportSource() {
     createManualLine(2),
   ])
   const [manualSubmitting, setManualSubmitting] = useState(false)
+  const [dayBookReport, setDayBookReport] = useState<DayBookReport | null>(null)
+  const [importPeriodSuggestion, setImportPeriodSuggestion] = useState<ImportPeriodSuggestion | null>(null)
+  const [importPeriodReason, setImportPeriodReason] = useState('')
+  const [outputPath, setOutputPath] = useState<string>('')
+  const [processingUpload, setProcessingUpload] = useState(false)
+  const [entryCount, setEntryCount] = useState(0)
 
   const manualVoucherNo = `${manualVoucherType}-${manualVoucherNumber}`
   const debitTotal = roundAmount(manualRows.reduce((sum, row) => sum + Number(row.debit_amount || 0), 0))
@@ -218,6 +225,90 @@ export function Step2AccountingImportSource() {
     setManualVoucherDate(prev => isDateInPeriod(prev, period.start_date, period.end_date) ? prev : period.start_date)
   }
 
+  useEffect(() => {
+    if (!isDayBookImport || !currentJobId) return
+    void (async () => {
+      try {
+        const [report, suggestion] = await Promise.all([
+          api.getDayBookReport(currentJobId),
+          api.getImportPeriodSuggestion(currentJobId),
+        ])
+        setDayBookReport(report)
+        setImportPeriodSuggestion(suggestion)
+        applyPeriodSuggestion(suggestion)
+      } catch {
+        // 任务尚未完成导入时忽略
+      }
+    })()
+  }, [isDayBookImport, currentJobId])
+
+  const applyPeriodSuggestion = (suggestion: ImportPeriodSuggestion | null) => {
+    if (!suggestion) return
+    setImportPeriodReason(suggestion.reason)
+    if (suggestion.matched_period) {
+      setPeriodId(suggestion.matched_period.id)
+      setPeriodCode(suggestion.matched_period.period_code)
+      setPeriodStart(suggestion.matched_period.start_date)
+      setPeriodEnd(suggestion.matched_period.end_date)
+      return
+    }
+    if (suggestion.suggested_period) {
+      setPeriodId(null)
+      setPeriodCode(suggestion.suggested_period.period_code)
+      setPeriodStart(suggestion.suggested_period.start_date)
+      setPeriodEnd(suggestion.suggested_period.end_date)
+    }
+  }
+
+  const handleDayBookUpload = async (file: File) => {
+    setProcessingUpload(true)
+    try {
+      let jobId = currentJobId
+      if (!jobId) {
+        const job = await api.createImportJob('临时组织', 'ledger_day_book', currentLedgerId)
+        jobId = job.id
+        setCurrentJobId(jobId)
+        setCurrentOrgId(job.organization_id)
+      }
+
+      await api.uploadFile(jobId, file)
+      setUploadedFiles(prev => [...prev, { name: file.name, size: file.size, fileType: file.type || 'unknown', jobId, }])
+
+      message.loading({ content: '正在解析序时簿并生成会计凭证...', key: 'daybook-parse' })
+      const result = await api.processImportJobSync(jobId)
+      const reportSummary = result.report as {
+        output_path?: string
+        total_entries?: number
+        period_suggestion?: ImportPeriodSuggestion
+        day_book_report?: DayBookReport
+      }
+
+      setOutputPath(reportSummary.output_path || 'direct_entries')
+      setEntryCount(reportSummary.total_entries || 0)
+      if (reportSummary.period_suggestion) {
+        setImportPeriodSuggestion(reportSummary.period_suggestion)
+        applyPeriodSuggestion(reportSummary.period_suggestion)
+      }
+      if (reportSummary.day_book_report) {
+        setDayBookReport(reportSummary.day_book_report)
+      } else {
+        const report = await api.getDayBookReport(jobId)
+        setDayBookReport(report)
+      }
+
+      message.success({
+        content: `序时簿解析完成，已生成 ${reportSummary.total_entries || 0} 条分录`,
+        key: 'daybook-parse',
+      })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      message.error({ content: `序时簿导入失败：${detail}`, key: 'daybook-parse' })
+    } finally {
+      setProcessingUpload(false)
+    }
+    return false
+  }
+
   const handleUpload = async (file: File) => {
     try {
       // 确保有导入任务 ID
@@ -245,9 +336,12 @@ export function Step2AccountingImportSource() {
       // 上传后自动触发生成（同步处理所有文件）
       message.loading({ content: '正在解析上传文件，请稍候...', key: 'parsing' })
       try {
-        const report = await api.processImportJobSync(jobId)
+        const result = await api.processImportJobSync(jobId)
+        const reportSummary = result.report as { output_path?: string; total_entries?: number }
+        setOutputPath(reportSummary.output_path || 'ai_draft')
+        setEntryCount(reportSummary.total_entries || 0)
         message.success({ content: `文件解析完成，${file.name} 已处理`, key: 'parsing' })
-        console.debug('Parse report:', report)
+        console.debug('Parse report:', result)
       } catch (err) {
         message.warning({ content: `${file.name} 上传成功，但解析失败：${err instanceof Error ? err.message : String(err)}`, key: 'parsing' })
       }
@@ -312,6 +406,40 @@ export function Step2AccountingImportSource() {
   }
 
   const handleNext = async () => {
+    if (isDayBookImport) {
+      if (!currentJobId || entryCount === 0) {
+        message.warning('请先上传序时簿并完成解析')
+        return
+      }
+      let usePeriodId = periodId
+      if (!usePeriodId) {
+        if (!currentOrgId || !periodCode || !periodStart || !periodEnd) {
+          message.warning('系统未能自动识别会计期间，请确认期间信息后重试')
+          return
+        }
+        try {
+          const period = await api.createAccountingPeriod({
+            organization_id: currentOrgId,
+            period_code: periodCode,
+            start_date: periodStart,
+            end_date: periodEnd,
+          })
+          usePeriodId = period.id
+          setPeriodId(usePeriodId)
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          message.error(`创建会计期间失败：${detail}`)
+          return
+        }
+      }
+      const nextParams = new URLSearchParams()
+      nextParams.set('inputMode', inputMode)
+      nextParams.set('jobId', String(currentJobId))
+      nextParams.set('periodId', String(usePeriodId))
+      navigate(`${stepPath(4)}?${nextParams.toString()}`)
+      return
+    }
+
     if (uploadedFiles.length === 0) {
       message.warning('请先上传文件')
       return
@@ -785,6 +913,147 @@ export function Step2AccountingImportSource() {
     )
   }
 
+  if (isDayBookImport) {
+    return (
+      <div style={{ padding: '24px', maxWidth: '1000px', margin: '0 auto' }}>
+        <Steps
+          current={currentStep}
+          items={[
+            { title: '选择模式' },
+            { title: '序时簿导入' },
+            { title: '生成草稿' },
+            { title: '复核调整' },
+            { title: '确认导出' }
+          ]}
+          style={{ marginBottom: '32px' }}
+        />
+
+        <FlowNav prev={stepPath(1)} next={stepPath(4)} style={{ marginBottom: '16px' }} />
+
+        <Title level={4}>序时簿导入生成会计凭证</Title>
+        <Text type="secondary">
+          上传按日期顺序登记的序时簿（Excel/CSV），系统将按凭证号分组生成正式会计分录，并自动识别主要会计月份。
+        </Text>
+
+        <Alert
+          title="稳定输出路径"
+          description="序时簿导入走 direct_entries 路径：解析后直接生成 accounting_entries，跳过 AI 草稿步骤，进入复核调整。"
+          type="info"
+          showIcon
+          style={{ marginTop: '16px' }}
+        />
+
+        <Card style={{ marginTop: '16px' }}>
+          <Title level={5}>1. 上传序时簿文件</Title>
+          <Dragger
+            name="daybook"
+            multiple={false}
+            disabled={processingUpload}
+            beforeUpload={handleDayBookUpload}
+            accept=".xlsx,.xls,.csv"
+            style={{ padding: '32px' }}
+          >
+            <p className="ant-upload-drag-icon">
+              <InboxOutlined />
+            </p>
+            <p className="ant-upload-text">点击或拖拽序时簿文件到此区域</p>
+            <p className="ant-upload-hint">
+              请保留凭证号、日期、科目、借贷金额、对方单位等列。系统会按凭证号合并、校验借贷平衡并检测跳号。
+            </p>
+          </Dragger>
+
+          {uploadedFiles.length > 0 && (
+            <List
+              header={<Text strong>已上传文件 ({uploadedFiles.length})</Text>}
+              dataSource={uploadedFiles}
+              renderItem={(file) => (
+                <List.Item>
+                  <List.Item.Meta title={file.name} description={`${(file.size / 1024).toFixed(1)} KB`} />
+                  {outputPath && <Tag color="blue">输出路径：{outputPath}</Tag>}
+                  {entryCount > 0 && <Tag color="green">{entryCount} 条分录</Tag>}
+                </List.Item>
+              )}
+              style={{ marginTop: '16px' }}
+            />
+          )}
+        </Card>
+
+        {dayBookReport && (
+          <Card style={{ marginTop: '16px' }}>
+            <Title level={5}>2. 序时簿检测报告</Title>
+            <Space wrap size="large">
+              <Statistic title="凭证总数" value={dayBookReport.total_vouchers} />
+              <Statistic title="分录行数" value={dayBookReport.total_entries} />
+              <Statistic title="跳号数量" value={dayBookReport.skip_count} />
+              <Statistic title="不平衡凭证" value={dayBookReport.unbalanced_count} />
+              <Statistic title="完整性评分" value={dayBookReport.completeness_score} suffix="/ 100" />
+            </Space>
+            {dayBookReport.missing_voucher_nos.length > 0 && (
+              <Alert
+                title="检测到凭证号跳号"
+                description={`缺失凭证号：${dayBookReport.missing_voucher_nos.join('、')}`}
+                type="warning"
+                showIcon
+                style={{ marginTop: '16px' }}
+              />
+            )}
+            {dayBookReport.unbalanced_count > 0 && (
+              <Alert
+                title="存在借贷不平衡凭证"
+                description="请复核不平衡凭证后再结账，系统已保留全部分录供核对。"
+                type="warning"
+                showIcon
+                style={{ marginTop: '16px' }}
+              />
+            )}
+          </Card>
+        )}
+
+        <Card style={{ marginTop: '16px' }}>
+          <Title level={5}>{dayBookReport ? '3' : '2'}. 会计期间（自动识别）</Title>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {importPeriodReason && <Alert title={importPeriodReason} type="info" showIcon />}
+            {importPeriodSuggestion?.detected_month && (
+              <Text type="secondary">识别主要月份：{importPeriodSuggestion.detected_month}</Text>
+            )}
+            <Input
+              placeholder="期间编码，如 2026-03"
+              value={periodCode}
+              onChange={(e) => setPeriodCode(e.target.value)}
+              style={{ maxWidth: 240 }}
+            />
+            <Space>
+              <DatePicker
+                value={periodStart ? dayjs(periodStart) : null}
+                placeholder="期间开始"
+                onChange={(date) => setPeriodStart(date ? date.format('YYYY-MM-DD') : '')}
+              />
+              <DatePicker
+                value={periodEnd ? dayjs(periodEnd) : null}
+                placeholder="期间结束"
+                onChange={(date) => setPeriodEnd(date ? date.format('YYYY-MM-DD') : '')}
+              />
+            </Space>
+            <Text type="secondary">系统根据序时簿凭证日期自动推荐期间；如无匹配 open 期间，提交时将创建新期间。</Text>
+          </Space>
+        </Card>
+
+        <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
+          <Button onClick={() => navigate(`${stepPath(1)}?inputMode=${inputMode}`)}>
+            上一步
+          </Button>
+          <Button
+            type="primary"
+            onClick={handleNext}
+            disabled={entryCount === 0}
+          >
+            进入复核调整 {entryCount > 0 ? `(${entryCount} 条分录)` : ''}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={{ padding: '24px', maxWidth: '900px', margin: '0 auto' }}>
       <Steps
@@ -802,7 +1071,19 @@ export function Step2AccountingImportSource() {
       <FlowNav prev={stepPath(1)} next={stepPath(3)} style={{ marginBottom: '16px' }} />
 
       <Title level={4}>导入原始资料</Title>
-      <Text type="secondary">当前为 AI 智能生成路径，请上传用于识别并生成会计凭证草稿的原始资料。</Text>
+      <Text type="secondary">当前为 AI 智能生成路径，请上传用于识别并生成会计凭证草稿的原始资料（PDF/图片等）。结构化 Excel/CSV 请改用「序时簿导入」模式。</Text>
+
+      {outputPath && (
+        <Alert
+          title={`当前输出路径：${outputPath}`}
+          description={outputPath === 'ai_draft'
+            ? '原始资料将索引为证据，在下一步由 AI 生成凭证草稿。'
+            : '结构化文件已解析为分录预览，请改用序时簿导入模式生成正式凭证。'}
+          type="info"
+          showIcon
+          style={{ marginTop: '12px' }}
+        />
+      )}
 
       <Card style={{ marginTop: '16px' }}>
         <Title level={5}>1. 提供原始资料类型辅助信息</Title>

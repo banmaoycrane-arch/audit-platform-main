@@ -156,3 +156,82 @@ def test_day_book_report_rejects_voucher_import_job(client):
     report_response = test_client.get(f"/api/import-jobs/{job_id}/day-book-report")
     assert report_response.status_code == 400
     assert report_response.json()["detail"] == "该任务不是序时簿导入任务"
+
+
+def test_ledger_day_book_import_generates_entries_and_period_suggestion(client):
+    test_client, TestingSessionLocal = client
+    response = test_client.post(
+        "/api/import-jobs",
+        json={
+            "organization_name": "记账序时簿测试企业",
+            "source_type": "ledger_day_book",
+        },
+    )
+    assert response.status_code == 200
+    job_id = response.json()["id"]
+    assert response.json()["source_type"] == "ledger_day_book"
+
+    csv_text = "\n".join([
+        "凭证号,日期,摘要,科目编码,科目名称,借方,贷方,对方单位",
+        "记-001,2026-03-03,收到客户货款,1002,银行存款,12000,0,客户A",
+        "记-001,2026-03-03,冲减应收账款,1122,应收账款,0,12000,客户A",
+        "记-002,2026-03-05,支付服务费,6602,管理费用,500,0,供应商B",
+        "记-002,2026-03-05,银行付款,1002,银行存款,0,500,供应商B",
+    ])
+    _upload_day_book_csv(test_client, job_id, csv_text)
+
+    process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    assert process_response.status_code == 200
+    payload = process_response.json()
+    assert payload["job"]["status"] == "completed"
+    assert payload["report"]["output_path"] == "direct_entries"
+    assert payload["report"]["period_suggestion"]["detected_month"] == "2026-03"
+    assert payload["report"]["period_suggestion"]["suggested_period"]["period_code"] == "2026-03"
+
+    period_response = test_client.get(f"/api/import-jobs/{job_id}/period-suggestion")
+    assert period_response.status_code == 200
+    assert period_response.json()["detected_month"] == "2026-03"
+
+    report_response = test_client.get(f"/api/import-jobs/{job_id}/day-book-report")
+    assert report_response.status_code == 200
+    assert report_response.json()["total_entries"] == 4
+
+    db = TestingSessionLocal()
+    try:
+        entries = db.query(AccountingEntry).filter(AccountingEntry.import_job_id == job_id).all()
+        assert len(entries) == 4
+    finally:
+        db.close()
+
+
+def test_ai_generated_structured_file_does_not_create_entries(client):
+    test_client, TestingSessionLocal = client
+    response = test_client.post(
+        "/api/import-jobs",
+        json={
+            "organization_name": "AI路径结构化文件测试",
+            "source_type": "ai_generated",
+        },
+    )
+    assert response.status_code == 200
+    job_id = response.json()["id"]
+
+    csv_text = "\n".join([
+        "凭证号,日期,摘要,科目编码,科目名称,借方,贷方,对方单位",
+        "记-001,2026-03-03,收到客户货款,1002,银行存款,12000,0,客户A",
+        "记-001,2026-03-03,冲减应收账款,1122,应收账款,0,12000,客户A",
+    ])
+    _upload_day_book_csv(test_client, job_id, csv_text)
+
+    process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    assert process_response.status_code == 200
+    payload = process_response.json()
+    assert payload["report"]["output_path"] == "ai_draft"
+    assert payload["report"]["total_entries"] == 0
+
+    db = TestingSessionLocal()
+    try:
+        entries = db.query(AccountingEntry).filter(AccountingEntry.import_job_id == job_id).all()
+        assert len(entries) == 0
+    finally:
+        db.close()
