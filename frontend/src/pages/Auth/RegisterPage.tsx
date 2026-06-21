@@ -4,6 +4,7 @@ import { Form, Input, Button, Checkbox, Modal, message, Alert } from 'antd'
 import { UserOutlined, LockOutlined, MobileOutlined, FileTextOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
+import { resolvePostLoginPath } from '../../utils/navigation'
 
 export function RegisterPage() {
   const navigate = useNavigate()
@@ -98,7 +99,7 @@ export function RegisterPage() {
       })
       setUserLedgers(context.ledgers)
       setCurrentLedger(context.current_ledger_id)
-      navigate('/workspace')
+      navigate(resolvePostLoginPath(context))
     } catch {
       localStorage.removeItem('token')
       message.warning('注册已成功，但初始化工作台信息失败，请重新登录')

@@ -5,6 +5,7 @@ import { ExclamationCircleOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { api, type AuditFinding } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { withJobQuery } from '../../utils/navigation'
 
 const { Title, Text } = Typography
 
@@ -187,7 +188,12 @@ export function Step5ReviewFindings() {
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev="/audit/step/4" next="/audit/step/6" style={{ marginBottom: '16px' }} />
+      <FlowNav
+        prev={withJobQuery('/audit/step/4', jobId)}
+        next={withJobQuery('/audit/step/6', jobId)}
+        nextDisabled={!jobId}
+        style={{ marginBottom: '16px' }}
+      />
 
       <Space style={{ marginBottom: '16px', width: '100%', justifyContent: 'space-between' }}>
         <Title level={4} style={{ margin: 0 }}>审计发现复核</Title>

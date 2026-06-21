@@ -37,7 +37,11 @@ def _tag_to_dict(tag: EntryTag) -> dict:
 
 
 @router.get("", response_model=list[AccountingEntryRead])
-def list_entries(import_job_id: int | None = None, db: Session = Depends(get_db)) -> list[AccountingEntry]:
+def list_entries(
+    import_job_id: int | None = None,
+    ledger_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> list[AccountingEntry]:
     query = db.query(AccountingEntry).order_by(
         AccountingEntry.voucher_no.asc(),
         AccountingEntry.entry_line_no.asc(),
@@ -45,6 +49,8 @@ def list_entries(import_job_id: int | None = None, db: Session = Depends(get_db)
     )
     if import_job_id:
         query = query.filter(AccountingEntry.import_job_id == import_job_id)
+    elif ledger_id is not None:
+        query = query.filter(AccountingEntry.ledger_id == ledger_id)
     return query.limit(200).all()
 
 

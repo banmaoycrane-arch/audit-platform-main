@@ -656,8 +656,20 @@ export const api = {
     ),
   getImportReport: (jobId: number) => request<any>(`/api/import-jobs/${jobId}/report`),
   getDayBookReport: (jobId: number) => request<DayBookReport>(`/api/import-jobs/${jobId}/day-book-report`),
-  listEntries: (jobId?: number) => request<AccountingEntry[]>(`/api/entries${jobId ? `?import_job_id=${jobId}` : ''}`),
-  listRisks: (jobId?: number) => request<AuditRisk[]>(`/api/risks${jobId ? `?import_job_id=${jobId}` : ''}`),
+  listEntries: (jobId?: number, ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (jobId) params.set('import_job_id', String(jobId))
+    if (!jobId && ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<AccountingEntry[]>(`/api/entries${query ? `?${query}` : ''}`)
+  },
+  listRisks: (jobId?: number, ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (jobId) params.set('import_job_id', String(jobId))
+    if (!jobId && ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<AuditRisk[]>(`/api/risks${query ? `?${query}` : ''}`)
+  },
   getRisk: (riskId: number) => request<RiskDetail>(`/api/risks/${riskId}`),
   reviewRisk: (riskId: number, action: string, comment?: string) =>
     request<AuditRisk>(`/api/risks/${riskId}/review`, {
@@ -695,12 +707,13 @@ export const api = {
     }
     return response.blob()
   },
-  listAccountingPeriods: (organizationId?: number) =>
-    request<AccountingPeriod[]>(
-      organizationId
-        ? `/api/accounting-periods?organization_id=${organizationId}`
-        : '/api/accounting-periods'
-    ),
+  listAccountingPeriods: (organizationId?: number, ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (organizationId) params.set('organization_id', String(organizationId))
+    if (ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<AccountingPeriod[]>(`/api/accounting-periods${query ? `?${query}` : ''}`)
+  },
   recommendAccountingPeriod: (targetDate?: string, organizationId?: number, periodType?: string) => {
     const params = new URLSearchParams()
     if (targetDate) params.set('target_date', targetDate)
@@ -749,6 +762,7 @@ export const api = {
     request<{ deleted: number; message: string }>(`/api/files/${fileId}`, { method: 'DELETE' }),
   createAccountingPeriod: (payload: {
     organization_id: number
+    ledger_id?: number
     period_code: string
     start_date: string
     end_date: string

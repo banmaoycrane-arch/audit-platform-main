@@ -67,9 +67,12 @@ function LoggedInRedirect({ children }: { children: React.ReactNode }) {
 }
 
 function LedgerDataGuard({ children }: { children: React.ReactNode }) {
-  const { userLedgers } = useAuthStore()
+  const { userLedgers, authContext } = useAuthStore()
   if (userLedgers.length === 0) {
-    return <Navigate to="/workspace" replace />
+    if (authContext?.missing_bindings?.includes('team')) {
+      return <Navigate to="/onboarding-request" replace />
+    }
+    return <Navigate to="/onboarding" replace />
   }
   return <>{children}</>
 }

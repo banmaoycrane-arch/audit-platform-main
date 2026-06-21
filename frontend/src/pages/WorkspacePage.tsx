@@ -294,7 +294,8 @@ export function WorkspacePage() {
           showIcon
           action={(
             <Space>
-              <Button size="small" onClick={() => navigate('/team-management')}>团队控制台（申请加入团队）</Button>
+              <Button size="small" onClick={() => navigate('/onboarding-request')}>申请加入现有团队</Button>
+              <Button size="small" onClick={() => navigate('/team-management')}>团队控制台</Button>
               <Button size="small" onClick={() => navigate('/ledger-management')}>账套控制台（申请访问账套）</Button>
               <Button size="small" onClick={() => navigate('/projects')}>项目控制台（申请关联项目）</Button>
             </Space>

@@ -5,6 +5,7 @@ import { InboxOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { api, type AccountingEntry, type DayBookReport } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { withJobQuery } from '../../utils/navigation'
 import { useAuthStore } from '../../stores/authStore'
 
 const { Dragger } = Upload
@@ -277,7 +278,12 @@ export function Step3ImportEntries() {
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev="/audit/step/2" next="/audit/step/4" style={{ marginBottom: '16px' }} />
+      <FlowNav
+        prev={withJobQuery('/audit/step/2', jobId)}
+        next={withJobQuery('/audit/step/4', jobId)}
+        nextDisabled={!jobId || entries.length === 0}
+        style={{ marginBottom: '16px' }}
+      />
 
       <Space style={{ marginBottom: '16px', width: '100%', justifyContent: 'space-between' }}>
         <Title level={4} style={{ margin: 0 }}>导入被审计单位分录</Title>

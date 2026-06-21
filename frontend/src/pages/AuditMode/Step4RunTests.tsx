@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { SafetyCertificateOutlined, FileSearchOutlined, ClockCircleOutlined, TagOutlined } from '@ant-design/icons'
 import { api, type AuditTestReport } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { withJobQuery } from '../../utils/navigation'
 
 const { Title } = Typography
 
@@ -126,7 +127,12 @@ export function Step4RunTests() {
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev="/audit/step/3" next="/audit/step/5" style={{ marginBottom: '16px' }} />
+      <FlowNav
+        prev={withJobQuery('/audit/step/3', jobId)}
+        next={withJobQuery('/audit/step/5', jobId)}
+        nextDisabled={!jobId || completedCount < tests.length}
+        style={{ marginBottom: '16px' }}
+      />
 
       <Space style={{ marginBottom: '16px', width: '100%', justifyContent: 'space-between' }}>
         <Title level={4} style={{ margin: 0 }}>执行审计测试</Title>

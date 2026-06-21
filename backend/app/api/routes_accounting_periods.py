@@ -2,6 +2,7 @@ from datetime import date
 from calendar import monthrange
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,7 @@ from app.schemas.accounting_period import (
 )
 from app.services.accounting_period_service import AccountingPeriodService
 from app.services import period_close_service
+from app.services.ledger_context_service import resolve_organization_id_for_ledger
 
 router = APIRouter(prefix="/api/accounting-periods", tags=["accounting-periods"])
 
@@ -101,6 +103,7 @@ def create_period(payload: AccountingPeriodCreate, db: Session = Depends(get_db)
 
     period = AccountingPeriod(
         organization_id=payload.organization_id,
+        ledger_id=payload.ledger_id,
         period_code=payload.period_code,
         period_type=payload.period_type,
         start_date=payload.start_date,
@@ -118,11 +121,22 @@ def create_period(payload: AccountingPeriodCreate, db: Session = Depends(get_db)
 
 
 @router.get("", response_model=list[AccountingPeriodRead])
-def list_periods(organization_id: int | None = None, db: Session = Depends(get_db)) -> list[AccountingPeriodRead]:
+def list_periods(
+    organization_id: int | None = None,
+    ledger_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> list[AccountingPeriodRead]:
     try:
+        if ledger_id is not None and organization_id is None:
+            organization_id = resolve_organization_id_for_ledger(db, ledger_id)
+
         query = db.query(AccountingPeriod).order_by(AccountingPeriod.start_date.desc(), AccountingPeriod.id.desc())
-        if organization_id:
+        if organization_id is not None:
             query = query.filter(AccountingPeriod.organization_id == organization_id)
+        if ledger_id is not None:
+            query = query.filter(
+                or_(AccountingPeriod.ledger_id == ledger_id, AccountingPeriod.ledger_id.is_(None))
+            )
         return [_period_response(db, period) for period in query.all()]
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=422, detail=f"会计期间加载失败，请检查期间表结构或迁移状态：{exc}")

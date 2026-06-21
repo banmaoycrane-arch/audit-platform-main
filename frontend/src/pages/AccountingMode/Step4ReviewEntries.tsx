@@ -173,7 +173,7 @@ return next
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev="/accounting/step/3" next="/accounting/step/5" style={{ marginBottom: '16px' }} />
+      <FlowNav prev={stepPath(3)} onNext={goNext} nextDisabled={!jobId || entries.length === 0 || !allVerified} style={{ marginBottom: '16px' }} />
 
       <Space style={{ marginBottom: '16px', width: '100%', justifyContent: 'space-between' }}>
         <Title level={4} style={{ margin: 0 }}>复核调整待复核凭证草稿</Title>
