@@ -47,6 +47,9 @@ interface UploadedFile {
   semanticTags?: string[]
   riskHints?: Array<{ risk_type: string; severity: string; description: string }>
   decompositionSource?: string
+  archivePath?: string
+  archiveCategory?: string
+  projectName?: string
 }
 
 interface ManualEntryLine {
@@ -371,6 +374,8 @@ export function Step2AccountingImportSource() {
             semantic_tags?: string[]
             risk_hints?: UploadedFile['riskHints']
             semantic_decomposition?: { decomposition_source?: string }
+            archive_path?: string
+            archive_context?: { archive_category?: string; project_name?: string; archive_path?: string }
           } | undefined
           return {
             ...item,
@@ -381,6 +386,9 @@ export function Step2AccountingImportSource() {
             semanticTags: registerItem?.semantic_tags,
             riskHints: registerItem?.risk_hints,
             decompositionSource: registerItem?.semantic_decomposition?.decomposition_source,
+            archivePath: registerItem?.archive_path || registerItem?.archive_context?.archive_path,
+            archiveCategory: registerItem?.archive_context?.archive_category,
+            projectName: registerItem?.archive_context?.project_name,
           }
         }))
 
@@ -1116,7 +1124,7 @@ export function Step2AccountingImportSource() {
 
       <Title level={4}>导入原始资料</Title>
         <Text type="secondary">
-          当前为 AI 智能生成路径。系统会先对底稿做语义分解（收入/成本/发票/往来/资金等维度），自动登记到一个或多个功能模块台账，并提取风险线索；不直接写入会计分录。
+          当前为 AI 智能生成路径。系统会先对底稿做语义分解（收入/成本/发票/往来/资金等维度），自动登记到一个或多个功能模块台账，并按项目自动归档底稿资料，便于后续在项目中检索管理；不直接写入会计分录。
         </Text>
 
       {outputPath && (
@@ -1189,7 +1197,7 @@ export function Step2AccountingImportSource() {
           </p>
           <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
           <p className="ant-upload-hint">
-            支持 PDF/图片/Excel/CSV 等。资料将保存为底稿并 AI 解析登记到税务、银行、往来、采购、销售等功能模块台账，不直接生成会计分录。
+            支持 PDF/图片/Excel/CSV 等。资料将保存为底稿、AI 解析登记到功能模块台账，并自动归档到项目目录；不直接生成会计分录。
           </p>
         </Dragger>
 
@@ -1235,6 +1243,12 @@ export function Step2AccountingImportSource() {
                           title={`识别 ${file.riskHints.length} 条风险线索`}
                           description={file.riskHints.map((hint) => hint.description).join('；')}
                         />
+                      )}
+                      {file.archivePath && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          归档路径：{file.archivePath}
+                          {file.archiveCategory ? `（${file.archiveCategory}）` : ''}
+                        </Text>
                       )}
                     </Space>
                   }

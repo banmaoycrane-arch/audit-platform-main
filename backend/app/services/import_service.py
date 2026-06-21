@@ -32,6 +32,7 @@ from app.services.audit_day_book_service import (
     DayBookReport,
     process_day_book_import,
 )
+from app.services.draft_archive_service import auto_archive_draft
 from app.services.register_ingestion_service import classify_and_ingest_register
 from app.services.import_routing_service import (
     AI_EVIDENCE_SOURCE_TYPES,
@@ -92,6 +93,8 @@ class ProcessingResult:
     semantic_tags: list[str] = field(default_factory=list)
     risk_hints: list[dict[str, Any]] = field(default_factory=list)
     draft_only: bool = False
+    archive_path: str | None = None
+    archive_context: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -448,6 +451,15 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
             )
             entries_created += 1
 
+        first_entry = parse_result.entries[0] if parse_result.entries else {}
+        archive_feedback = {
+            "document_type": "structured_ledger" if is_day_book_source_type(job.source_type) else "accounting_voucher",
+            "document_type_label": "序时簿" if is_day_book_source_type(job.source_type) else "会计凭证",
+            "voucher_date": first_entry.get("voucher_date"),
+            "summary": f"解析 {entries_created} 条分录",
+        }
+        archive = _archive_source_file(db, job, source_file, archive_feedback)
+
         # 更新文件状态
         source_file.text_extract_status = "parsed_entries"
         source_file.extracted_text = f"解析成功：{parse_result.template_name or '未知模板'}，{entries_created}条分录，逻辑校验问题{logic_report.error_count}个"
@@ -460,6 +472,8 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
                 entries_created=entries_created,
                 template_name=parse_result.template_name,
                 quality_score=parse_result.quality_score,
+                archive_path=archive.get("archive_path"),
+                archive_context=archive,
             ),
             tags,
             logic_report,
@@ -478,6 +492,26 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
             None,
             [],  # 返回空列表
         )
+
+
+def _archive_source_file(
+    db: Session,
+    job: ImportJob,
+    source_file: SourceFile,
+    feedback: dict[str, Any],
+    *,
+    module_registrations: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    archive = auto_archive_draft(
+        db,
+        source_file,
+        feedback,
+        module_registrations=module_registrations,
+        source_type=job.source_type,
+        job=job,
+    )
+    db.flush()
+    return archive
 
 
 def _load_document_type_hints(source_file: SourceFile) -> list[str]:
@@ -536,6 +570,17 @@ def _process_ai_register_file(db: Session, job: ImportJob, source_file: SourceFi
         if ingestion.error_message:
             feedback["error_message"] = ingestion.error_message
 
+        module_regs = [
+            {
+                "module_key": item.module_key,
+                "module_label": item.module_label,
+                "semantic_only": item.semantic_only,
+            }
+            for item in ingestion.module_registrations
+        ]
+        archive = _archive_source_file(db, job, source_file, feedback, module_registrations=module_regs)
+        feedback["archive"] = archive
+
         raw_text = classification.raw_text or extract_text(source_file.storage_path) or ""
         _save_parse_feedback(source_file, feedback, raw_text)
         source_file.text_extract_status = "register_ingested" if ingestion.success else "extracted"
@@ -583,6 +628,8 @@ def _process_ai_register_file(db: Session, job: ImportJob, source_file: SourceFi
             risk_hints=ingestion.risk_hints,
             draft_only=ingestion.draft_only,
             error_message=ingestion.error_message,
+            archive_path=archive.get("archive_path"),
+            archive_context=archive,
         )
     except Exception as exc:
         source_file.text_extract_status = "failed"
@@ -644,22 +691,21 @@ def _process_structured_preview(db: Session, job: ImportJob, source_file: Source
             + (f"，样例日期 {sample_dates[0]}" if sample_dates else "")
             + "。请使用「序时簿导入」模式生成正式会计凭证。"
         )
-        _save_parse_feedback(
-            source_file,
-            {
-                "document_type": "structured_ledger",
-                "document_type_label": "结构化序时簿/凭证表",
-                "confidence": 1.0,
-                "summary": preview_summary,
-                "voucher_date": sample_dates[0] if sample_dates else None,
-                "amount": None,
-                "counterparty": None,
-                "entry_count": entry_count,
-                "recommended_mode": "day_book_import",
-                "recommended_source_type": "ledger_day_book",
-            },
-            None,
-        )
+        feedback = {
+            "document_type": "structured_ledger",
+            "document_type_label": "结构化序时簿/凭证表",
+            "confidence": 1.0,
+            "summary": preview_summary,
+            "voucher_date": sample_dates[0] if sample_dates else None,
+            "amount": None,
+            "counterparty": None,
+            "entry_count": entry_count,
+            "recommended_mode": "day_book_import",
+            "recommended_source_type": "ledger_day_book",
+        }
+        archive = _archive_source_file(db, job, source_file, feedback)
+        feedback["archive"] = archive
+        _save_parse_feedback(source_file, feedback, None)
         source_file.text_extract_status = "structured_preview"
         return ProcessingResult(
             file_type="structured_preview",
@@ -668,6 +714,8 @@ def _process_structured_preview(db: Session, job: ImportJob, source_file: Source
             entries_created=0,
             template_name=parse_result.template_name,
             quality_score=parse_result.quality_score,
+            archive_path=archive.get("archive_path"),
+            archive_context=archive,
         )
     except Exception as exc:
         _save_parse_feedback(
@@ -732,6 +780,9 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
         result = classify_document(source_file.storage_path, source_file.filename)
         feedback = _extract_source_summary(result)
 
+        archive = _archive_source_file(db, job, source_file, feedback)
+        feedback["archive"] = archive
+
         # 更新文件状态
         _save_parse_feedback(source_file, feedback, result.raw_text or text)
         source_file.text_extract_status = "extracted"
@@ -755,6 +806,8 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
             filename=source_file.filename,
             success=True,
             text_extracted=text[:200] + "..." if len(text) > 200 else text,
+            archive_path=archive.get("archive_path"),
+            archive_context=archive,
         )
 
     except Exception as exc:
@@ -957,6 +1010,8 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
                 "risk_hints": item.risk_hints,
                 "draft_only": item.draft_only,
                 "success": item.success,
+                "archive_path": item.archive_path,
+                "archive_context": item.archive_context,
             }
             for item in file_results
             if item.file_type == "register_ledger"
