@@ -109,12 +109,36 @@ echo "SECRET_KEY=$(openssl rand -hex 32)" >> deploy/.env
 
 ---
 
-## 五、构建并启动
+## 四·补充：2GB 小内存服务器先加 Swap（重要）
 
-在仓库根目录执行：
+实测：前端打包峰值约需 **~1GB 内存**，后端构建也要几百 MB。**2GB 服务器在构建阶段（尤其两个镜像并行构建）很容易内存不足被系统杀掉（OOM），导致 build 失败。**
+
+解决办法：**加一块 4GB Swap（虚拟内存）+ 串行构建**，加完基本就稳了。注意这只是构建时的内存峰值——**跑起来后运行态很轻，2GB 完全够用**。
+
+加 4GB Swap（只需一次）：
 
 ```bash
-sudo docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab   # 开机自动启用
+free -h   # 确认 Swap 一行显示 4.0Gi
+```
+
+---
+
+## 五、构建并启动
+
+**2GB 内存推荐串行构建**（先后端、再前端，避免并行内存峰值），最后启动：
+
+```bash
+# 串行构建，降低内存峰值
+sudo docker compose -f deploy/docker-compose.yml build backend
+sudo docker compose -f deploy/docker-compose.yml build web
+
+# 启动（此时不要再加 --build）
+sudo docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 ```
 
 第一次会下载基础镜像、安装依赖、打包前端，需要几分钟。完成后查看状态：
@@ -124,6 +148,8 @@ sudo docker compose -f deploy/docker-compose.yml ps
 ```
 
 两个容器都显示 `Up` 即成功。
+
+> 若服务器内存 ≥ 4GB，可一步到位：`sudo docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build`
 
 ---
 
