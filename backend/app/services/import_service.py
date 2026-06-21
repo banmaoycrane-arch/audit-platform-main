@@ -88,6 +88,9 @@ class ProcessingResult:
     module_label: str | None = None
     module_path: str | None = None
     module_registrations: list[dict[str, Any]] = field(default_factory=list)
+    semantic_decomposition: dict[str, Any] = field(default_factory=dict)
+    semantic_tags: list[str] = field(default_factory=list)
+    risk_hints: list[dict[str, Any]] = field(default_factory=list)
     draft_only: bool = False
 
 
@@ -517,9 +520,15 @@ def _process_ai_register_file(db: Session, job: ImportJob, source_file: SourceFi
                         "module_path": item.module_path,
                         "register_ids": item.register_ids,
                         "register_count": item.register_count,
+                        "accounting_dimension": item.accounting_dimension,
+                        "semantic_only": item.semantic_only,
+                        "reason": item.reason,
                     }
                     for item in ingestion.module_registrations
                 ],
+                "semantic_decomposition": ingestion.semantic_decomposition,
+                "semantic_tags": ingestion.semantic_tags,
+                "risk_hints": ingestion.risk_hints,
                 "draft_only": ingestion.draft_only,
                 "output_path": "register_ledger",
             }
@@ -563,9 +572,15 @@ def _process_ai_register_file(db: Session, job: ImportJob, source_file: SourceFi
                     "module_path": item.module_path,
                     "register_ids": item.register_ids,
                     "register_count": item.register_count,
+                    "accounting_dimension": item.accounting_dimension,
+                    "semantic_only": item.semantic_only,
+                    "reason": item.reason,
                 }
                 for item in ingestion.module_registrations
             ],
+            semantic_decomposition=ingestion.semantic_decomposition,
+            semantic_tags=ingestion.semantic_tags,
+            risk_hints=ingestion.risk_hints,
             draft_only=ingestion.draft_only,
             error_message=ingestion.error_message,
         )
@@ -937,6 +952,9 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
                 "module_label": item.module_label,
                 "module_path": item.module_path,
                 "module_registrations": item.module_registrations,
+                "semantic_decomposition": item.semantic_decomposition,
+                "semantic_tags": item.semantic_tags,
+                "risk_hints": item.risk_hints,
                 "draft_only": item.draft_only,
                 "success": item.success,
             }

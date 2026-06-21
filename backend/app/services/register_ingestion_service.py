@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from typing import Any
 
@@ -19,6 +19,11 @@ from sqlalchemy.orm import Session
 
 from app.db.models import SourceFile
 from app.services.document_parsing_service import DocumentParsingService
+from app.services.draft_semantic_decomposition_service import (
+    ModuleTarget,
+    SemanticDecomposition,
+    decompose_draft,
+)
 from app.services.ledger_service import BusinessType, ContractLedger, LedgerEntry, ledger_service
 from app.services.source_document_service import SourceDocumentResult, classify_document
 
@@ -81,6 +86,9 @@ class ModuleRegistration:
     module_path: str
     register_ids: list[int] = field(default_factory=list)
     register_count: int = 0
+    accounting_dimension: str | None = None
+    semantic_only: bool = False
+    reason: str = ""
 
 
 @dataclass
@@ -96,6 +104,9 @@ class RegisterIngestionResult:
     error_message: str | None = None
     draft_only: bool = False
     module_registrations: list[ModuleRegistration] = field(default_factory=list)
+    semantic_decomposition: dict[str, Any] = field(default_factory=dict)
+    semantic_tags: list[str] = field(default_factory=list)
+    risk_hints: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _parse_date(value: Any) -> date | None:
@@ -137,33 +148,17 @@ def _apply_type_hints(result: SourceDocumentResult, hints: list[str] | None) -> 
 
 
 def _detect_contract_modules(data: dict[str, Any], raw_text: str | None, filename: str) -> list[str]:
-    """识别合同应登记到的功能模块台账（可多模块）。"""
-    text = f"{filename} {raw_text or ''} {data.get('content') or ''}"
-    contract_type = str(data.get("contract_type") or "").lower()
+    """兼容旧调用：委托语义分解引擎。"""
+    from app.services.source_document_service import SourceDocumentResult
 
-    modules: list[str] = []
-    if data.get("party_a") or data.get("party_b"):
-        modules.append("counterparty_ledger")
-
-    is_purchase = contract_type == "purchase" or any(keyword in text for keyword in PURCHASE_KEYWORDS)
-    is_sales = contract_type == "sales" or any(keyword in text for keyword in SALES_KEYWORDS)
-
-    if is_purchase:
-        modules.append("purchase")
-    if is_sales:
-        modules.append("sales")
-
-    if not modules:
-        modules.append("counterparty_ledger")
-
-    # 去重并保持顺序
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for module_key in modules:
-        if module_key not in seen:
-            seen.add(module_key)
-            ordered.append(module_key)
-    return ordered
+    classification = SourceDocumentResult(
+        document_type="contract",
+        confidence=0.9,
+        data=data,
+        raw_text=raw_text,
+        file_name=filename,
+    )
+    return decompose_draft(classification).module_keys()
 
 
 def _map_bank_transaction_type(value: str | None) -> str:
@@ -180,8 +175,15 @@ def _register_to_module(module_key: str, entry: LedgerEntry) -> None:
     bucket[entry.id] = entry
 
 
-def _build_module_registration(module_key: str, register_ids: list[int] | None = None) -> ModuleRegistration:
-    meta = MODULE_DEFINITIONS[module_key]
+def _build_module_registration(
+    module_key: str,
+    register_ids: list[int] | None = None,
+    *,
+    accounting_dimension: str | None = None,
+    semantic_only: bool = False,
+    reason: str = "",
+) -> ModuleRegistration:
+    meta = MODULE_DEFINITIONS.get(module_key, MODULE_DEFINITIONS["general"])
     ids = register_ids or []
     return ModuleRegistration(
         module_key=module_key,
@@ -189,7 +191,45 @@ def _build_module_registration(module_key: str, register_ids: list[int] | None =
         module_path=meta["module_path"],
         register_ids=ids,
         register_count=len(ids),
+        accounting_dimension=accounting_dimension,
+        semantic_only=semantic_only,
+        reason=reason,
     )
+
+
+def _register_semantic_projection(
+    source_file: SourceFile,
+    module_key: str,
+    data: dict[str, Any],
+    confidence: float,
+    target: ModuleTarget,
+    linked_db_id: int | None = None,
+) -> None:
+    """为分解出的次要模块建立语义台账投影（不一定有独立 DB 行）。"""
+    entry = ContractLedger(
+        source_file=source_file.filename,
+        source_type="contract",
+        contract_number=data.get("contract_number") or data.get("contract_no"),
+        party_a=data.get("party_a") or data.get("buyer_name"),
+        party_b=data.get("party_b") or data.get("seller_name"),
+        sign_date=data.get("sign_date"),
+        contract_amount=data.get("amount") or data.get("contract_amount") or data.get("total_amount"),
+        counterparty=data.get("party_b") or data.get("seller_name") or data.get("buyer_name"),
+        amount=data.get("amount") or data.get("contract_amount") or data.get("total_amount"),
+        date=data.get("sign_date") or data.get("invoice_date"),
+        confidence=target.confidence,
+        business_type=BusinessType.PURCHASE if module_key == "purchase" else BusinessType.SALES if module_key == "sales" else BusinessType.OTHER,
+        metadata={
+            **data,
+            "module_key": module_key,
+            "module_path": MODULE_DEFINITIONS.get(module_key, MODULE_DEFINITIONS["general"])["module_path"],
+            "semantic_projection": True,
+            "accounting_dimension": target.accounting_dimension,
+            "decomposition_reason": target.reason,
+            "linked_db_id": linked_db_id,
+        },
+    )
+    _register_to_module(module_key, entry)
 
 
 def _persist_invoice(
@@ -199,6 +239,7 @@ def _persist_invoice(
     data: dict[str, Any],
     confidence: float,
     raw_text: str | None,
+    decomposition: SemanticDecomposition,
 ) -> tuple[list[int], list[ModuleRegistration]]:
     service = DocumentParsingService(db)
     payload = {
@@ -220,9 +261,25 @@ def _persist_invoice(
     invoice_entry = ledger_service.add_invoice(data, source_file.filename)
     invoice_entry.metadata["module_key"] = "tax_invoice"
     invoice_entry.metadata["module_path"] = MODULE_DEFINITIONS["tax_invoice"]["module_path"]
+    invoice_entry.metadata["semantic_tags"] = decomposition.semantic_tags
     _register_to_module("tax_invoice", invoice_entry)
 
-    module_regs = [_build_module_registration("tax_invoice", [invoice.id])]
+    module_regs = [_build_module_registration("tax_invoice", [invoice.id], reason="主资料：发票")]
+    persisted_modules = {"tax_invoice"}
+
+    for target in decomposition.module_targets:
+        if target.module_key in persisted_modules:
+            continue
+        _register_semantic_projection(source_file, target.module_key, data, target.confidence, target, invoice.id)
+        module_regs.append(_build_module_registration(
+            target.module_key,
+            [invoice.id],
+            accounting_dimension=target.accounting_dimension,
+            semantic_only=True,
+            reason=target.reason,
+        ))
+        persisted_modules.add(target.module_key)
+
     return [invoice.id], module_regs
 
 
@@ -234,6 +291,7 @@ def _persist_contract(
     confidence: float,
     raw_text: str | None,
     filename: str,
+    decomposition: SemanticDecomposition,
 ) -> tuple[list[int], list[ModuleRegistration]]:
     service = DocumentParsingService(db)
     parties = []
@@ -242,7 +300,7 @@ def _persist_contract(
     if data.get("party_b"):
         parties.append({"party_role": "party_b", "party_name": data.get("party_b")})
 
-    module_keys = _detect_contract_modules(data, raw_text, filename)
+    module_keys = decomposition.module_keys() or ["counterparty_ledger"]
     contract_type = "purchase" if "purchase" in module_keys else "sales" if "sales" in module_keys else "service"
 
     payload = {
@@ -260,31 +318,49 @@ def _persist_contract(
     db.commit()
 
     base_entry = ledger_service.add_contract(data, source_file.filename)
+    base_entry.metadata["semantic_tags"] = decomposition.semantic_tags
     module_regs: list[ModuleRegistration] = []
+    target_by_key = {item.module_key: item for item in decomposition.module_targets}
 
     for module_key in module_keys:
-        module_entry = ContractLedger(
-            source_file=source_file.filename,
-            source_type="contract",
-            contract_number=base_entry.contract_number,
-            party_a=base_entry.party_a,
-            party_b=base_entry.party_b,
-            sign_date=base_entry.sign_date,
-            contract_amount=base_entry.contract_amount,
-            counterparty=base_entry.counterparty,
-            amount=base_entry.amount,
-            date=base_entry.date,
-            confidence=confidence,
-            business_type=BusinessType.PURCHASE if module_key == "purchase" else BusinessType.SALES if module_key == "sales" else BusinessType.OTHER,
-            metadata={
-                **data,
-                "module_key": module_key,
-                "module_path": MODULE_DEFINITIONS[module_key]["module_path"],
-                "contract_db_id": contract.id,
-            },
-        )
-        _register_to_module(module_key, module_entry)
-        module_regs.append(_build_module_registration(module_key, [contract.id]))
+        target = target_by_key.get(module_key) or ModuleTarget(module_key=module_key, confidence=confidence, reason="合同语义分解")
+        semantic_only = module_key in {"tax_invoice"} or module_key not in {"counterparty_ledger", "purchase", "sales"}
+
+        if semantic_only:
+            _register_semantic_projection(source_file, module_key, data, target.confidence, target, contract.id)
+        else:
+            module_entry = ContractLedger(
+                source_file=source_file.filename,
+                source_type="contract",
+                contract_number=base_entry.contract_number,
+                party_a=base_entry.party_a,
+                party_b=base_entry.party_b,
+                sign_date=base_entry.sign_date,
+                contract_amount=base_entry.contract_amount,
+                counterparty=base_entry.counterparty,
+                amount=base_entry.amount,
+                date=base_entry.date,
+                confidence=target.confidence,
+                business_type=BusinessType.PURCHASE if module_key == "purchase" else BusinessType.SALES if module_key == "sales" else BusinessType.OTHER,
+                metadata={
+                    **data,
+                    "module_key": module_key,
+                    "module_path": MODULE_DEFINITIONS[module_key]["module_path"],
+                    "contract_db_id": contract.id,
+                    "accounting_dimension": target.accounting_dimension,
+                    "decomposition_reason": target.reason,
+                    "semantic_tags": decomposition.semantic_tags,
+                },
+            )
+            _register_to_module(module_key, module_entry)
+
+        module_regs.append(_build_module_registration(
+            module_key,
+            [contract.id],
+            accounting_dimension=target.accounting_dimension,
+            semantic_only=semantic_only,
+            reason=target.reason,
+        ))
 
     return [contract.id], module_regs
 
@@ -296,6 +372,7 @@ def _persist_bank_statements(
     data: dict[str, Any],
     confidence: float,
     raw_text: str | None,
+    decomposition: SemanticDecomposition | None = None,
 ) -> tuple[list[int], list[ModuleRegistration]]:
     service = DocumentParsingService(db)
     register_ids: list[int] = []
@@ -324,7 +401,19 @@ def _persist_bank_statements(
         bank_entry.metadata["module_path"] = MODULE_DEFINITIONS["bank_cash_flow"]["module_path"]
         _register_to_module("bank_cash_flow", bank_entry)
 
-    module_regs = [_build_module_registration("bank_cash_flow", register_ids)]
+    module_regs = [_build_module_registration("bank_cash_flow", register_ids, reason="主资料：银行流水")]
+    if decomposition:
+        for target in decomposition.module_targets:
+            if target.module_key == "bank_cash_flow":
+                continue
+            _register_semantic_projection(source_file, target.module_key, data, target.confidence, target, register_ids[0] if register_ids else None)
+            module_regs.append(_build_module_registration(
+                target.module_key,
+                register_ids[:1],
+                accounting_dimension=target.accounting_dimension,
+                semantic_only=True,
+                reason=target.reason,
+            ))
     return register_ids, module_regs
 
 
@@ -401,22 +490,27 @@ def ingest_register_from_document(
     source_file: SourceFile,
     classification: SourceDocumentResult,
     document_type_hints: list[str] | None = None,
+    decomposition: SemanticDecomposition | None = None,
 ) -> RegisterIngestionResult:
     """将已分类原始资料登记到功能模块台账（非会计分录）。"""
     result = _apply_type_hints(classification, document_type_hints)
     document_type = _normalize_document_type(result.document_type)
+    semantic = decomposition or decompose_draft(result, document_type_hints)
 
     if document_type == "general" or result.confidence < 0.35:
-        general = _build_module_registration("general", [])
+        general = _build_module_registration("general", [], reason="待确认资料类型")
         return RegisterIngestionResult(
             success=True,
             document_type="general",
             module_label=general.module_label,
             module_path=general.module_path,
             confidence=result.confidence,
-            summary="已保存为底稿资料，待补充类型说明或人工确认后登记台账",
+            summary="已保存为底稿资料，待 AI 语义分解确认后登记台账",
             draft_only=True,
             module_registrations=[general],
+            semantic_decomposition=semantic.to_dict(),
+            semantic_tags=semantic.semantic_tags,
+            risk_hints=[asdict(item) for item in semantic.risk_hints],
         )
 
     try:
@@ -426,19 +520,19 @@ def ingest_register_from_document(
         register_ids: list[int] = []
 
         if document_type == "invoice":
-            register_ids, module_regs = _persist_invoice(db, organization_id, source_file, data, result.confidence, raw_text)
+            register_ids, module_regs = _persist_invoice(db, organization_id, source_file, data, result.confidence, raw_text, semantic)
         elif document_type == "contract":
             register_ids, module_regs = _persist_contract(
-                db, organization_id, source_file, data, result.confidence, raw_text, source_file.filename
+                db, organization_id, source_file, data, result.confidence, raw_text, source_file.filename, semantic
             )
         elif document_type == "bank_statement":
-            register_ids, module_regs = _persist_bank_statements(db, organization_id, source_file, data, result.confidence, raw_text)
+            register_ids, module_regs = _persist_bank_statements(db, organization_id, source_file, data, result.confidence, raw_text, semantic)
         elif document_type == "inventory_receipt":
             register_ids, module_regs = _persist_inventory(db, organization_id, source_file, data, result.confidence, raw_text)
         elif document_type == "payroll":
             register_ids, module_regs = _persist_payroll(source_file, data, result.confidence)
         else:
-            general = _build_module_registration("general", [])
+            general = _build_module_registration("general", [], reason="未识别模块")
             return RegisterIngestionResult(
                 success=True,
                 document_type=document_type,
@@ -448,9 +542,13 @@ def ingest_register_from_document(
                 summary="已保存底稿，暂未匹配到可落库的模块台账结构",
                 draft_only=True,
                 module_registrations=[general],
+                semantic_decomposition=semantic.to_dict(),
+                semantic_tags=semantic.semantic_tags,
+                risk_hints=[asdict(item) for item in semantic.risk_hints],
             )
 
         primary = module_regs[0]
+        risk_summary = f"；识别 {len(semantic.risk_hints)} 条风险线索" if semantic.risk_hints else ""
         return RegisterIngestionResult(
             success=True,
             document_type=document_type,
@@ -459,8 +557,11 @@ def ingest_register_from_document(
             register_ids=register_ids,
             register_count=len(register_ids),
             confidence=result.confidence,
-            summary=_summarize_modules(module_regs),
+            summary=_summarize_modules(module_regs) + risk_summary,
             module_registrations=module_regs,
+            semantic_decomposition=semantic.to_dict(),
+            semantic_tags=semantic.semantic_tags,
+            risk_hints=[asdict(item) for item in semantic.risk_hints],
         )
     except Exception as exc:
         general = MODULE_DEFINITIONS.get(document_type, MODULE_DEFINITIONS["general"])
@@ -474,6 +575,9 @@ def ingest_register_from_document(
             error_message=str(exc),
             draft_only=True,
             module_registrations=[],
+            semantic_decomposition=semantic.to_dict(),
+            semantic_tags=semantic.semantic_tags,
+            risk_hints=[asdict(item) for item in semantic.risk_hints],
         )
 
 
@@ -484,11 +588,13 @@ def classify_and_ingest_register(
     document_type_hints: list[str] | None = None,
 ) -> tuple[SourceDocumentResult, RegisterIngestionResult]:
     classification = classify_document(source_file.storage_path, source_file.filename)
+    decomposition = decompose_draft(classification, document_type_hints)
     ingestion = ingest_register_from_document(
         db,
         organization_id,
         source_file,
         classification,
         document_type_hints=document_type_hints,
+        decomposition=decomposition,
     )
     return classification, ingestion

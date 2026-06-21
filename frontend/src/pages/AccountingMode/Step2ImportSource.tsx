@@ -40,7 +40,13 @@ interface UploadedFile {
     module_label: string
     module_path: string
     register_count: number
+    accounting_dimension?: string | null
+    semantic_only?: boolean
+    reason?: string
   }>
+  semanticTags?: string[]
+  riskHints?: Array<{ risk_type: string; severity: string; description: string }>
+  decompositionSource?: string
 }
 
 interface ManualEntryLine {
@@ -360,12 +366,21 @@ export function Step2AccountingImportSource() {
         const fileRegister = reportSummary.register_summary?.find((item) => item.filename === file.name)
         setUploadedFiles(prev => prev.map((item) => {
           if (item.name !== file.name) return item
+          const registerItem = fileRegister as {
+            module_registrations?: UploadedFile['moduleRegistrations']
+            semantic_tags?: string[]
+            risk_hints?: UploadedFile['riskHints']
+            semantic_decomposition?: { decomposition_source?: string }
+          } | undefined
           return {
             ...item,
-            registerSummary: fileRegister?.module_registrations?.length
-              ? fileRegister.module_registrations.map((reg) => reg.module_label).join('、')
-              : fileRegister?.module_label,
-            moduleRegistrations: fileRegister?.module_registrations,
+            registerSummary: registerItem?.module_registrations?.length
+              ? registerItem.module_registrations.map((reg) => reg.module_label).join('、')
+              : undefined,
+            moduleRegistrations: registerItem?.module_registrations,
+            semanticTags: registerItem?.semantic_tags,
+            riskHints: registerItem?.risk_hints,
+            decompositionSource: registerItem?.semantic_decomposition?.decomposition_source,
           }
         }))
 
@@ -1100,9 +1115,9 @@ export function Step2AccountingImportSource() {
       <FlowNav prev={stepPath(1)} next={stepPath(3)} style={{ marginBottom: '16px' }} />
 
       <Title level={4}>导入原始资料</Title>
-      <Text type="secondary">
-        当前为 AI 智能生成路径。上传的发票、银行流水、合同、表格等资料会先登记为各功能模块台账底稿（税务/银行/往来/采购/销售），再由 AI 结合台账生成会计凭证草稿，不会直接写入会计分录。
-      </Text>
+        <Text type="secondary">
+          当前为 AI 智能生成路径。系统会先对底稿做语义分解（收入/成本/发票/往来/资金等维度），自动登记到一个或多个功能模块台账，并提取风险线索；不直接写入会计分录。
+        </Text>
 
       {outputPath && (
         <Alert
@@ -1195,9 +1210,31 @@ export function Step2AccountingImportSource() {
                       {file.moduleRegistrations && file.moduleRegistrations.length > 0 && (
                         <Space wrap size={[4, 4]}>
                           {file.moduleRegistrations.map((reg) => (
-                            <Tag key={reg.module_key} color="blue">{reg.module_label}</Tag>
+                            <Tag key={reg.module_key} color={reg.semantic_only ? 'gold' : 'blue'}>
+                              {reg.module_label}{reg.semantic_only ? '（语义投影）' : ''}
+                            </Tag>
                           ))}
                         </Space>
+                      )}
+                      {file.decompositionSource && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          分解引擎：{file.decompositionSource === 'rules+llm' ? '规则 + AI 语义增强' : '规则基线（稳定）'}
+                        </Text>
+                      )}
+                      {file.semanticTags && file.semanticTags.length > 0 && (
+                        <Space wrap size={[4, 4]}>
+                          {file.semanticTags.map((tag) => (
+                            <Tag key={tag}>{tag}</Tag>
+                          ))}
+                        </Space>
+                      )}
+                      {file.riskHints && file.riskHints.length > 0 && (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          title={`识别 ${file.riskHints.length} 条风险线索`}
+                          description={file.riskHints.map((hint) => hint.description).join('；')}
+                        />
                       )}
                     </Space>
                   }
