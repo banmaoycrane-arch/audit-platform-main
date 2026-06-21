@@ -46,6 +46,8 @@ import { Step3ImportEntries } from './pages/AuditMode/Step3ImportEntries'
 import { Step4RunTests } from './pages/AuditMode/Step4RunTests'
 import { Step5ReviewFindings } from './pages/AuditMode/Step5ReviewFindings'
 import { Step6ExportReport } from './pages/AuditMode/Step6ExportReport'
+import { BankAccountsPage } from './pages/Bank/BankAccountsPage'
+import { BankReconciliationPage } from './pages/Bank/BankReconciliationPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -186,16 +188,8 @@ function AppRoutes() {
             />
           )}
         />
-        <Route
-          path="/bank/accounts"
-          element={(
-            <PlaceholderModulePage
-              title="银行账户"
-              description="银行账户是资金流水、日记账和自动对账的基础资料，后续将与总账银行存款科目绑定。"
-              items={['开户银行与账号', '关联总账科目', '余额与流水导入']}
-            />
-          )}
-        />
+        <Route path="/bank/accounts" element={<LedgerDataGuard><BankAccountsPage /></LedgerDataGuard>} />
+        <Route path="/bank/reconciliation" element={<LedgerDataGuard><BankReconciliationPage /></LedgerDataGuard>} />
         <Route
           path="/bank/third-party-accounts"
           element={(
@@ -233,16 +227,6 @@ function AppRoutes() {
               title="账户设置"
               description="账户设置用于维护银行账户、三方支付账户与总账科目、组织主体、权限范围之间的对应关系。"
               items={['科目映射', '组织归属', '对账规则']}
-            />
-          )}
-        />
-        <Route
-          path="/bank/reconciliation"
-          element={(
-            <PlaceholderModulePage
-              title="自动对账"
-              description="自动对账用于匹配银行流水、三方支付流水和总账凭证，识别未达账项、重复付款和异常收支。"
-              items={['流水与凭证匹配', '未达账项', '异常差异提示']}
             />
           )}
         />

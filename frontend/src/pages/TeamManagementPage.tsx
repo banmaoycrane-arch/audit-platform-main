@@ -1,10 +1,10 @@
 import { useEffect, useState, useMemo } from 'react'
 import {
-  Button, Card, Col, Form, Input, message, Modal, Row, Select, Space, Table, Tag, Typography, Empty, Alert, Spin, Steps, Tooltip
+  Button, Card, Col, Form, Input, message, Modal, Row, Select, Space, Table, Tag, Typography, Empty, Alert, Spin, Steps, Tooltip, Dropdown
 } from 'antd'
 import {
   PlusOutlined, TeamOutlined, UserAddOutlined, MoreOutlined, UserOutlined, BookOutlined, SettingOutlined,
-  ArrowRightOutlined, SafetyCertificateOutlined, LockOutlined, AuditOutlined, CheckCircleOutlined, LoadingOutlined
+  ArrowRightOutlined, SafetyCertificateOutlined, LockOutlined, AuditOutlined, CheckCircleOutlined, LoadingOutlined, EditOutlined
 } from '@ant-design/icons'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
@@ -200,29 +200,12 @@ export function TeamManagementPage() {
     }
   }
 
-  const teamColumns = [
-    { title: '团队名称', dataIndex: 'name', key: 'name' },
-    {
-      title: '团队类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (value: string) => <Tag color="blue">{teamTypeLabelMap[value] || value}</Tag>,
-    },
-    { title: '创建时间', dataIndex: 'created_at', key: 'created_at', render: (value: string | null) => value || '-' },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_: unknown, record: Team) => (
-        <Button type="link" onClick={() => setSelectedTeamId(record.id)}>
-          查看成员
-        </Button>
-      ),
-    },
-  ]
-
-  // 团队卡片组件
-  const TeamCard = ({ team, selected, onSelect }: { team: Team; selected: boolean; onSelect: () => void }) => {
+  const TeamCard = ({ team, onSelect }: { team: Team; onSelect: () => void }) => {
     const isSelected = selectedTeamId === team.id
+    const menuItems = [
+      { key: 'members', label: '查看成员', icon: <UserOutlined />, onClick: () => setSelectedTeamId(team.id) },
+      { key: 'add', label: '添加成员', icon: <UserAddOutlined />, onClick: () => { setSelectedTeamId(team.id); setAddMemberOpen(true) } },
+    ]
     return (
       <Card
         hoverable
@@ -234,28 +217,27 @@ export function TeamManagementPage() {
           transition: 'all 0.3s',
         }}
         styles={{ body: { padding: 16 } }}
-        extra={
-          <Button
-            type="text"
-            icon={<MoreOutlined />}
-            onClick={(e) => {
-              e.stopPropagation()
-              setSelectedTeamId(team.id)
-            }}
-          />
-        }
       >
-        <div style={{ marginBottom: 12 }}>
-          <Tag color={teamTypeColorMap[team.type] || 'blue'} style={{ marginRight: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Tag color={teamTypeColorMap[team.type] || 'blue'}>
             {teamTypeLabelMap[team.type] || team.type}
           </Tag>
+          <Dropdown menu={{ items: menuItems }} trigger={['click']}>
+            <Button type="text" icon={<MoreOutlined />} onClick={(e) => e.stopPropagation()} />
+          </Dropdown>
         </div>
         <Title level={5} style={{ margin: '8px 0' }}>
           {team.name}
         </Title>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          创建时间：{team.created_at ? new Date(team.created_at).toLocaleDateString() : '-'}
-        </Text>
+        <Space size="large" style={{ fontSize: 12, color: '#666' }}>
+          <span><UserOutlined /> {team.member_count ?? '-'} 人</span>
+          <span><BookOutlined /> {team.ledger_count ?? '-'} 账套</span>
+        </Space>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            创建时间：{team.created_at ? new Date(team.created_at).toLocaleDateString() : '-'}
+          </Text>
+        </div>
       </Card>
     )
   }
@@ -447,7 +429,6 @@ export function TeamManagementPage() {
                   <Col xs={24} sm={12} key={team.id}>
                     <TeamCard
                       team={team}
-                      selected={selectedTeamId === team.id}
                       onSelect={() => setSelectedTeamId(team.id)}
                     />
                   </Col>
