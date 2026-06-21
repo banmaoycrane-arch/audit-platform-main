@@ -85,20 +85,30 @@ def _detect_header_row(frame: pd.DataFrame) -> int:
     检测表头行
 
     策略：
-    1. 查找包含关键词的行（如"凭证"、"摘要"、"金额"）
-    2. 查找与其他行格式明显不同的行
+    1. 查找包含多个标准字段关键词的行（如"凭证"、"摘要"、"金额"）
+    2. 跳过标题行（如"凭证序时簿"、"核算单位"等）
+    3. 查找与其他行格式明显不同的行
     """
     for i, row in frame.iterrows():
-        row_str = " ".join(str(v).lower() for v in row.values if pd.notna(v))
-        # 检查是否包含标准字段关键词
-        keywords = ["凭证", "摘要", "科目", "金额", "voucher", "summary", "account", "amount"]
-        if any(kw in row_str for kw in keywords):
+        row_values = [str(v) for v in row.values if pd.notna(v)]
+        row_str = " ".join(v.lower() for v in row_values)
+        
+        # 跳过明显的标题行（只包含一个值且是标题）
+        if len(row_values) == 1 and len(row_values[0]) < 20:
+            title_keywords = ["序时簿", "核算单位", "单位：", "年月", "报表", "台账"]
+            if any(kw in row_values[0] for kw in title_keywords):
+                continue
+        
+        # 检查是否包含多个标准字段关键词
+        header_keywords = ["凭证", "摘要", "科目", "金额", "voucher", "summary", "account", "amount"]
+        matched_keywords = sum(1 for kw in header_keywords if kw in row_str)
+        if matched_keywords >= 2:
             return i
-        # 检查是否为表头格式（文本较短）
-        non_null_count = sum(1 for v in row.values if pd.notna(v))
+        
+        # 检查是否为表头格式（文本较短且非空值较多）
+        non_null_count = len(row_values)
         if non_null_count >= 3:
-            # 表头行通常非空值较少或较短
-            avg_len = sum(len(str(v)) for v in row.values if pd.notna(v)) / max(non_null_count, 1)
+            avg_len = sum(len(v) for v in row_values) / max(non_null_count, 1)
             if avg_len < 20:
                 return i
     return 0  # 默认第一行
@@ -284,7 +294,7 @@ def parse_entries(path: str) -> ParseResult:
             total_rows=0,
             success_rows=0,
             error_rows=0,
-            error_message=str(e),
+            quality_score=0.0,
         )
 
     # 构建映射

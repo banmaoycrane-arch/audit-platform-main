@@ -184,3 +184,119 @@ def add_team_member(
         phone=member.phone,
         team_id=member.team_id,
     )
+
+
+class TeamHierarchyResponse(BaseModel):
+    """团队层级响应体"""
+    id: int
+    name: str
+    type: str
+    parent_team_id: int | None
+    sub_team_count: int
+    created_at: str | None
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/{team_id}/sub-teams", response_model=list[TeamHierarchyResponse])
+def list_sub_teams(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[TeamHierarchyResponse]:
+    """
+    获取团队的直接子团队列表。
+
+    功能描述：
+        1. 查询指定团队的直接下级子团队
+        2. 返回每个子团队的基本信息和子团队数量
+
+    Args:
+        team_id: 团队ID
+
+    Returns:
+        list[TeamHierarchyResponse]: 子团队列表
+    """
+    from app.models.team import Team
+    
+    # 验证团队是否存在
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="团队不存在")
+
+    # 获取直接子团队
+    sub_teams = db.query(Team).filter(Team.parent_team_id == team_id).all()
+    
+    return [
+        TeamHierarchyResponse(
+            id=sub.id,
+            name=sub.name,
+            type=sub.type,
+            parent_team_id=sub.parent_team_id,
+            sub_team_count=len(sub.sub_teams) if hasattr(sub, 'sub_teams') else 0,
+            created_at=str(sub.created_at) if sub.created_at else None,
+        )
+        for sub in sub_teams
+    ]
+
+
+@router.get("/{team_id}/hierarchy")
+def get_team_hierarchy(
+    team_id: int,
+    depth: int = 3,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    获取团队的层级结构。
+
+    功能描述：
+        1. 向上追溯到根团队
+        2. 向下递归获取子团队（受 depth 限制）
+
+    Args:
+        team_id: 团队ID
+        depth: 向下递归深度，默认3层
+
+    Returns:
+        dict: 包含团队层级结构
+    """
+    from app.models.team import Team
+    
+    def build_hierarchy(team: Team, current_depth: int, max_depth: int) -> dict:
+        result = {
+            "id": team.id,
+            "name": team.name,
+            "type": team.type,
+            "parent_team_id": team.parent_team_id,
+            "children": [],
+        }
+        
+        if current_depth < max_depth:
+            sub_teams = db.query(Team).filter(Team.parent_team_id == team.id).all()
+            for sub in sub_teams:
+                result["children"].append(build_hierarchy(sub, current_depth + 1, max_depth))
+        
+        return result
+
+    # 验证团队是否存在
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="团队不存在")
+
+    # 向上追溯到根
+    root = team
+    while root.parent_team_id:
+        parent = db.query(Team).filter(Team.id == root.parent_team_id).first()
+        if parent:
+            root = parent
+        else:
+            break
+
+    hierarchy = build_hierarchy(root, 0, depth)
+    
+    return {
+        "root_team": hierarchy,
+        "target_team_id": team_id,
+        "depth_requested": depth,
+    }

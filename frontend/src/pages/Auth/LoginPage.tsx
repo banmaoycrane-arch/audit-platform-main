@@ -16,6 +16,7 @@ export function LoginPage() {
   const [smsCountdown, setSmsCountdown] = useState(0)
   const [form] = Form.useForm()
   const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [smsLoginError, setSmsLoginError] = useState<string | null>(null)
   const [showSetPassword, setShowSetPassword] = useState(false)
   const [pendingToken, setPendingToken] = useState<string | null>(null)
 
@@ -69,6 +70,7 @@ export function LoginPage() {
   }
 
   const handleSmsLogin = async (values: { phone: string; code: string }) => {
+    setSmsLoginError(null)
     try {
       setSmsLoginLoading(true)
       const res = await api.loginSms(values.phone, values.code)
@@ -76,7 +78,19 @@ export function LoginPage() {
       // 如果用户名为空，说明是通过手机号注册的，需要设置密码
       await finishLogin(res.access_token, true)
     } catch (e: any) {
-      message.error(e.message || '验证码登录失败')
+      const errorMsg = e.message || '验证码登录失败'
+      // 根据错误消息类型显示友好的错误提示
+      let friendlyMsg = errorMsg
+      if (errorMsg.includes('验证码') || errorMsg.includes('code') || errorMsg.includes('Code')) {
+        friendlyMsg = '验证码错误，请重新输入'
+      } else if (errorMsg.includes('手机号') || errorMsg.includes('phone')) {
+        friendlyMsg = '手机号不存在，请检查或使用其他方式登录'
+      } else if (errorMsg.includes('过期') || errorMsg.includes('expired')) {
+        friendlyMsg = '验证码已过期，请重新获取'
+      }
+      setSmsLoginError(friendlyMsg)
+      // 保留手机号，清空验证码字段，让用户只需重新输入验证码
+      form.setFieldsValue({ code: '' })
     } finally {
       setSmsLoginLoading(false)
     }
@@ -84,13 +98,16 @@ export function LoginPage() {
 
   const handleSetPasswordSuccess = () => {
     setShowSetPassword(false)
-    message.success('登录成功')
-    navigate('/workspace', { replace: true })
+    // 不在这里 navigate，而是等待 afterClose 回调
   }
 
   const handleSetPasswordSkip = () => {
     setShowSetPassword(false)
-    message.success('登录成功（可稍后在个人中心设置密码）')
+    // 不在这里 navigate，而是等待 afterClose 回调
+  }
+
+  const handleModalAfterClose = () => {
+    message.success('登录成功')
     navigate('/workspace', { replace: true })
   }
 
@@ -131,7 +148,7 @@ export function LoginPage() {
           {passwordError && (
             <Alert
               type="error"
-              message={passwordError}
+              title={passwordError}
               showIcon
               style={{ marginBottom: 16 }}
               closable
@@ -165,8 +182,19 @@ export function LoginPage() {
       label: '验证码登录',
       children: (
         <Form form={form} onFinish={handleSmsLogin} layout="vertical">
+          {smsLoginError && (
+            <Alert
+              type="error"
+              title={smsLoginError}
+              description="请检查验证码后重新输入，或重新获取验证码"
+              showIcon
+              style={{ marginBottom: 16 }}
+              closable
+              onClose={() => setSmsLoginError(null)}
+            />
+          )}
           <Alert
-            message="开发环境会显示本次随机验证码"
+            title="开发环境会显示本次随机验证码"
             description="点击获取验证码后，页面提示中会显示本次验证码。"
             type="info"
             showIcon
@@ -206,7 +234,7 @@ export function LoginPage() {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
       <div style={{ width: 400, padding: 40, background: '#fff', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
         <h2 style={{ textAlign: 'center', marginBottom: 24, fontWeight: 600 }}>财务向量审计系统</h2>
-        <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as 'password' | 'sms')} centered items={tabItems} />
+        <Tabs activeKey={activeTab} onChange={(k) => { setActiveTab(k as 'password' | 'sms'); setSmsLoginError(null); setPasswordError(null) }} centered items={tabItems} />
         <div style={{ textAlign: 'center', marginTop: 16 }}>
           <span>还没有账号？</span>
           <Link to="/register" style={{ marginLeft: 4 }}>立即注册</Link>
@@ -216,6 +244,7 @@ export function LoginPage() {
         open={showSetPassword}
         onClose={handleSetPasswordSkip}
         onSuccess={handleSetPasswordSuccess}
+        afterClose={handleModalAfterClose}
       />
     </div>
   )

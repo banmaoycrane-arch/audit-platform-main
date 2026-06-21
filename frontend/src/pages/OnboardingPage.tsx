@@ -240,7 +240,7 @@ export function OnboardingPage() {
             type="warning"
             showIcon
             style={{ marginBottom: 16 }}
-            message="当前为临时工作状态"
+            title="当前为临时工作状态"
             description="未完成绑定前可以继续准备资料，但历史资料不会自动认领或并入当前账套；涉及正式记账、期间关闭、报表出具等操作应在完成会计主体确认后进行。"
           />
         )}
@@ -396,7 +396,7 @@ export function OnboardingPage() {
             <Alert
               type="info"
               showIcon
-              message="请确认当前账套的会计主体"
+              title="请确认当前账套的会计主体"
               description="会计主体是凭证、报表和审计证据的归属对象。确认后系统会把该主体写入当前账套，后续登录不会再重复提示该项缺失。"
             />
             <Divider />

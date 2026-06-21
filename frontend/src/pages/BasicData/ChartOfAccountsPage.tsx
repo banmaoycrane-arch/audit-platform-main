@@ -333,7 +333,7 @@ export function ChartOfAccountsPage() {
           <Alert
             type="info"
             showIcon
-            message="行业预设只新增不存在的科目；已有科目会跳过或提示冲突，不会覆盖用户已维护的科目。"
+            title="行业预设只新增不存在的科目；已有科目会跳过或提示冲突，不会覆盖用户已维护的科目。"
           />
           <Select
             style={{ width: 260 }}
@@ -418,7 +418,7 @@ export function ChartOfAccountsPage() {
               <Switch checkedChildren="纳入" unCheckedChildren="不纳入" />
             </Form.Item>
           )}
-          <Alert type="info" showIcon message={getAccountingGuide(accountCategory, equitySubcategory)} />
+          <Alert type="info" showIcon title={getAccountingGuide(accountCategory, equitySubcategory)} />
         </Form>
       </Modal>
     </Card>

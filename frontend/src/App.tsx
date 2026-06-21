@@ -37,6 +37,7 @@ import { LedgerLifecyclePage } from './pages/LedgerLifecyclePage'
 import { LedgerManagementPage } from './pages/LedgerManagementPage'
 import { LedgerFilesPage } from './pages/LedgerFilesPage'
 import { OnboardingPage } from './pages/OnboardingPage'
+import { OnboardingRequestPage } from './pages/OnboardingRequestPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { TeamManagementPage } from './pages/TeamManagementPage'
 import { Step1SelectScope } from './pages/AuditMode/Step1SelectScope'
@@ -94,6 +95,7 @@ function AppRoutes() {
       {/* SAAS Shell + 嵌套子路由（受保护） */}
       <Route element={<AuthGuard><MainShell /></AuthGuard>}>
         <Route path="/onboarding" element={<OnboardingPage />} />
+        <Route path="/onboarding-request" element={<OnboardingRequestPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/team-management" element={<TeamManagementPage />} />
         <Route path="/ledger-management" element={<LedgerManagementPage />} />

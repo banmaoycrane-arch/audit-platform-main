@@ -16,6 +16,16 @@ class BindCounterpartyRequest(BaseModel):
     counterparty_id: int | None = None
 
 
+class BindLedgerRequest(BaseModel):
+    ledger_id: int | None = None
+
+
+class UpdateFileRequest(BaseModel):
+    filename: str | None = None
+    file_type: str | None = None
+    notes: str | None = None
+
+
 def _extract_parse_summary(item: SourceFile) -> dict[str, Any]:
     if not item.extracted_text:
         return {"summary": None, "counterparty_hint": None, "raw_preview": None}
@@ -99,6 +109,7 @@ def _to_dict(db: Session, item: SourceFile) -> dict[str, Any]:
         "ledger_id": item.ledger_id,
         "filename": item.filename,
         "file_type": item.file_type,
+        "notes": item.notes,
         "text_extract_status": item.text_extract_status,
         "parse_status": item.text_extract_status,
         "parse_summary": parsed.get("summary"),
@@ -173,3 +184,43 @@ def bind_file_counterparty(file_id: int, payload: BindCounterpartyRequest, db: S
     db.commit()
     db.refresh(item)
     return _to_dict(db, item)
+
+
+@router.patch("/{file_id}/bind-ledger")
+def bind_file_ledger(file_id: int, payload: BindLedgerRequest, db: Session = Depends(get_db)) -> dict:
+    """将文件绑定到账套，或从账套解绑"""
+    item = db.get(SourceFile, file_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    item.ledger_id = payload.ledger_id
+    db.commit()
+    db.refresh(item)
+    return _to_dict(db, item)
+
+
+@router.patch("/{file_id}")
+def update_source_file(file_id: int, payload: UpdateFileRequest, db: Session = Depends(get_db)) -> dict:
+    """更新文件信息（文件名、文件类型、备注）"""
+    item = db.get(SourceFile, file_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if payload.filename is not None:
+        item.filename = payload.filename
+    if payload.file_type is not None:
+        item.file_type = payload.file_type
+    if payload.notes is not None:
+        item.notes = payload.notes
+    db.commit()
+    db.refresh(item)
+    return _to_dict(db, item)
+
+
+@router.delete("/{file_id}")
+def delete_source_file(file_id: int, db: Session = Depends(get_db)) -> dict:
+    """删除文件记录"""
+    item = db.get(SourceFile, file_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    db.delete(item)
+    db.commit()
+    return {"deleted": file_id, "message": "文件已删除"}

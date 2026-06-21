@@ -114,7 +114,7 @@ def login_password(payload: LoginPasswordRequest, db: Session = Depends(get_db))
 def login_sms(payload: LoginSmsRequest, db: Session = Depends(get_db)):
     user = auth_service.authenticate_user_by_sms(db, payload.phone, payload.code)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid SMS code")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="验证码错误，请重新输入或重新获取")
     token = create_access_token({"sub": str(user.id)})
     return TokenResponse(access_token=token)
 

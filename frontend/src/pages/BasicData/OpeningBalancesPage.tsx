@@ -170,7 +170,7 @@ export function OpeningBalancesPage() {
       {!isBalanced && (
         <Alert
           type="error"
-          message="期初借贷不平衡"
+          title="期初借贷不平衡"
           description={`借方合计 ¥${totals.debit.toLocaleString()}，贷方合计 ¥${totals.credit.toLocaleString()}，差额 ¥${(totals.debit - totals.credit).toLocaleString()}`}
           showIcon
           style={{ marginBottom: 16 }}
@@ -179,7 +179,7 @@ export function OpeningBalancesPage() {
       {isBalanced && trial && trial.count > 0 && (
         <Alert
           type="success"
-          message={`期初借贷平衡：¥${totals.debit.toLocaleString()}`}
+          title={`期初借贷平衡：¥${totals.debit.toLocaleString()}`}
           showIcon
           style={{ marginBottom: 16 }}
         />

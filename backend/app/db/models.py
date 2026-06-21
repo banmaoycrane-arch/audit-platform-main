@@ -29,6 +29,7 @@ class ImportJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     organization: Mapped[Organization] = relationship()
+    source_files: Mapped[list["SourceFile"]] = relationship(back_populates="import_job")
 
 
 class SourceFile(Base):
@@ -37,6 +38,7 @@ class SourceFile(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
     import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"))
+    import_job: Mapped[ImportJob] = relationship(back_populates="source_files")
     ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
     counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)
     filename: Mapped[str] = mapped_column(String(300))
@@ -46,6 +48,7 @@ class SourceFile(Base):
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     customer_match_source: Mapped[str | None] = mapped_column(String(80), nullable=True)
     customer_confidence_note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -364,6 +367,12 @@ class AccountingEntry(Base):
     entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id"), nullable=True)
     original_entity_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     
+    # 追溯字段：直接关联源文件
+    source_file_id: Mapped[int | None] = mapped_column(ForeignKey("source_files.id"), nullable=True)
+    
+    # 来源标记：区分自动生成与手工录入
+    entry_source: Mapped[str] = mapped_column(String(20), default="auto")  # "auto" | "manual"
+    
     debit_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
     credit_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
     counterparty: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -486,6 +495,9 @@ class AccountingUnit(Base):
     # 层级信息
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_units.id"), nullable=True)
     hierarchy_level: Mapped[int] = mapped_column(Integer, default=1)
+    
+    # 关联会计主体（直接追溯）
+    entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id"), nullable=True)
     
     # 元数据
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

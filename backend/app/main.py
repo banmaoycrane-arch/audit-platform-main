@@ -66,6 +66,7 @@ def _ensure_local_sqlite_schema() -> None:
                 "counterparty_id": "ALTER TABLE source_files ADD COLUMN counterparty_id INTEGER",
                 "customer_match_source": "ALTER TABLE source_files ADD COLUMN customer_match_source VARCHAR(80)",
                 "customer_confidence_note": "ALTER TABLE source_files ADD COLUMN customer_confidence_note VARCHAR(300)",
+                "notes": "ALTER TABLE source_files ADD COLUMN notes TEXT",
             }
             for column_name, ddl in missing_columns.items():
                 if column_name not in source_file_columns:

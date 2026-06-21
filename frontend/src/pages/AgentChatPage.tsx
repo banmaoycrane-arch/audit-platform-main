@@ -393,8 +393,8 @@ export function AgentChatPage() {
                   {caseTemplate.audit_trace_required && <Tag color="blue">全流程留痕</Tag>}
                   {caseTemplate.immutable_trace_required && <Tag color="red">不可篡改要求</Tag>}
                 </Space>
-                <Alert type="info" showIcon message={caseTemplate.workpaper_policy} />
-                <Alert type="warning" showIcon message={caseTemplate.audit_draft_policy} />
+                <Alert type="info" showIcon title={caseTemplate.workpaper_policy} />
+                <Alert type="warning" showIcon title={caseTemplate.audit_draft_policy} />
                 <Text type="secondary">{caseTemplate.api_tool_policy}</Text>
                 <List
                   size="small"
@@ -525,7 +525,7 @@ export function AgentChatPage() {
                         <Alert
                           type="success"
                           showIcon
-                          message={`${draftResults[approval.id].result.title}（${draftResults[approval.id].output_type}）`}
+                          title={`${draftResults[approval.id].result.title}（${draftResults[approval.id].output_type}）`}
                           description={
                             <Space direction="vertical">
                               <Text>{draftResults[approval.id].result.notice}</Text>
@@ -641,13 +641,13 @@ export function AgentChatPage() {
                     <Alert
                       type="warning"
                       showIcon
-                      message="当前智能建议服务暂不可用，系统正在使用基础规则给出建议。"
+                      title="当前智能建议服务暂不可用，系统正在使用基础规则给出建议。"
                     />
                   )}
                   <Alert
                     type="info"
                     showIcon
-                    message={
+                    title={
                       <Space>
                         <span>建议路径：{item.result.suggested_path}</span>
                         <Link to={item.result.suggested_path}>立即前往</Link>

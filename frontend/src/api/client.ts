@@ -137,6 +137,7 @@ export type SourceFileRead = {
   counterparty_name?: string | null
   filename: string
   file_type: string
+  notes?: string | null
   upload_status: string
   text_extract_status: string
   parse_status: string
@@ -515,9 +516,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error('后端服务不可用，请确认后端服务已启动后重试')
   }
   if (response.status === 401) {
-    localStorage.removeItem('token')
-    window.location.href = '/login'
-    throw new Error('Unauthorized')
+    // 登录相关接口的 401 不应清除 token 或重定向，直接透传错误给调用方
+    const isAuthEndpoint = path.includes('/login') || path.includes('/register') || path.includes('/sms/code')
+    if (!isAuthEndpoint) {
+      localStorage.removeItem('token')
+      window.location.href = '/login'
+    }
+    const errorMessage = await getApiErrorMessage(response)
+    throw new Error(errorMessage)
   }
   if (!response.ok) {
     const errorMessage = await getApiErrorMessage(response)
@@ -660,6 +666,12 @@ export const api = {
       body: JSON.stringify({ action, comment })
     }),
   similarSearch: (entryId: number) => request<{ results: unknown[]; message?: string }>(`/api/entries/${entryId}/similar-search`, { method: 'POST' }),
+  bindFileLedger: (fileId: number, ledgerId: number | null) =>
+    request<SourceFileRead>(`/api/files/${fileId}/bind-ledger`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ledger_id: ledgerId })
+    }),
   runAuditTests: (jobId: number) => request<AuditTestReport>(`/api/audit-tests/${jobId}/run`, { method: 'POST' }),
   getAuditTestReport: (jobId: number) => request<AuditTestReport>(`/api/audit-tests/${jobId}/report`),
   getAuditFindings: (jobId: number) => request<AuditFinding[]>(`/api/audit-tests/${jobId}/findings`),
@@ -727,6 +739,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ counterparty_id: counterpartyId }),
     }),
+  updateFile: (fileId: number, payload: { filename?: string; file_type?: string; notes?: string }) =>
+    request<SourceFileRead>(`/api/files/${fileId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  deleteFile: (fileId: number) =>
+    request<{ deleted: number; message: string }>(`/api/files/${fileId}`, { method: 'DELETE' }),
   createAccountingPeriod: (payload: {
     organization_id: number
     period_code: string

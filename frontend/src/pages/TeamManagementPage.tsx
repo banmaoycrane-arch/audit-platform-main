@@ -1,6 +1,11 @@
-import { useEffect, useState } from 'react'
-import { Button, Card, Col, Form, Input, message, Modal, Row, Select, Space, Tag, Typography, Empty, Alert } from 'antd'
-import { PlusOutlined, TeamOutlined, UserAddOutlined, MoreOutlined, UserOutlined, BookOutlined, SettingOutlined, ArrowRightOutlined } from '@ant-design/icons'
+import { useEffect, useState, useMemo } from 'react'
+import {
+  Button, Card, Col, Form, Input, message, Modal, Row, Select, Space, Table, Tag, Typography, Empty, Alert, Spin, Steps, Tooltip
+} from 'antd'
+import {
+  PlusOutlined, TeamOutlined, UserAddOutlined, MoreOutlined, UserOutlined, BookOutlined, SettingOutlined,
+  ArrowRightOutlined, SafetyCertificateOutlined, LockOutlined, AuditOutlined, CheckCircleOutlined, LoadingOutlined
+} from '@ant-design/icons'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
 import type { BindingOptions, BindingRequest, Team, TeamMember } from '../api/client'
@@ -30,6 +35,22 @@ const requestStatusMap: Record<string, { label: string; color: string }> = {
   approved: { label: '已通过', color: 'green' },
   rejected: { label: '已驳回', color: 'red' },
 }
+
+  // 缺少绑定项的图标映射
+  const missingBindingIconMap: Record<string, React.ReactNode> = {
+    team: <TeamOutlined />,
+    ledger: <BookOutlined />,
+    project: <AuditOutlined />,
+    accounting_entity: <SafetyCertificateOutlined />,
+  }
+
+  // 缺少绑定项的中文标签
+  const missingBindingLabelMap: Record<string, string> = {
+    team: '团队',
+    ledger: '账套',
+    project: '项目',
+    accounting_entity: '会计主体',
+  }
 
 export function TeamManagementPage() {
   const { authContext } = useAuthStore()
@@ -285,44 +306,99 @@ export function TeamManagementPage() {
     },
   ]
 
+  // 计算当前申请进度步骤
+  const currentStep = useMemo(() => {
+    if (!authContext) return 0
+    const { missing_bindings } = authContext
+    if (missing_bindings.includes('team')) return 0
+    if (missing_bindings.includes('ledger')) return 1
+    if (missing_bindings.includes('project')) return 2
+    if (missing_bindings.includes('accounting_entity')) return 3
+    return 4
+  }, [authContext])
+
   return (
     <div>
       {isGuest && authContext && (
         <Alert
-          message="您当前是访客身份"
+          title={
+            <Space>
+              <LockOutlined />
+              <Text strong>您当前是访客身份，需要完成授权才能访问系统数据</Text>
+            </Space>
+          }
           description={
             <div>
-              <Text type="secondary">
-                您尚未绑定团队，无法查看或管理团队数据。您可以：
-              </Text>
-              <div style={{ marginTop: 8 }}>
-                <Space direction="vertical">
-                  <Text type="secondary">
-                    <ArrowRightOutlined style={{ marginRight: 8 }} />
-                    <Button type="link" onClick={() => setRequestOpen(true)}>申请加入已有团队</Button>
-                    <Text> - 向管理员申请加入现有团队，获得数据访问权限</Text>
-                  </Text>
-                  <Text type="secondary">
-                    <ArrowRightOutlined style={{ marginRight: 8 }} />
-                    <Button type="link" onClick={() => setCreateOpen(true)}>创建新团队</Button>
-                    <Text> - 自己创建团队，成为团队管理员</Text>
-                  </Text>
-                </Space>
-              </div>
-              <div style={{ marginTop: 8 }}>
-                <Text type="secondary">
-                  缺少绑定项：
-                  {authContext.missing_bindings.map((key) => {
-                    const label = {
-                      team: '团队',
-                      ledger: '账套',
-                      project: '项目',
-                      accounting_entity: '会计主体',
-                    }[key] || key
-                    return <Tag color="orange" key={key}>{label}</Tag>
-                  })}
-                </Text>
-              </div>
+              <Steps
+                current={currentStep}
+                size="small"
+                style={{ marginBottom: 16 }}
+                items={[
+                  { title: '申请团队', icon: currentStep > 0 ? <CheckCircleOutlined /> : <TeamOutlined /> },
+                  { title: '申请账套', icon: currentStep > 1 ? <CheckCircleOutlined /> : currentStep === 1 ? <LoadingOutlined /> : <BookOutlined /> },
+                  { title: '申请项目', icon: currentStep > 2 ? <CheckCircleOutlined /> : currentStep === 2 ? <LoadingOutlined /> : <AuditOutlined /> },
+                ]}
+              />
+              <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+                请选择以下操作获取访问权限：
+              </Paragraph>
+              <Row gutter={[12, 8]}>
+                <Col xs={24} sm={8}>
+                  <Card
+                    size="small"
+                    hoverable
+                    onClick={() => setRequestOpen(true)}
+                    style={{ textAlign: 'center', cursor: 'pointer' }}
+                    bodyStyle={{ padding: 16 }}
+                  >
+                    <TeamOutlined style={{ fontSize: 24, color: '#1890ff', marginBottom: 8 }} />
+                    <div style={{ fontWeight: 500 }}>申请加入团队</div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      向管理员申请加入现有团队
+                    </Text>
+                  </Card>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Card
+                    size="small"
+                    hoverable
+                    onClick={() => setCreateOpen(true)}
+                    style={{ textAlign: 'center', cursor: 'pointer' }}
+                    bodyStyle={{ padding: 16 }}
+                  >
+                    <PlusOutlined style={{ fontSize: 24, color: '#52c41a', marginBottom: 8 }} />
+                    <div style={{ fontWeight: 500 }}>创建新团队</div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      自己创建团队，成为管理员
+                    </Text>
+                  </Card>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Card
+                    size="small"
+                    style={{ textAlign: 'center', background: '#fafafa' }}
+                    bodyStyle={{ padding: 16 }}
+                  >
+                    <SafetyCertificateOutlined style={{ fontSize: 24, color: '#faad14', marginBottom: 8 }} />
+                    <div style={{ fontWeight: 500 }}>等待审批</div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      已有 {myRequests.filter(r => r.status === 'pending').length} 个申请待审批
+                    </Text>
+                  </Card>
+                </Col>
+              </Row>
+              {authContext.missing_bindings.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <Text type="secondary">缺少授权项：</Text>
+                  <Space wrap style={{ marginTop: 4 }}>
+                    {authContext.missing_bindings.map((key) => (
+                      <Tag key={key} icon={missingBindingIconMap[key]} color="orange">
+                        {missingBindingLabelMap[key] || key}
+                      </Tag>
+                    ))}
+                  </Space>
+                </div>
+              )}
             </div>
           }
           type="warning"
@@ -340,8 +416,8 @@ export function TeamManagementPage() {
         </Col>
         <Col>
           <Space>
-            <Button onClick={() => setRequestOpen(true)}>
-              申请绑定鉴权
+            <Button icon={<SafetyCertificateOutlined />} onClick={() => setRequestOpen(true)}>
+              申请授权
             </Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
               创建团队
@@ -476,21 +552,43 @@ export function TeamManagementPage() {
       </Modal>
 
       <Modal
-        title="申请绑定鉴权"
+        title={
+          <Space>
+            <SafetyCertificateOutlined />
+            <span>申请授权（团队 / 账套 / 项目）</span>
+          </Space>
+        }
         open={requestOpen}
         onOk={handleCreateBindingRequest}
         onCancel={() => setRequestOpen(false)}
         okText="提交申请"
         cancelText="取消"
+        width={560}
       >
         <Form form={requestForm} layout="vertical" initialValues={{ requested_role: 'viewer' }}>
-          <Paragraph type="secondary">
-            提交申请不会立即看到隔离数据，需管理员审批通过后才会写入团队、账套和项目授权关系。
-          </Paragraph>
-          <Form.Item name="team_id" label="申请加入团队" rules={[{ required: true, message: '请选择团队' }]}>
+          <Alert
+            title="授权说明"
+            description={
+              <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
+                <li>选择团队是必选项，申请后将成为该团队的成员</li>
+                <li>账套和项目为可选项，可同时申请或稍后单独申请</li>
+                <li>审批通过后会自动写入对应的访问权限</li>
+              </ul>
+            }
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+          <Form.Item
+            name="team_id"
+            label={<Space><TeamOutlined /> 申请加入团队 <Text type="danger">*</Text></Space>}
+            rules={[{ required: true, message: '请选择要申请的团队' }]}
+          >
             <Select
               showSearch
+              placeholder="请先选择团队"
               optionFilterProp="label"
+              loading={loading}
               options={bindingOptions.teams.map((team) => ({ value: team.id, label: team.name }))}
               onChange={(teamId) => {
                 requestForm.setFieldsValue({ ledger_id: undefined, project_id: undefined })
@@ -498,33 +596,54 @@ export function TeamManagementPage() {
               }}
             />
           </Form.Item>
-          <Form.Item name="ledger_id" label="申请访问账套（可选）">
+          <Form.Item
+            name="ledger_id"
+            label={<Space><BookOutlined /> 申请访问账套</Space>}
+            tooltip="选择后获将得该账套的访问权限"
+          >
             <Select
               allowClear
               showSearch
+              placeholder={bindingOptions.ledgers.length > 0 ? "请选择账套（可选）" : "请先选择团队"}
               optionFilterProp="label"
+              disabled={!requestForm.getFieldValue('team_id')}
               options={bindingOptions.ledgers.map((ledger) => ({ value: ledger.id, label: ledger.name }))}
             />
           </Form.Item>
-          <Form.Item name="project_id" label="申请关联项目（可选）">
+          <Form.Item
+            name="project_id"
+            label={<Space><AuditOutlined /> 申请关联项目</Space>}
+            tooltip="选择后将获得该项目的参与权限"
+          >
             <Select
               allowClear
               showSearch
+              placeholder={bindingOptions.projects.length > 0 ? "请选择项目（可选）" : "请先选择团队"}
               optionFilterProp="label"
+              disabled={!requestForm.getFieldValue('team_id')}
               options={bindingOptions.projects.map((project) => ({ value: project.id, label: project.name }))}
             />
           </Form.Item>
-          <Form.Item name="requested_role" label="申请角色" rules={[{ required: true, message: '请选择申请角色' }]}>
+          <Form.Item
+            name="requested_role"
+            label={<Space><LockOutlined /> 申请角色 <Text type="danger">*</Text></Space>}
+            rules={[{ required: true, message: '请选择申请角色' }]}
+          >
             <Select
               options={[
-                { value: 'viewer', label: '查看' },
-                { value: 'accountant', label: '记账' },
-                { value: 'admin', label: '管理' },
+                { value: 'viewer', label: '查看 - 仅查看数据，不能修改' },
+                { value: 'accountant', label: '记账 - 可录入和修改账务数据' },
+                { value: 'admin', label: '管理 - 完整访问和管理权限' },
               ]}
             />
           </Form.Item>
           <Form.Item name="reason" label="申请说明">
-            <Input.TextArea rows={3} placeholder="例如：我是本项目记账人员，需要访问该账套处理本期凭证。" />
+            <Input.TextArea
+              rows={3}
+              placeholder="请简要说明申请原因，例如：我是本项目记账人员，需要访问该账套处理本期凭证。"
+              showCount
+              maxLength={200}
+            />
           </Form.Item>
         </Form>
       </Modal>

@@ -67,7 +67,7 @@ export function Step6ExportReport() {
 
       {!jobId && (
         <Alert
-          message="尚未找到可导出的审计报告数据"
+          title="尚未找到可导出的审计报告数据"
           description="请从「复核发现」步骤重新进入，否则无法导出审计报告。"
           type="warning"
           showIcon
@@ -77,7 +77,7 @@ export function Step6ExportReport() {
 
       {exported && (
         <Alert
-          message="导出成功"
+          title="导出成功"
           description="审计报告已生成并下载，请检查您的下载文件夹。"
           type="success"
           showIcon

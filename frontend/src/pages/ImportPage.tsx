@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api, type ImportJob } from '../api/client'
 import { FileUploader } from '../components/FileUploader'
+import { useAuthStore } from '../stores/authStore'
 
 interface ImportReport {
   job_id: number
@@ -52,9 +53,10 @@ export function ImportPage({ jobs, onChanged }: { jobs: ImportJob[]; onChanged: 
   const [message, setMessage] = useState('')
   const [report, setReport] = useState<ImportReport | null>(null)
   const [loading, setLoading] = useState(false)
+  const { currentLedgerId } = useAuthStore()
 
   async function createJob() {
-    const job = await api.createImportJob(organizationName)
+    const job = await api.createImportJob(organizationName, undefined, currentLedgerId)
     setSelectedJobId(job.id)
     setMessage(`已创建导入批次 #${job.id}`)
     setReport(null)

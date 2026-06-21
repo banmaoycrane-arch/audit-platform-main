@@ -14,7 +14,7 @@ export function PlaceholderModulePage({ title, description, items = [] }: Placeh
       <Alert
         type="info"
         showIcon
-        message="预留功能，待接入真实数据"
+        title="预留功能，待接入真实数据"
         description="当前页面用于说明业务边界和后续建设方向，暂不代表该模块已完成正式业务处理。"
         style={{ marginBottom: 16 }}
       />

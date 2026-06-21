@@ -27,7 +27,7 @@ export function OrganizationUnitsPage() {
       <Alert
         type="warning"
         showIcon
-        message="虚拟核算单位必须依托至少一个实体核算对象"
+        title="虚拟核算单位必须依托至少一个实体核算对象"
         description="虚拟组织只能作为管理口径，不能替代法人、分支机构、门店等真实承担业务和责任的实体对象。"
         style={{ marginBottom: 16 }}
       />

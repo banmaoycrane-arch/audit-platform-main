@@ -7,9 +7,10 @@ interface SetPasswordModalProps {
   open: boolean
   onClose: () => void
   onSuccess: () => void
+  afterClose?: () => void
 }
 
-export function SetPasswordModal({ open, onClose, onSuccess }: SetPasswordModalProps) {
+export function SetPasswordModal({ open, onClose, onSuccess, afterClose }: SetPasswordModalProps) {
   const [loading, setLoading] = useState(false)
   const [form] = Form.useForm()
 
@@ -41,9 +42,10 @@ export function SetPasswordModal({ open, onClose, onSuccess }: SetPasswordModalP
       title="设置密码"
       open={open}
       onCancel={onClose}
+      afterClose={afterClose}
       footer={null}
       closable={true}
-      maskClosable={false}
+      mask={{ closable: false }}
     >
       <div style={{ marginBottom: 16 }}>
         <p style={{ color: '#666', fontSize: 14 }}>

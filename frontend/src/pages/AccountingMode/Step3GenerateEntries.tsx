@@ -166,7 +166,7 @@ const detail = error instanceof Error ? error.message : String(error)
 
       {(!jobId || !periodId) && (
         <Alert
-          message="缺少导入任务或会计期间"
+          title="缺少导入任务或会计期间"
           description="请从导入资料步骤重新进入并选择会计期间，否则无法生成草稿。"
           type="warning"
           showIcon
@@ -181,7 +181,7 @@ const detail = error instanceof Error ? error.message : String(error)
 
       {(sourceTypes.length > 0 || parseSummary) && (
         <Alert
-          message="Step2 原始资料解析上下文"
+          title="Step2 原始资料解析上下文"
           description={
             <Space direction="vertical" size={4}>
               {sourceTypes.length > 0 && <div><strong>用户选择资料类型：</strong>{sourceTypes.join('、')}</div>}
@@ -196,7 +196,7 @@ const detail = error instanceof Error ? error.message : String(error)
 
       {hasBlockedDraft && (
         <Alert
-          message="原始资料不足，AI 草稿已暂存但不能保存进入复核"
+          title="原始资料不足，AI 草稿已暂存但不能保存进入复核"
           description={
             <Space direction="vertical" size="small">
               {blockedDrafts.map((draft, index) => {

@@ -73,7 +73,7 @@ export function Step5Export() {
 
       {!jobId && (
         <Alert
-          message="尚未找到可确认入账与导出的已复核凭证"
+          title="尚未找到可确认入账与导出的已复核凭证"
           description="请先完成草稿生成和复核调整，再进入确认入账与导出步骤。"
           type="warning"
           showIcon
@@ -83,7 +83,7 @@ export function Step5Export() {
 
       {exported && (
         <Alert
-          message="确认入账与导出成功"
+          title="确认入账与导出成功"
           description="已复核凭证文件已生成并下载，请检查您的下载文件夹。"
           type="success"
           showIcon
@@ -92,7 +92,7 @@ export function Step5Export() {
       )}
 
       <Alert
-        message="当前步骤用于确认入账与导出已复核凭证"
+        title="当前步骤用于确认入账与导出已复核凭证"
         description="凭证已完成复核，可在本步骤进行确认入账与导出。本步骤不新增完整总账过账引擎、结账或复杂审批流，底层导出功能保持不变。"
         type="info"
         showIcon

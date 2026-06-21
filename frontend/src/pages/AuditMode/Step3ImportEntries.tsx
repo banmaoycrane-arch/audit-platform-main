@@ -5,6 +5,7 @@ import { InboxOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { api, type AccountingEntry, type DayBookReport } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { useAuthStore } from '../../stores/authStore'
 
 const { Dragger } = Upload
 const { Title } = Typography
@@ -14,6 +15,7 @@ type ImportKind = 'voucher' | 'audit_day_book'
 export function Step3ImportEntries() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { currentLedgerId } = useAuthStore()
   const urlJobId = Number(searchParams.get('jobId') || 0)
   const currentStep = 2
   const [entries, setEntries] = useState<AccountingEntry[]>([])
@@ -81,7 +83,7 @@ export function Step3ImportEntries() {
     if (!currentJobId) {
       if (kind === 'audit_day_book') {
         try {
-          const job = await api.createImportJob('审计项目', 'audit_day_book')
+          const job = await api.createImportJob('审计项目', 'audit_day_book', currentLedgerId)
           currentJobId = job.id
           setJobId(currentJobId)
           setJobSourceType(job.source_type)
@@ -213,7 +215,7 @@ export function Step3ImportEntries() {
 
         {hasIssues && (
           <Alert
-            message="检测到序时簿异常"
+            title="检测到序时簿异常"
             type="warning"
             showIcon
             style={{ marginTop: '16px' }}
@@ -284,7 +286,7 @@ export function Step3ImportEntries() {
 
       {!jobId && (
         <Alert
-          message="尚未找到导入资料"
+          title="尚未找到导入资料"
           description="请从导入资料步骤重新进入；如本次要直接导入序时簿，可在序时簿导入页签上传文件，系统会自动创建序时簿任务。"
           type="warning"
           showIcon
@@ -294,7 +296,7 @@ export function Step3ImportEntries() {
 
       {activeKind === 'audit_day_book' && jobId > 0 && jobSourceType !== 'audit_day_book' && (
         <Alert
-          message="序时簿将作为单独的审计资料处理"
+          title="序时簿将作为单独的审计资料处理"
           description="当前已有任务不是序时簿任务。上传序时簿时，系统会自动新建序时簿任务，用于跳号、完整性和借贷平衡检测。"
           type="info"
           showIcon

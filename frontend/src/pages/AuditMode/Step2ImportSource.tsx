@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { InboxOutlined, PlusOutlined, RobotOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { useAuthStore } from '../../stores/authStore'
 
 const { Dragger } = Upload
 const { Title, Text } = Typography
@@ -31,6 +32,7 @@ interface UploadedFile {
 
 export function Step2AuditImportSource() {
   const navigate = useNavigate()
+  const { currentLedgerId } = useAuthStore()
   const currentStep = 1
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
@@ -45,7 +47,7 @@ export function Step2AuditImportSource() {
       let jobId = currentJobId
       if (!jobId) {
         // 创建导入任务
-        const job = await api.createImportJob('审计项目')
+        const job = await api.createImportJob('审计项目', undefined, currentLedgerId)
         jobId = job.id
         setCurrentJobId(jobId)
       }
@@ -61,7 +63,15 @@ export function Step2AuditImportSource() {
         fileId: result.id,
       }
       setUploadedFiles(prev => [...prev, fileInfo])
-      message.success(`${file.name} 上传成功`)
+
+      // 上传后自动触发生成（同步处理所有文件）
+      message.loading({ content: '正在解析上传文件，请稍候...', key: 'parsing' })
+      try {
+        await api.processImportJobSync(jobId)
+        message.success({ content: `文件解析完成，${file.name} 已处理`, key: 'parsing' })
+      } catch {
+        message.warning({ content: `${file.name} 上传成功，但解析失败`, key: 'parsing' })
+      }
     } catch (error) {
       message.error(`${file.name} 上传失败`)
       console.error('Upload error:', error)

@@ -32,7 +32,7 @@ ACCOUNTING_TEMPLATES: dict[str, dict[str, Any]] = {
             "credit_amount": ["贷方金额", "贷方", "贷发生额", "贷方发生额", "credit"],
             "counterparty": ["往来单位", "供应商", "客户", "对方单位", "交易对方", "单位"],
         },
-        "required": ["summary", "account_name"],
+        "required": ["summary"],
         "optional": ["voucher_no", "voucher_date", "account_code", "debit_amount", "credit_amount", "counterparty"],
     },
     "标准英文": {
@@ -47,7 +47,7 @@ ACCOUNTING_TEMPLATES: dict[str, dict[str, Any]] = {
             "credit_amount": ["credit_amount", "credit", "cr", "credit_amt"],
             "counterparty": ["counterparty", "supplier", "customer", "vendor", "payee", "party"],
         },
-        "required": ["summary", "account_name"],
+        "required": ["summary"],
         "optional": ["voucher_no", "voucher_date", "account_code", "debit_amount", "credit_amount", "counterparty"],
     },
     "金蝶K3标准": {
@@ -62,7 +62,7 @@ ACCOUNTING_TEMPLATES: dict[str, dict[str, Any]] = {
             "credit_amount": ["贷方", "贷方金额", "贷方本位币"],
             "counterparty": ["往来单位", "供应商", "客户"],
         },
-        "required": ["summary", "account_name", "debit_amount", "credit_amount"],
+        "required": ["summary"],
         "optional": ["voucher_no", "voucher_date", "account_code", "counterparty"],
     },
     "用友U8标准": {
@@ -77,7 +77,7 @@ ACCOUNTING_TEMPLATES: dict[str, dict[str, Any]] = {
             "credit_amount": ["贷方金额", "贷方"],
             "counterparty": ["往来单位", "部门", "个人"],
         },
-        "required": ["summary", "account_name"],
+        "required": ["summary"],
         "optional": ["voucher_no", "voucher_date", "account_code", "debit_amount", "credit_amount", "counterparty"],
     },
     "SAP格式": {

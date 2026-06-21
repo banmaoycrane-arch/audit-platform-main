@@ -287,47 +287,61 @@ def generate_drafts(
     files: list[SourceFile] = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
     evidence_check = _check_evidence_sufficiency(files)
 
-    existing_entries: list[AccountingEntry] = (
-        db.query(AccountingEntry)
-        .filter(AccountingEntry.import_job_id == job.id)
-        .order_by(AccountingEntry.voucher_no, AccountingEntry.entry_line_no)
-        .all()
+    # 只查数据库中实际存在的列，避免 SQLAlchemy 映射缺失字段
+    from sqlalchemy import select
+    existing_rows = (
+        db.execute(
+            select(
+                AccountingEntry.id,
+                AccountingEntry.voucher_no,
+                AccountingEntry.voucher_date,
+                AccountingEntry.summary,
+                AccountingEntry.account_code,
+                AccountingEntry.account_name,
+                AccountingEntry.debit_amount,
+                AccountingEntry.credit_amount,
+                AccountingEntry.counterparty,
+            ).where(AccountingEntry.import_job_id == job.id)
+        )
+        .fetchall()
     )
 
-    if existing_entries:
+    if existing_rows:
         # 基于既有分录应用规则进行"重写"：不修改原数据
-        for entry in existing_entries:
-            voucher_date, clamped = _clamp_date(entry.voucher_date, period)
+        for row in existing_rows:
+            # row: (id, voucher_no, voucher_date, summary, account_code, account_name, debit_amount, credit_amount, counterparty)
+            row_id, voucher_no_raw, voucher_date, summary, account_code, account_name, debit_amount, credit_amount, counterparty = row
+            voucher_date, clamped = _clamp_date(voucher_date, period)
             file_type = None
-            prefix = _voucher_prefix(entry.account_name, entry.summary, file_type)
-            if prefix == "收" and (entry.credit_amount or 0) > 0 and (entry.debit_amount or 0) == 0:
+            prefix = _voucher_prefix(account_name, summary, file_type)
+            if prefix == "收" and (credit_amount or 0) > 0 and (debit_amount or 0) == 0:
                 prefix = "付"
-            voucher_no = f"{prefix}-{(entry.voucher_no or str(entry.id))[-6:]}"
-            counterparty = entry.counterparty if entry.counterparty else ""
-            new_summary = _format_summary(prefix, entry.account_name, counterparty, entry.summary)
+            voucher_no = f"{prefix}-{(voucher_no_raw or str(row_id))[-6:]}"
+            counterparty_str = counterparty if counterparty else ""
+            new_summary = _format_summary(prefix, account_name, counterparty_str, summary)
             metadata = _merge_evidence_metadata(
-                {"date_clamped": clamped, "vector_pending": True, "source_entry_id": entry.id},
+                {"date_clamped": clamped, "vector_pending": True, "source_entry_id": row_id},
                 evidence_check,
             )
             draft = {
-                "source_entry_id": entry.id,
+                "source_entry_id": row_id,
                 "voucher_no": voucher_no,
                 "voucher_date": voucher_date.isoformat(),
-                "account_code": entry.account_code,
-                "account_name": entry.account_name,
+                "account_code": account_code,
+                "account_name": account_name,
                 "summary": new_summary,
-                "debit_amount": float(entry.debit_amount or 0),
-                "credit_amount": float(entry.credit_amount or 0),
-                "counterparty": counterparty or None,
-                "entry_line_no": entry.entry_line_no,
+                "debit_amount": float(debit_amount or 0),
+                "credit_amount": float(credit_amount or 0),
+                "counterparty": counterparty_str or None,
+                "entry_line_no": 1,
                 "metadata": metadata,
                 "tags": _extract_tags(
                     {
                         "summary": new_summary,
-                        "account_code": entry.account_code,
-                        "account_name": entry.account_name,
-                        "counterparty": entry.counterparty,
-                        "source_entry_id": entry.id,
+                        "account_code": account_code,
+                        "account_name": account_name,
+                        "counterparty": counterparty,
+                        "source_entry_id": row_id,
                         "metadata": metadata,
                     }
                 ),

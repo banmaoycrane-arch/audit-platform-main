@@ -8,6 +8,7 @@
 创建日期：2026-06-18
 更新记录：
     2026-06-18  初始创建 ProjectMember 关联模型
+    2026-06-21  扩展角色体系，新增审计实务角色（partner/manager/senior/staff）
 """
 from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, Integer, String, func, UniqueConstraint
@@ -16,10 +17,33 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 
 
+# 审计实务角色枚举
+AUDIT_ROLES = [
+    "partner",        # 合伙人/项目负责人
+    "manager",        # 经理/高级经理
+    "senior",         # 高级审计员
+    "staff",          # 审计员/初级人员
+    "reviewer",       # 复核人
+    "viewer",         # 查看者
+    "leader",         # 现场带队（兼容旧角色）
+    "member",         # 普通成员（兼容旧角色）
+]
+
+
 class ProjectMember(Base):
     """
     项目成员实体：记录"谁参与了哪个项目"以及"担任什么角色"
     对应审计实务中的"项目组成员表"，确保职责清晰、可追溯
+
+    角色体系（审计实务）：
+        - partner: 合伙人/项目负责人，负责项目承接、报告签发
+        - manager: 经理/高级经理，负责项目执行、质量控制
+        - senior: 高级审计员，负责现场带队、任务分配
+        - staff: 审计员/初级人员，负责执行具体审计程序
+        - reviewer: 复核人，负责复核底稿和报告
+        - viewer: 查看者，只读权限
+        - leader: 现场带队（兼容旧角色）
+        - member: 普通成员（兼容旧角色）
     """
     __tablename__ = "project_members"
 
@@ -36,7 +60,7 @@ class ProjectMember(Base):
     )
     role: Mapped[str] = mapped_column(
         String(50), nullable=False, default="member"
-    )  # manager / leader / member / reviewer / viewer
+    )  # partner / manager / senior / staff / reviewer / viewer / leader / member
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

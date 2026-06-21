@@ -391,3 +391,35 @@ def cancel_project_endpoint(
         created_at=str(updated.created_at) if updated.created_at else None,
         updated_at=str(updated.updated_at) if updated.updated_at else None,
     )
+
+
+@router.get("/{project_id}/consolidated-report")
+def get_consolidated_report(
+    project_id: int,
+    period_start: str | None = None,
+    period_end: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    获取项目跨账套汇总报告。
+
+    功能描述：
+        1. 获取项目关联的所有账套
+        2. 汇总各账套的会计分录数据
+        3. 按科目分类汇总借贷方发生额
+        4. 识别潜在的内部交易
+
+    会计口径：
+        - 跨账套数据汇总用于集团层面的分析
+        - 仅汇总 entry_source='auto' 的分录
+
+    Args:
+        project_id: 项目ID
+        period_start: 可选，汇总起始日期 (YYYY-MM-DD)
+        period_end: 可选，汇总结束日期 (YYYY-MM-DD)
+
+    Returns:
+        dict: 包含汇总数据、项目账套列表、科目发生额汇总、内部交易识别
+    """
+    return project_service.get_consolidated_report(db, project_id, period_start, period_end)

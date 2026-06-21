@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Form, Select, Space, Table, Tag, Typography, message } from 'antd'
-import { FileTextOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd'
+import { DeleteOutlined, EditOutlined, FileTextOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { Counterparty, SourceFileRead } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
@@ -21,6 +21,21 @@ const PARSE_STATUS_COLOR: Record<string, string> = {
   processing: 'blue',
 }
 
+const FILE_TYPE_OPTIONS = [
+  { value: 'invoice', label: '发票' },
+  { value: 'contract', label: '合同' },
+  { value: 'voucher', label: '凭证' },
+  { value: 'statement', label: '银行对账单' },
+  { value: 'receipt', label: '收据' },
+  { value: 'other', label: '其他' },
+]
+
+interface EditFileForm {
+  filename: string
+  file_type: string
+  notes: string
+}
+
 export function LedgerFilesPage() {
   const { currentLedgerId, setCurrentLedger, userLedgers, setUserLedgers } = useAuthStore()
   const [files, setFiles] = useState<SourceFileRead[]>([])
@@ -31,6 +46,13 @@ export function LedgerFilesPage() {
     file_type?: string
     parse_status?: string
   }>({})
+  const [bindingFileId, setBindingFileId] = useState<number | null>(null)
+
+  // 编辑相关状态
+  const [editModalVisible, setEditModalVisible] = useState(false)
+  const [editingFile, setEditingFile] = useState<SourceFileRead | null>(null)
+  const [editLoading, setEditLoading] = useState(false)
+  const [editForm] = Form.useForm<EditFileForm>()
 
   const currentLedger = userLedgers.find((ledger) => ledger.id === currentLedgerId)
 
@@ -80,6 +102,63 @@ export function LedgerFilesPage() {
     }
   }
 
+  const handleBindLedger = async (fileId: number, ledgerId: number | null) => {
+    setBindingFileId(fileId)
+    try {
+      const updated = await api.bindFileLedger(fileId, ledgerId)
+      setFiles((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      message.success(ledgerId ? '已将文件绑定到账套' : '已取消账套绑定')
+    } catch (error: any) {
+      message.error(error.message || '绑定账套失败')
+    } finally {
+      setBindingFileId(null)
+    }
+  }
+
+  // 打开编辑弹窗
+  const handleOpenEdit = (file: SourceFileRead) => {
+    setEditingFile(file)
+    editForm.setFieldsValue({
+      filename: file.filename,
+      file_type: file.file_type,
+      notes: file.notes || '',
+    })
+    setEditModalVisible(true)
+  }
+
+  // 提交编辑
+  const handleEditSubmit = async () => {
+    if (!editingFile) return
+    try {
+      const values = await editForm.validateFields()
+      setEditLoading(true)
+      const updated = await api.updateFile(editingFile.id, {
+        filename: values.filename,
+        file_type: values.file_type,
+        notes: values.notes || null,
+      })
+      setFiles((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      message.success('文件信息已更新')
+      setEditModalVisible(false)
+    } catch (error: any) {
+      if (error.errorFields) return // 表单验证错误
+      message.error(error.message || '更新文件失败')
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
+  // 删除文件
+  const handleDeleteFile = async (fileId: number) => {
+    try {
+      await api.deleteFile(fileId)
+      setFiles((prev) => prev.filter((item) => item.id !== fileId))
+      message.success('文件已删除')
+    } catch (error: any) {
+      message.error(error.message || '删除文件失败')
+    }
+  }
+
   const fileTypeOptions = Array.from(new Set(files.map((item) => item.file_type).filter(Boolean))).map((value) => ({
     value,
     label: value,
@@ -102,7 +181,7 @@ export function LedgerFilesPage() {
           <Alert
             type="warning"
             showIcon
-            message="尚未选择账套"
+            title="尚未选择账套"
             description="请先在账套管理中创建或选择账套，系统不会在未选择账套时加载全量文件。"
           />
         )}
@@ -150,27 +229,70 @@ export function LedgerFilesPage() {
           size="small"
           pagination={{ pageSize: 20 }}
           columns={[
-            { title: '文件名', dataIndex: 'filename', key: 'filename' },
-            { title: '类型', dataIndex: 'file_type', key: 'file_type' },
+            {
+              title: '账套',
+              key: 'ledger',
+              width: 180,
+              render: (_: unknown, row: SourceFileRead) => {
+                return (
+                  <Select
+                    allowClear
+                    showSearch
+                    style={{ width: 160 }}
+                    placeholder="绑定账套"
+                    optionFilterProp="label"
+                    loading={bindingFileId === row.id}
+                    value={row.ledger_id || undefined}
+                    onChange={(value) => handleBindLedger(row.id, value || null)}
+                    options={userLedgers.map((l) => ({ value: l.id, label: l.name }))}
+                    notFoundContent={null}
+                  />
+                )
+              },
+            },
+            {
+              title: '文件名',
+              dataIndex: 'filename',
+              key: 'filename',
+              width: 200,
+              ellipsis: true,
+            },
+            {
+              title: '类型',
+              dataIndex: 'file_type',
+              key: 'file_type',
+              width: 100,
+            },
             {
               title: '解析状态',
               dataIndex: 'parse_status',
               key: 'parse_status',
+              width: 100,
               render: (value: string) => <Tag color={PARSE_STATUS_COLOR[value] || 'default'}>{PARSE_STATUS_LABEL[value] || value}</Tag>,
+            },
+            {
+              title: '备注',
+              key: 'notes',
+              width: 150,
+              ellipsis: true,
+              render: (_: unknown, row: SourceFileRead) => row.notes || '-',
             },
             {
               title: '解析摘要',
               key: 'parse_summary',
+              width: 200,
+              ellipsis: true,
               render: (_: unknown, row: SourceFileRead) => row.parse_summary || row.parse_feedback?.summary || row.raw_text_preview || '-',
             },
             {
               title: '客户/往来单位',
               key: 'counterparty',
+              width: 200,
               render: (_: unknown, row: SourceFileRead) => (
                 <Select
                   allowClear
                   showSearch
-                  style={{ width: 220 }}
+                  style={{ width: 180 }}
                   placeholder="手工选择"
                   optionFilterProp="label"
                   value={row.counterparty_id || undefined}
@@ -182,17 +304,76 @@ export function LedgerFilesPage() {
             {
               title: '匹配说明',
               key: 'match_note',
+              width: 180,
               render: (_: unknown, row: SourceFileRead) => (
                 <Space direction="vertical" size={0}>
                   <Text>{row.customer_context?.match_source || '未匹配'}</Text>
-                  <Text type="secondary">{row.customer_context?.confidence_note || '可手工选择客户/往来单位'}</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>{row.customer_context?.confidence_note || '可手工选择客户/往来单位'}</Text>
                 </Space>
               ),
             },
-            { title: '上传时间', dataIndex: 'created_at', key: 'created_at' },
+            { title: '上传时间', dataIndex: 'created_at', key: 'created_at', width: 160 },
+            {
+              title: '操作',
+              key: 'actions',
+              width: 120,
+              fixed: 'right',
+              render: (_: unknown, row: SourceFileRead) => (
+                <Space size="small">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => handleOpenEdit(row)}
+                  />
+                  <Popconfirm
+                    title="删除文件"
+                    description="确定要删除此文件吗？此操作不可恢复。"
+                    onConfirm={() => handleDeleteFile(row.id)}
+                    okText="删除"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </Space>
+              ),
+            },
           ]}
         />
       </Space>
+
+      {/* 编辑文件弹窗 */}
+      <Modal
+        title="编辑文件"
+        open={editModalVisible}
+        onOk={handleEditSubmit}
+        onCancel={() => setEditModalVisible(false)}
+        confirmLoading={editLoading}
+        okText="保存"
+        cancelText="取消"
+        width={500}
+      >
+        <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            name="filename"
+            label="文件名"
+            rules={[{ required: true, message: '请输入文件名' }]}
+          >
+            <Input placeholder="请输入文件名" />
+          </Form.Item>
+          <Form.Item
+            name="file_type"
+            label="文件类型"
+            rules={[{ required: true, message: '请选择文件类型' }]}
+          >
+            <Select placeholder="请选择文件类型" options={FILE_TYPE_OPTIONS} />
+          </Form.Item>
+          <Form.Item name="notes" label="备注">
+            <Input.TextArea rows={3} placeholder="请输入备注信息（选填）" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Card>
   )
 }

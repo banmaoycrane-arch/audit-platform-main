@@ -370,3 +370,161 @@ def cancel_project(db: Session, project_id: int, reason: str | None = None) -> P
     db.commit()
     db.refresh(project)
     return project
+
+
+def get_project_ledgers(db: Session, project_id: int) -> list[Ledger]:
+    """
+    获取项目关联的所有账套。
+
+    Args:
+        db: 数据库会话
+        project_id: 项目ID
+
+    Returns:
+        list[Ledger]: 账套列表
+    """
+    project = get_project_by_id(db, project_id)
+    if not project:
+        return []
+    return [pl.ledger for pl in project.ledgers if pl.ledger]
+
+
+def get_consolidated_report(db: Session, project_id: int, period_start: str | None = None, period_end: str | None = None) -> dict:
+    """
+    获取项目跨账套汇总数据。
+
+    功能描述：
+        1. 获取项目关联的所有账套
+        2. 汇总各账套的会计分录数据
+        3. 按科目分类汇总借贷方发生额
+        4. 识别潜在的内部交易
+
+    会计口径：
+        - 跨账套数据汇总用于集团层面的分析
+        - 内部交易识别基于往来单位+金额+日期的匹配
+
+    Args:
+        db: 数据库会话
+        project_id: 项目ID
+        period_start: 可选，汇总起始日期 (YYYY-MM-DD)
+        period_end: 可选，汇总结束日期 (YYYY-MM-DD)
+
+    Returns:
+        dict: 包含汇总数据的字典
+
+    注意事项：
+        1. 仅汇总 entry_source='auto' 的分录（自动导入）
+        2. 内部交易抵销需要在应用层单独处理
+    """
+    from app.db.models import AccountingEntry
+    from datetime import date
+
+    project = get_project_by_id(db, project_id)
+    if not project:
+        raise ValueError("项目不存在")
+
+    ledgers = get_project_ledgers(db, project_id)
+    if not ledgers:
+        return {
+            "project_id": project_id,
+            "project_name": project.name,
+            "ledger_count": 0,
+            "total_entries": 0,
+            "by_ledger": [],
+            "by_account": [],
+            "potential_internal_transactions": [],
+        }
+
+    # 构建查询
+    ledger_ids = [l.id for l in ledgers]
+    query = db.query(AccountingEntry).filter(
+        AccountingEntry.ledger_id.in_(ledger_ids),
+        AccountingEntry.entry_source == "auto"
+    )
+
+    # 按日期过滤
+    if period_start:
+        start_date = date.fromisoformat(period_start)
+        query = query.filter(AccountingEntry.voucher_date >= start_date)
+    if period_end:
+        end_date = date.fromisoformat(period_end)
+        query = query.filter(AccountingEntry.voucher_date <= end_date)
+
+    entries = query.all()
+
+    # 按账套分组汇总
+    by_ledger = {}
+    for ledger in ledgers:
+        ledger_entries = [e for e in entries if e.ledger_id == ledger.id]
+        total_debit = sum((e.debit_amount or 0) for e in ledger_entries)
+        total_credit = sum((e.credit_amount or 0) for e in ledger_entries)
+        by_ledger[ledger.id] = {
+            "ledger_id": ledger.id,
+            "ledger_name": ledger.name,
+            "entry_count": len(ledger_entries),
+            "total_debit": float(total_debit),
+            "total_credit": float(total_credit),
+        }
+
+    # 按科目分组汇总
+    by_account: dict[str, dict] = {}
+    for entry in entries:
+        key = entry.account_code or "UNKNOWN"
+        if key not in by_account:
+            by_account[key] = {
+                "account_code": key,
+                "account_name": entry.account_name or "未知科目",
+                "debit_total": 0.0,
+                "credit_total": 0.0,
+                "entry_count": 0,
+            }
+        by_account[key]["debit_total"] += float(entry.debit_amount or 0)
+        by_account[key]["credit_total"] += float(entry.credit_amount or 0)
+        by_account[key]["entry_count"] += 1
+
+    # 识别潜在内部交易
+    # 逻辑：同一日期、同一金额、一方借一方贷、同一往来单位
+    potential_internal = []
+    transaction_map: dict[str, list] = {}
+
+    for entry in entries:
+        if not entry.counterparty or not entry.voucher_date:
+            continue
+        amount = entry.debit_amount or entry.credit_amount or 0
+        if amount <= 0:
+            continue
+
+        # 构建交易键：(日期, 金额, 往来单位)
+        key = f"{entry.voucher_date}:{amount}:{entry.counterparty}"
+
+        if key not in transaction_map:
+            transaction_map[key] = []
+        transaction_map[key].append(entry)
+
+    for key, tx_list in transaction_map.items():
+        if len(tx_list) >= 2:
+            # 存在至少一条借方和一条贷方
+            debits = [t for t in tx_list if t.debit_amount and t.debit_amount > 0]
+            credits = [t for t in tx_list if t.credit_amount and t.credit_amount > 0]
+            if debits and credits:
+                potential_internal.append({
+                    "voucher_date": str(tx_list[0].voucher_date),
+                    "amount": float(tx_list[0].debit_amount or tx_list[0].credit_amount or 0),
+                    "counterparty": tx_list[0].counterparty,
+                    "debit_count": len(debits),
+                    "credit_count": len(credits),
+                    "debit_ledger_ids": list(set(t.ledger_id for t in debits if t.ledger_id)),
+                    "credit_ledger_ids": list(set(t.ledger_id for t in credits if t.ledger_id)),
+                })
+
+    return {
+        "project_id": project_id,
+        "project_name": project.name,
+        "ledger_count": len(ledgers),
+        "total_entries": len(entries),
+        "period_start": period_start,
+        "period_end": period_end,
+        "by_ledger": list(by_ledger.values()),
+        "by_account": sorted(by_account.values(), key=lambda x: x["account_code"]),
+        "potential_internal_transactions": potential_internal[:50],  # 限制返回50条
+    }

@@ -114,7 +114,7 @@ export function RegisterPage() {
           {registerError && (
             <Alert
               type="error"
-              message={registerError}
+              title={registerError}
               description={
                 registerError.includes('已注册') ? (
                   <span>

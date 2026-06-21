@@ -184,7 +184,7 @@ return next
 
       {!jobId && (
         <Alert
-          message="尚未找到待复核凭证草稿"
+          title="尚未找到待复核凭证草稿"
           description="请从「生成草稿」步骤保存待复核凭证草稿后再进入本步骤。"
           type="warning"
           showIcon
@@ -194,7 +194,7 @@ return next
 
       <Card loading={loading}>
         <Alert
-          message="当前步骤用于复核调整待复核凭证草稿"
+          title="当前步骤用于复核调整待复核凭证草稿"
           description="请重点复核摘要、科目、金额、往来单位和借贷平衡；全部标记已复核后，可进入确认入账与导出步骤。这里不代表完整总账过账或结账流程。"
           type="info"
           showIcon

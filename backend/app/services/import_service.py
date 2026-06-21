@@ -130,10 +130,27 @@ def attach_file(db: Session, job: ImportJob, file: UploadFile) -> SourceFile:
     storage_path = save_upload(file)
     file_type = Path(file.filename or storage_path).suffix.lower().lstrip(".") or "unknown"
 
+    # 【修复】自动关联账套ID：如果 job 没有 ledger_id，尝试从同 organization 的其他 job 获取
+    ledger_id = job.ledger_id
+    if ledger_id is None:
+        # 查找同 organization 下最近有 ledger_id 的其他 job
+        other_job = (
+            db.query(ImportJob)
+            .filter(
+                ImportJob.organization_id == job.organization_id,
+                ImportJob.ledger_id.isnot(None),
+                ImportJob.id != job.id,
+            )
+            .order_by(ImportJob.id.desc())
+            .first()
+        )
+        if other_job:
+            ledger_id = other_job.ledger_id
+
     source_file = SourceFile(
         organization_id=job.organization_id,
         import_job_id=job.id,
-        ledger_id=job.ledger_id,
+        ledger_id=ledger_id,
         filename=file.filename or Path(storage_path).name,
         file_type=file_type,
         storage_path=storage_path,
@@ -281,6 +298,7 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
                 ),
                 [],
                 None,
+                [],  # 返回空分录列表
             )
 
         # 收集用于逻辑校验的数据
@@ -362,6 +380,10 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
                 "entry_line_no",
             }
             entry_kwargs = {k: v for k, v in entry_data.items() if k in model_fields}
+            # 【新增】设置分录来源标记：自动导入 + 关联源文件
+            entry_kwargs["entry_source"] = "auto"
+            entry_kwargs["source_file_id"] = source_file.id
+            entry_kwargs["ledger_id"] = source_file.ledger_id
             entry = AccountingEntry(organization_id=job.organization_id, import_job_id=job.id, **entry_kwargs)
             db.add(entry)
             db.flush()

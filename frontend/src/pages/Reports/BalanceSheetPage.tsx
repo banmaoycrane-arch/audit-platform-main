@@ -51,14 +51,14 @@ export function BalanceSheetPage() {
           {report.is_balanced ? (
             <Alert
               type="success"
-              message={`资产 = 负债 + 权益（恒等式平衡）`}
+              title={`资产 = 负债 + 权益（恒等式平衡）`}
               showIcon
               style={{ marginBottom: 16 }}
             />
           ) : (
             <Alert
               type="error"
-              message="资产负债恒等式不平衡"
+              title="资产负债恒等式不平衡"
               description={
                 <>
                   <div>资产 {report.assets_total.toLocaleString()} ≠ 负债 {report.liabilities_total.toLocaleString()} + 权益 {report.equity_total.toLocaleString()}</div>

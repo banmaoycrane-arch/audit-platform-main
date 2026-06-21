@@ -6,6 +6,7 @@ import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 import { api, type AccountingPeriod, type ChartOfAccount, type Counterparty, type EntryDraft } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { useAuthStore } from '../../stores/authStore'
 
 const { Dragger } = Upload
 const { Title, Text } = Typography
@@ -95,6 +96,7 @@ export function Step2AccountingImportSource() {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
+  const { currentLedgerId } = useAuthStore()
   const inputMode = searchParams.get('inputMode') || 'ai_generated'
   const isManualEntry = inputMode === 'manual_entry'
   const stepPath = (step: number) => location.pathname.startsWith('/ledger/vouchers/step/') ? `/ledger/vouchers/step/${step}` : `/accounting/step/${step}`
@@ -222,7 +224,7 @@ export function Step2AccountingImportSource() {
       let jobId = currentJobId
       if (!jobId) {
         // 创建导入任务
-        const job = await api.createImportJob('临时组织', 'ai_generated')
+        const job = await api.createImportJob('临时组织', 'ai_generated', currentLedgerId)
         jobId = job.id
         setCurrentJobId(jobId)
         setCurrentOrgId(job.organization_id)
@@ -239,7 +241,16 @@ export function Step2AccountingImportSource() {
         fileId: result.id,
       }
       setUploadedFiles(prev => [...prev, fileInfo])
-      message.success(`${file.name} 上传成功`)
+
+      // 上传后自动触发生成（同步处理所有文件）
+      message.loading({ content: '正在解析上传文件，请稍候...', key: 'parsing' })
+      try {
+        const report = await api.processImportJobSync(jobId)
+        message.success({ content: `文件解析完成，${file.name} 已处理`, key: 'parsing' })
+        console.debug('Parse report:', report)
+      } catch (err) {
+        message.warning({ content: `${file.name} 上传成功，但解析失败：${err instanceof Error ? err.message : String(err)}`, key: 'parsing' })
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       message.error(`${file.name} 上传失败：${detail}`)
@@ -275,7 +286,7 @@ export function Step2AccountingImportSource() {
     let jobId = currentJobId
     let orgId = currentOrgId
     if (!jobId) {
-      const job = await api.createImportJob('临时组织', sourceType)
+      const job = await api.createImportJob('临时组织', sourceType, currentLedgerId)
       jobId = job.id
       orgId = job.organization_id
       setCurrentJobId(jobId)
@@ -685,9 +696,9 @@ export function Step2AccountingImportSource() {
               onChange={(value) => value ? handleSelectPeriod(value) : setPeriodId(null)}
               style={{ maxWidth: 520, width: '100%' }}
             />
-            {periodSuggestion && <Alert message={periodSuggestion} type="info" showIcon />}
+            {periodSuggestion && <Alert title={periodSuggestion} type="info" showIcon />}
             <Alert
-              message="期间选择说明"
+              title="期间选择说明"
               description="系统会优先使用 open/reopened 期间；如果只有已结账期间，会按上一已结账期间建议下一自然月。下方手工创建入口仅作为没有可用期间时的补充路径。"
               type="info"
               showIcon
@@ -725,7 +736,7 @@ export function Step2AccountingImportSource() {
             </Space>
           </Space>
           <Alert
-            message="科目选择说明"
+            title="科目选择说明"
             description="分录科目从会计科目表选择并自动填入代码和名称；科目不存在时，请跳转到会计科目模块新增，正式生效日期由会计科目模块人工确认。"
             type="info"
             showIcon
@@ -748,7 +759,7 @@ export function Step2AccountingImportSource() {
           </div>
           {!isBalanced && (
             <Alert
-              message="借贷未平衡"
+              title="借贷未平衡"
               description="一张凭证的分录借方合计必须等于贷方合计，且借贷双方金额均大于 0，平衡后才能提交。"
               type="warning"
               showIcon

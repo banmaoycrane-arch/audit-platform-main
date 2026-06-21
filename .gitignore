@@ -1,10 +1,19 @@
 # Dependencies
 node_modules/
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Alembic migrations cache
+alembic/__pycache__/
+alembic/versions/__pycache__/
 build/
 develop-eggs/
 dist/
@@ -44,6 +53,7 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+*.db-journal
 
 # Uploads & Storage
 storage/uploads/

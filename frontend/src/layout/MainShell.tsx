@@ -214,8 +214,16 @@ export function MainShell() {
           <span style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>首页</span>
         </Space>
       </Header>
-      <Layout>
-        <Sider width={240} theme="light">
+      <Layout style={{ height: 'calc(100vh - 64px)' }}>
+        <Sider
+          width={240}
+          theme="light"
+          style={{
+            height: '100%',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+          }}
+        >
           <Menu
             mode="inline"
             selectedKeys={[selectedKey]}
@@ -236,7 +244,7 @@ export function MainShell() {
             onClick={handleMenuClick}
           />
         </Sider>
-        <Layout style={{ padding: '16px' }}>
+        <Layout style={{ padding: '16px', height: '100%', overflowY: 'auto' }}>
           <Content style={{ background: '#fff', padding: '16px', minHeight: 280 }}>
             <Outlet />
           </Content>

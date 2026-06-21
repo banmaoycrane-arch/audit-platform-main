@@ -42,7 +42,7 @@ export function TrialBalancePage() {
         <Alert
           type="error"
           showIcon
-          message="期末借贷不平衡"
+          title="期末借贷不平衡"
           description={`借方合计 ¥${report.totals.closing_debit.toLocaleString()}，贷方合计 ¥${report.totals.closing_credit.toLocaleString()}`}
           style={{ marginBottom: 16 }}
         />

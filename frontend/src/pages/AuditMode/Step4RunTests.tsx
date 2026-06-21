@@ -142,7 +142,7 @@ export function Step4RunTests() {
 
       {!jobId && (
         <Alert
-          message="缺少导入任务编号"
+          title="缺少导入任务编号"
           description="请从导入资料步骤重新进入，否则无法执行真实审计测试。"
           type="warning"
           showIcon
@@ -193,7 +193,7 @@ export function Step4RunTests() {
 
       {report && (
         <Alert
-          message="测试完成"
+          title="测试完成"
           description={`共发现 ${totalFindings} 项异常，请点击“下一步”复核审计发现。`}
           type={totalFindings > 0 ? 'info' : 'success'}
           showIcon

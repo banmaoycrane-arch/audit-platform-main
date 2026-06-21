@@ -3,7 +3,7 @@
     "dev:frontend": "pnpm --dir frontend dev --host 127.0.0.1 --port 5173",
     "build:frontend": "pnpm --dir frontend build",
     "lint:frontend": "pnpm --dir frontend lint",
-    "dev:backend": "uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8010 --reload",
+    "dev:backend": "uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload",
     "test:backend": "python -m pytest backend/tests"
   },
   "devDependencies": {},

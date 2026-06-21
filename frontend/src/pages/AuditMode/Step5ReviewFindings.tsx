@@ -200,7 +200,7 @@ export function Step5ReviewFindings() {
 
       {!jobId && (
         <Alert
-          message="尚未找到可复核的审计测试结果"
+          title="尚未找到可复核的审计测试结果"
           description="请先执行审计测试，再进入审计发现复核。"
           type="warning"
           showIcon

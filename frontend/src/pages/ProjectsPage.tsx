@@ -205,10 +205,10 @@ export function ProjectsPage() {
               {project.manager}
             </div>
           )}
-          {project.budget !== null && (
+          {project.budget != null && (
             <div>
               <DollarOutlined style={{ marginRight: 4 }} />
-              ¥ {project.budget.toLocaleString()}
+              ¥ {project.budget!.toLocaleString()}
             </div>
           )}
           {(project.start_date || project.end_date) && (

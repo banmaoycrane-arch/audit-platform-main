@@ -250,7 +250,7 @@ export function WorkspacePage() {
         cancelText="取消"
       >
         <Alert
-          message="设置后可使用手机号或用户名加密码登录。"
+          title="设置后可使用手机号或用户名加密码登录。"
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
@@ -268,7 +268,7 @@ export function WorkspacePage() {
       {/* 访客/待绑定提示 */}
       {hasNoLedgers && authContext && (
         <Alert
-          message="当前为访客/待绑定状态"
+          title="当前为访客/待绑定状态"
           description={
             <div>
               <Text type="secondary">
@@ -305,7 +305,7 @@ export function WorkspacePage() {
 
       {dashboardNotice && !hasNoLedgers && (
         <Alert
-          message="工作台统计暂不可用"
+          title="工作台统计暂不可用"
           description={dashboardNotice}
           type="info"
           showIcon
@@ -317,7 +317,7 @@ export function WorkspacePage() {
       {alerts.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           {alerts.map((text, idx) => (
-            <Alert key={idx} message={text} type="warning" showIcon style={{ marginBottom: 8 }} />
+            <Alert key={idx} title={text} type="warning" showIcon style={{ marginBottom: 8 }} />
           ))}
         </div>
       )}
