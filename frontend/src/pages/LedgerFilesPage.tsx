@@ -135,7 +135,7 @@ export function LedgerFilesPage() {
       const updated = await api.updateFile(editingFile.id, {
         filename: values.filename,
         file_type: values.file_type,
-        notes: values.notes || null,
+        notes: values.notes || undefined,
       })
       setFiles((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
       message.success('文件信息已更新')

@@ -1,0 +1,47 @@
+# 生产部署编排：后端 + Web(Caddy) 两个容器
+# 用法（在仓库根目录执行）：
+#   cp deploy/.env.example deploy/.env   # 然后编辑填入 SECRET_KEY
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# 数据持久化在命名卷 app_data（数据库/上传/向量库）与 caddy_data（证书）中。
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    environment:
+      # 必填：JWT 签名密钥（未设置时启动报错，避免误用弱密钥）
+      SECRET_KEY: ${SECRET_KEY:?请先在 deploy/.env 中设置 SECRET_KEY}
+      # 数据库：SQLite 文件落在持久化卷 /data 上
+      DATABASE_URL: sqlite:////data/finance_audit.db
+      UPLOAD_DIR: /data/uploads
+      QDRANT_LOCAL_PATH: /data/qdrant
+      # 可选：大模型 API（留空则自动降级为规则/模板，不影响核心功能）
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+    volumes:
+      - app_data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  app_data:
+  caddy_data:
+  caddy_config:

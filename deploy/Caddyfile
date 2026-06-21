@@ -1,0 +1,40 @@
+# Caddy 配置：无域名场景（用公网 IP 访问），使用容器启动时自动生成的自签证书。
+# - 前端单页应用从 /srv/www 提供
+# - /api/* 与 /health 反向代理到后端容器 backend:8000
+# - 自签证书：浏览器首次会提示"不安全"，点"继续前往"即可（流量仍是 TLS 加密的）。
+#
+# 将来购买域名后，改用浏览器信任的免费证书：把下方 :443 改为你的域名，
+# 删除 `tls /data/certs/...` 这一行，并在全局块去掉 `auto_https off`，
+# Caddy 会自动向 Let's Encrypt 申请受信任证书。
+
+{
+	# 自带证书，关闭 Caddy 的自动 ACME 申请
+	auto_https off
+}
+
+:443 {
+	tls /data/certs/server.crt /data/certs/server.key
+	encode gzip
+
+	# 后端 API
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# 健康检查
+	handle /health {
+		reverse_proxy backend:8000
+	}
+
+	# 其余路径交给前端单页应用（前端路由 fallback 到 index.html）
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# HTTP 自动跳转到 HTTPS
+:80 {
+	redir https://{host}{uri} permanent
+}
