@@ -128,6 +128,23 @@ export type SourceFileParseFeedback = {
   error_message?: string | null
 }
 
+export type DraftArchiveContext = {
+  project_id?: number | null
+  project_name?: string | null
+  ledger_id?: number | null
+  period_code?: string | null
+  archive_category?: string | null
+  archive_folder?: string | null
+  archive_path?: string | null
+  module_key?: string | null
+  module_keys?: string[]
+  document_type?: string | null
+  document_type_label?: string | null
+  counterparty?: string | null
+  status?: string | null
+  archived_at?: string | null
+}
+
 export type SourceFileRead = {
   id: number
   organization_id?: number
@@ -145,6 +162,13 @@ export type SourceFileRead = {
   parse_feedback?: SourceFileParseFeedback | null
   parse_summary?: string | null
   raw_text_preview: string | null
+  archive_path?: string | null
+  archive_category?: string | null
+  archive_folder?: string | null
+  project_id?: number | null
+  project_name?: string | null
+  period_code?: string | null
+  archive_context?: DraftArchiveContext | null
   customer_context?: {
     counterparty_id: number | null
     counterparty_name: string | null
@@ -152,6 +176,13 @@ export type SourceFileRead = {
     confidence_note: string | null
   }
   created_at: string
+}
+
+export type ImportPeriodSuggestion = {
+  detected_month: string | null
+  suggested_period: AccountingPeriodSuggestion | null
+  matched_period: (AccountingPeriod & { id: number }) | null
+  reason: string
 }
 
 export type AccountingPeriodSuggestion = {
@@ -699,9 +730,12 @@ export const api = {
     }),
   listImportJobs: () => request<ImportJob[]>('/api/import-jobs'),
   getImportJob: (jobId: number) => request<ImportJob>(`/api/import-jobs/${jobId}`),
-  uploadFile: (jobId: number, file: File) => {
+  uploadFile: (jobId: number, file: File, documentTypeHints?: string[]) => {
     const form = new FormData()
     form.append('file', file)
+    if (documentTypeHints && documentTypeHints.length > 0) {
+      form.append('document_type_hints', documentTypeHints.join(','))
+    }
     return request<SourceFileRead>(`/api/import-jobs/${jobId}/files`, { method: 'POST', body: form })
   },
   parseUploadedFile: (jobId: number, fileId: number) =>
@@ -715,6 +749,7 @@ export const api = {
     ),
   getImportReport: (jobId: number) => request<any>(`/api/import-jobs/${jobId}/report`),
   getDayBookReport: (jobId: number) => request<DayBookReport>(`/api/import-jobs/${jobId}/day-book-report`),
+  getImportPeriodSuggestion: (jobId: number) => request<ImportPeriodSuggestion>(`/api/import-jobs/${jobId}/period-suggestion`),
   listEntries: (jobId?: number) => request<AccountingEntry[]>(`/api/entries${jobId ? `?import_job_id=${jobId}` : ''}`),
   listRisks: (jobId?: number) => request<AuditRisk[]>(`/api/risks${jobId ? `?import_job_id=${jobId}` : ''}`),
   getRisk: (riskId: number) => request<RiskDetail>(`/api/risks/${riskId}`),
@@ -780,17 +815,28 @@ export const api = {
   listCounterparties: () => request<Counterparty[]>('/api/counterparties'),
   listLedgerFiles: (filters?: {
     ledger_id?: number | null
+    project_id?: number | null
     counterparty_id?: number | null
     file_type?: string
     parse_status?: string
+    archive_category?: string
   }) => {
     const params = new URLSearchParams()
     if (filters?.ledger_id) params.set('ledger_id', String(filters.ledger_id))
+    if (filters?.project_id) params.set('project_id', String(filters.project_id))
     if (filters?.counterparty_id) params.set('counterparty_id', String(filters.counterparty_id))
     if (filters?.file_type) params.set('file_type', filters.file_type)
     if (filters?.parse_status) params.set('parse_status', filters.parse_status)
+    if (filters?.archive_category) params.set('archive_category', filters.archive_category)
     const query = params.toString()
     return request<SourceFileRead[]>(`/api/files${query ? `?${query}` : ''}`)
+  },
+  listProjectFiles: (projectId: number, filters?: { ledger_id?: number; archive_category?: string }) => {
+    const params = new URLSearchParams()
+    if (filters?.ledger_id) params.set('ledger_id', String(filters.ledger_id))
+    if (filters?.archive_category) params.set('archive_category', filters.archive_category)
+    const query = params.toString()
+    return request<SourceFileRead[]>(`/api/projects/${projectId}/files${query ? `?${query}` : ''}`)
   },
   bindFileCounterparty: (fileId: number, counterpartyId: number | null) =>
     request<SourceFileRead>(`/api/files/${fileId}/bind-counterparty`, {

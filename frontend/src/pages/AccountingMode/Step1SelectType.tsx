@@ -5,7 +5,7 @@ import { FlowNav } from '../../components/FlowNav'
 
 const { Title, Text } = Typography
 
-type VoucherInputMode = 'ai_generated' | 'manual_entry'
+type VoucherInputMode = 'ai_generated' | 'manual_entry' | 'day_book_import'
 
 export function Step1AccountingSelectType() {
   const navigate = useNavigate()
@@ -48,6 +48,13 @@ export function Step1AccountingSelectType() {
               <strong>根据原始资料 AI 智能生成凭证</strong>
               <br />
               <Text type="secondary">上传发票、银行流水、合同等原始资料，由 AI 辅助生成待复核凭证草稿。</Text>
+            </Card>
+          </Radio>
+          <Radio value="day_book_import">
+            <Card size="small" style={{ marginLeft: '8px' }}>
+              <strong>序时簿导入生成会计凭证</strong>
+              <br />
+              <Text type="secondary">上传 Excel/CSV 序时簿，系统按凭证号分组生成正式分录，并自动识别对应会计月份。</Text>
             </Card>
           </Radio>
           <Radio value="manual_entry">

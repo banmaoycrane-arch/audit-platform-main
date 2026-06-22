@@ -45,6 +45,7 @@ export function LedgerFilesPage() {
     counterparty_id?: number
     file_type?: string
     parse_status?: string
+    archive_category?: string
   }>({})
   const [bindingFileId, setBindingFileId] = useState<number | null>(null)
 
@@ -90,7 +91,7 @@ export function LedgerFilesPage() {
 
   useEffect(() => {
     void loadData()
-  }, [currentLedgerId, filters.counterparty_id, filters.file_type, filters.parse_status])
+  }, [currentLedgerId, filters.counterparty_id, filters.file_type, filters.parse_status, filters.archive_category])
 
   const handleBindCounterparty = async (fileId: number, counterpartyId: number | null) => {
     try {
@@ -164,6 +165,10 @@ export function LedgerFilesPage() {
     label: value,
   }))
 
+  const archiveCategoryOptions = Array.from(
+    new Set(files.map((item) => item.archive_category).filter(Boolean))
+  ).map((value) => ({ value: value as string, label: value as string }))
+
   return (
     <Card>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -172,7 +177,7 @@ export function LedgerFilesPage() {
             <FileTextOutlined /> 账套文件
           </Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            按账套归集原始凭证、合同、发票、银行流水等资料，并通过文件名、解析摘要和对方单位字段定位客户上下文。
+            按账套归集原始凭证、合同、发票、银行流水等资料；解析完成后系统会按项目/期间/模块自动归档，便于在项目中检索与管理底稿。
             当前账套：{currentLedger ? currentLedger.name : currentLedgerId || '未选择'}
           </Paragraph>
         </div>
@@ -219,6 +224,16 @@ export function LedgerFilesPage() {
               options={Object.entries(PARSE_STATUS_LABEL).map(([value, label]) => ({ value, label }))}
             />
           </Form.Item>
+          <Form.Item label="归档分类">
+            <Select
+              allowClear
+              style={{ width: 160 }}
+              placeholder="全部分类"
+              value={filters.archive_category}
+              onChange={(value) => setFilters((prev) => ({ ...prev, archive_category: value }))}
+              options={archiveCategoryOptions}
+            />
+          </Form.Item>
           <Button icon={<ReloadOutlined />} onClick={loadData}>刷新</Button>
         </Form>
 
@@ -256,6 +271,26 @@ export function LedgerFilesPage() {
               key: 'filename',
               width: 200,
               ellipsis: true,
+            },
+            {
+              title: '归档路径',
+              key: 'archive_path',
+              width: 240,
+              ellipsis: true,
+              render: (_: unknown, row: SourceFileRead) => row.archive_path || '-',
+            },
+            {
+              title: '项目',
+              key: 'project_name',
+              width: 140,
+              ellipsis: true,
+              render: (_: unknown, row: SourceFileRead) => row.project_name || '-',
+            },
+            {
+              title: '期间',
+              key: 'period_code',
+              width: 100,
+              render: (_: unknown, row: SourceFileRead) => row.period_code || '-',
             },
             {
               title: '类型',
