@@ -27,10 +27,11 @@ def test_contract_decomposes_to_multiple_modules_without_human_input():
     ))
 
     module_keys = decomposition.module_keys()
-    assert "counterparty_ledger" in module_keys
+    assert "contract_register" in module_keys
     assert "purchase" in module_keys
+    assert "counterparty_ledger" not in module_keys
     assert decomposition.accounting_dimensions["cost"] is True
-    assert decomposition.accounting_dimensions["counterparty"] is True
+    assert decomposition.accounting_dimensions["contract"] is True
     assert decomposition.decomposition_source == "rules"
     assert decomposition.decomposition_version
 

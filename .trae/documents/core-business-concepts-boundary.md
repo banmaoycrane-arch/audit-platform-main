@@ -118,6 +118,20 @@ Register 是业务台账，不等于会计账套。
 3. Register 到 AccountingEntry 之间需要规则、人工确认或 AI 草稿复核。
 4. Register 模块不得绕过账套权限直接写正式凭证。
 
+### Register 子类型边界（v0.2）
+
+功能模块台账（Register）按**业务事实类型**拆分，禁止混登：
+
+| Register | 登记对象 | 典型状态 | 不得登记 |
+|---|---|---|---|
+| `contract_register` 合同台账 | 签约承诺与条款 | 待执行 / 未执行 / 取消 / 已完成 | 应收应付余额、银行收付 |
+| `counterparty_ledger` 往来款项台账 | 已发生的债权债务余额 | 应收 / 应付 / 预收 / 预付 | 纯合同承诺、银行流水明细 |
+| `bank_cash_flow` 资金收付台账 | 银行账户实收实付 | 收入 / 支出 / 未达账项 | 往来余额（仅勾稽，不重复落库） |
+
+链路：`合同(承诺) → 业务单证 → 往来余额 → 银行收付`；各段登记到对应 Register，通过勾稽关联而非重复写入。
+
+详见 `.trae/documents/register-audit-workflow-plan.md`。
+
 ## Accounting Entity 与 Ledger 的边界
 
 Accounting Entity 是会计主体或报表主体。

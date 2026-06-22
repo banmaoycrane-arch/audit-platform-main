@@ -15,12 +15,13 @@ def test_ai_generated_output_path_is_register_ledger():
 def test_module_definitions_map_business_modules():
     assert MODULE_DEFINITIONS["tax_invoice"]["module_path"] == "/tax/invoices"
     assert MODULE_DEFINITIONS["bank_cash_flow"]["module_path"] == "/bank/cash-flow-ledger"
-    assert MODULE_DEFINITIONS["counterparty_ledger"]["module_path"] == "/basic/counterparties"
+    assert MODULE_DEFINITIONS["contract_register"]["module_path"] == "/audit/contracts"
+    assert MODULE_DEFINITIONS["counterparty_ledger"]["module_path"] == "/basic/receivable-payable"
     assert MODULE_DEFINITIONS["purchase"]["module_path"] == "/inventory/purchase-in"
     assert MODULE_DEFINITIONS["sales"]["module_path"] == "/inventory/sale-out"
 
 
-def test_purchase_contract_registers_multiple_modules():
+def test_purchase_contract_registers_contract_and_purchase_not_counterparty():
     modules = _detect_contract_modules(
         {
             "party_a": "甲方公司",
@@ -31,11 +32,12 @@ def test_purchase_contract_registers_multiple_modules():
         "采购合同 供货协议",
         "2026采购合同.pdf",
     )
-    assert "counterparty_ledger" in modules
+    assert "contract_register" in modules
     assert "purchase" in modules
+    assert "counterparty_ledger" not in modules
 
 
-def test_sales_contract_registers_counterparty_and_sales():
+def test_sales_contract_registers_contract_and_sales_not_counterparty():
     modules = _detect_contract_modules(
         {
             "party_a": "本公司",
@@ -44,8 +46,9 @@ def test_sales_contract_registers_counterparty_and_sales():
         "销售合同 客户订货",
         "销售合同-客户B.pdf",
     )
-    assert "counterparty_ledger" in modules
+    assert "contract_register" in modules
     assert "sales" in modules
+    assert "counterparty_ledger" not in modules
     assert "purchase" not in modules
 
 

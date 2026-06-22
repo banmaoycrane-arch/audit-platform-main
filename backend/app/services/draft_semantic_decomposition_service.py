@@ -16,27 +16,30 @@ from typing import Any
 from app.services.llm_client_service import LightweightLLMClient, LLMResult
 from app.services.source_document_service import SourceDocumentResult
 
-DECOMPOSITION_VERSION = "1.0.0"
+DECOMPOSITION_VERSION = "1.1.0"
 
 # 会计语义维度 → 功能模块台账（可多模块）
+# 边界：合同→contract_register；已发生往来余额→counterparty_ledger；资金事实→bank_cash_flow（互不重叠）
 DIMENSION_MODULE_MAP: dict[str, list[str]] = {
-    "revenue": ["sales", "counterparty_ledger"],
-    "cost": ["purchase", "counterparty_ledger"],
+    "revenue": ["sales"],
+    "cost": ["purchase"],
     "invoice": ["tax_invoice"],
     "tax": ["tax_invoice"],
     "counterparty": ["counterparty_ledger"],
     "inventory": ["inventory_receipt", "purchase"],
-    "bank_cash": ["bank_cash_flow", "counterparty_ledger"],
+    "bank_cash": ["bank_cash_flow"],
     "payroll": ["payroll"],
     "fixed_asset": ["purchase"],
+    "contract": ["contract_register"],
 }
 
 DIMENSION_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "revenue": ("收入", "销售", "营收", "回款", "收款", "revenue", "sales", "主营业务收入"),
-    "cost": ("成本", "费用", "采购", "支出", "付款", "cost", "expense", "主营业务成本", "管理费用"),
+    "revenue": ("收入", "销售", "营收", "回款", "revenue", "sales", "主营业务收入"),
+    "cost": ("成本", "费用", "采购", "支出", "cost", "expense", "主营业务成本", "管理费用"),
     "invoice": ("发票", "增值税", "开票", "销项", "进项", "invoice", "税号"),
     "tax": ("税率", "税额", "应税", "免税", "所得税", "印花税", "契税"),
-    "counterparty": ("甲方", "乙方", "客户", "供应商", "往来", "应收", "应付", "预付", "预收", "对方单位"),
+    "counterparty": ("应收", "应付", "预收", "预付", "其他应收", "其他应付", "余额", "对账单", "函证", "账龄"),
+    "contract": ("合同", "协议", "签约", "订单", "框架协议", "contract", "agreement", "待执行", "未执行", "取消"),
     "inventory": ("入库", "出库", "库存", "存货", "领料", "验收", "发货"),
     "bank_cash": ("银行", "流水", "汇款", "转账", "回单", "对账", "资金"),
     "payroll": ("工资", "薪酬", "社保", "公积金", "个税", "salary"),
@@ -46,16 +49,16 @@ DIMENSION_KEYWORDS: dict[str, tuple[str, ...]] = {
 PRIMARY_DOCUMENT_MODULES: dict[str, list[str]] = {
     "invoice": ["tax_invoice"],
     "bank_statement": ["bank_cash_flow"],
-    "contract": [],
+    "contract": ["contract_register"],
     "inventory_receipt": ["inventory_receipt"],
     "payroll": ["payroll"],
     "general": [],
 }
 
 HINT_TO_DIMENSIONS: dict[str, list[str]] = {
-    "invoice": ["invoice", "tax"],
-    "bank_statement": ["bank_cash", "counterparty"],
-    "contract": ["counterparty", "revenue", "cost"],
+    "invoice": ["invoice", "tax", "counterparty"],
+    "bank_statement": ["bank_cash"],
+    "contract": ["contract", "revenue", "cost"],
     "inventory": ["inventory", "cost"],
     "receipt": ["bank_cash"],
     "payroll": ["payroll"],
@@ -138,13 +141,13 @@ def _detect_dimensions(text: str, data: dict[str, Any], hints: list[str] | None)
             dimensions[dimension] = True
 
     if data.get("party_a") or data.get("party_b") or data.get("buyer_name") or data.get("seller_name"):
-        dimensions["counterparty"] = True
+        dimensions["contract"] = True
     if data.get("invoice_number") or data.get("invoice_no") or data.get("tax_amount"):
         dimensions["invoice"] = True
         dimensions["tax"] = True
+        dimensions["counterparty"] = True
     if data.get("transactions"):
         dimensions["bank_cash"] = True
-        dimensions["counterparty"] = True
     if data.get("items"):
         dimensions["inventory"] = True
 
@@ -299,7 +302,10 @@ def _llm_enhance_decomposition(
         "task": "decompose_financial_draft",
         "instructions": (
             "你是财务底稿语义分解引擎。根据文本判断涉及的会计维度，并映射到模块台账。"
-            "模块键仅限：tax_invoice, bank_cash_flow, counterparty_ledger, purchase, sales, inventory_receipt, payroll。"
+            "模块键仅限：tax_invoice, bank_cash_flow, contract_register, counterparty_ledger, purchase, sales, inventory_receipt, payroll。"
+            "合同资料登记 contract_register（待执行/未执行/取消等承诺状态），不得登记 counterparty_ledger。"
+            "银行流水仅登记 bank_cash_flow，不得因付款语义登记 counterparty_ledger。"
+            "counterparty_ledger 仅用于已发生的应收/应付/预收/预付等往来余额事实。"
             "返回 JSON："
             "{primary_document_type, accounting_dimensions:{revenue:bool,...}, "
             "module_targets:[{module_key,confidence,accounting_dimension,reason}], "
@@ -389,7 +395,12 @@ def decompose_draft(
     rule_targets = _merge_module_targets(_primary_modules(document_type), _dimensions_to_modules(dimensions))
 
     if not rule_targets and document_type != "general":
-        rule_targets = _dimensions_to_modules({"counterparty": True})
+        if document_type == "contract":
+            rule_targets = _primary_modules("contract")
+        elif document_type == "bank_statement":
+            rule_targets = _primary_modules("bank_statement")
+        else:
+            rule_targets = _dimensions_to_modules({"counterparty": True})
 
     base = SemanticDecomposition(
         decomposition_version=DECOMPOSITION_VERSION,

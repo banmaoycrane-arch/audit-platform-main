@@ -4,9 +4,10 @@
 并同步内存台账服务，不生成会计分录（AccountingEntry）。
 
 模块映射规则：
-- 发票 → 税务模块台账
-- 银行流水 → 银行模块台账
-- 合同 → 往来账款台账；若为采购/销售合同，同时登记采购/销售模块台账
+- 发票 → 税务模块台账；若形成未结清往来余额，可登记往来款项台账
+- 银行流水 → 银行资金台账（仅资金事实，不登记往来款项）
+- 合同 → 合同台账（承诺状态）；若为采购/销售合同，同时登记采购/销售模块
+- 往来款项台账仅登记已发生的应收/应付/预收/预付余额，不登记合同承诺或银行流水
 """
 
 from __future__ import annotations
@@ -37,16 +38,20 @@ MODULE_DEFINITIONS: dict[str, dict[str, str]] = {
         "label": "银行模块-资金收支台账",
         "module_path": "/bank/cash-flow-ledger",
     },
+    "contract_register": {
+        "label": "合同台账",
+        "module_path": "/audit/contracts",
+    },
     "counterparty_ledger": {
-        "label": "往来账款台账",
-        "module_path": "/basic/counterparties",
+        "label": "往来款项台账",
+        "module_path": "/basic/receivable-payable",
     },
     "purchase": {
-        "label": "采购模块-采购合同台账",
+        "label": "采购模块-采购业务台账",
         "module_path": "/inventory/purchase-in",
     },
     "sales": {
-        "label": "销售模块-销售合同台账",
+        "label": "销售模块-销售业务台账",
         "module_path": "/inventory/sale-out",
     },
     "inventory_receipt": {
@@ -300,7 +305,7 @@ def _persist_contract(
     if data.get("party_b"):
         parties.append({"party_role": "party_b", "party_name": data.get("party_b")})
 
-    module_keys = decomposition.module_keys() or ["counterparty_ledger"]
+    module_keys = decomposition.module_keys() or ["contract_register"]
     contract_type = "purchase" if "purchase" in module_keys else "sales" if "sales" in module_keys else "service"
 
     payload = {
@@ -312,6 +317,7 @@ def _persist_contract(
         "parties": parties,
         "extracted_text": raw_text,
         "confidence_score": confidence,
+        "execution_status": data.get("execution_status") or "pending",
     }
     contract = service.parse_contract(organization_id, payload)
     contract.source_file_id = source_file.id
@@ -323,8 +329,10 @@ def _persist_contract(
     target_by_key = {item.module_key: item for item in decomposition.module_targets}
 
     for module_key in module_keys:
+        if module_key == "counterparty_ledger":
+            continue
         target = target_by_key.get(module_key) or ModuleTarget(module_key=module_key, confidence=confidence, reason="合同语义分解")
-        semantic_only = module_key in {"tax_invoice"} or module_key not in {"counterparty_ledger", "purchase", "sales"}
+        semantic_only = module_key in {"tax_invoice", "bank_cash_flow"} or module_key not in {"contract_register", "purchase", "sales"}
 
         if semantic_only:
             _register_semantic_projection(source_file, module_key, data, target.confidence, target, contract.id)
@@ -404,7 +412,7 @@ def _persist_bank_statements(
     module_regs = [_build_module_registration("bank_cash_flow", register_ids, reason="主资料：银行流水")]
     if decomposition:
         for target in decomposition.module_targets:
-            if target.module_key == "bank_cash_flow":
+            if target.module_key in {"bank_cash_flow", "counterparty_ledger"}:
                 continue
             _register_semantic_projection(source_file, target.module_key, data, target.confidence, target, register_ids[0] if register_ids else None)
             module_regs.append(_build_module_registration(

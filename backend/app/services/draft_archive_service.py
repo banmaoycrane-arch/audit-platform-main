@@ -20,7 +20,8 @@ from app.models.project_ledger import ProjectLedger
 ARCHIVE_CATEGORIES: dict[str, str] = {
     "tax_invoice": "税务底稿",
     "bank_cash_flow": "银行资金底稿",
-    "counterparty_ledger": "往来账款底稿",
+    "contract_register": "合同底稿",
+    "counterparty_ledger": "往来款项底稿",
     "purchase": "采购底稿",
     "sales": "销售底稿",
     "inventory_receipt": "库存底稿",
@@ -114,7 +115,7 @@ def _primary_module_key(
     mapping = {
         "invoice": "tax_invoice",
         "bank_statement": "bank_cash_flow",
-        "contract": "counterparty_ledger",
+        "contract": "contract_register",
         "inventory_receipt": "inventory_receipt",
         "payroll": "payroll",
         "structured_ledger": "structured_ledger",

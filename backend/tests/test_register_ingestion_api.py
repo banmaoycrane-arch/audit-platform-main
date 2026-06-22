@@ -133,14 +133,15 @@ def test_ai_upload_contract_registers_multiple_modules(client, monkeypatch):
 
     module_regs = process_response.json()["report"]["register_summary"][0]["module_registrations"]
     module_keys = {item["module_key"] for item in module_regs}
-    assert "counterparty_ledger" in module_keys
+    assert "contract_register" in module_keys
     assert "purchase" in module_keys
+    assert "counterparty_ledger" not in module_keys
 
     db = TestingSessionLocal()
     try:
         contracts = db.query(Contract).all()
         assert len(contracts) == 1
-        assert "counterparty_ledger" in ledger_service.module_ledgers
+        assert "contract_register" in ledger_service.module_ledgers
         assert "purchase" in ledger_service.module_ledgers
     finally:
         db.close()
