@@ -255,49 +255,6 @@ export function LedgerManagementPage() {
     }
   }
 
-  const ledgerColumns = [
-    { title: '账套名称', dataIndex: 'name', key: 'name' },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (value: string) => <Tag color={ledgerStatusColorMap[value] || 'default'}>{ledgerStatusLabelMap[value] || value}</Tag>,
-    },
-    { title: '角色', dataIndex: 'role', key: 'role', render: (value: string | undefined) => value || '-' },
-    {
-      title: '团队ID',
-      key: 'team_id',
-      render: (_: unknown, record: Ledger) => record.team_id || record.organization_id || '-',
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_: unknown, record: Ledger) => (
-        <Space size="small" wrap>
-          <Button type="link" onClick={() => setSelectedLedgerId(record.id)}>
-            授权
-          </Button>
-          <Button type="link" onClick={() => handleEnterLedgerFiles(record.id)}>
-            账套文件
-          </Button>
-          {getAvailableActions(record.status).map((action) => {
-            const actionConfig = lifecycleActionMap[action]
-            return (
-              <Button
-                key={action}
-                type="link"
-                danger={actionConfig.danger}
-                onClick={() => handleLifecycleAction(record.id, action)}
-              >
-                {actionConfig.label}
-              </Button>
-            )
-          })}
-        </Space>
-      ),
-    },
-  ]
-
   const filteredProjects = projects.filter((project) => !selectedCreateTeamId || !project.team_id || project.team_id === selectedCreateTeamId)
 
   // 账套卡片组件
