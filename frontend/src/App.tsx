@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { ConfigProvider } from 'antd'
+import { ConfigProvider, Spin } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { AuthProvider, useAuthStore } from './stores/authStore'
 import { HomePage } from './pages/HomePage'
@@ -67,7 +67,14 @@ function LoggedInRedirect({ children }: { children: React.ReactNode }) {
 }
 
 function LedgerDataGuard({ children }: { children: React.ReactNode }) {
-  const { userLedgers, authContext } = useAuthStore()
+  const { userLedgers, authContext, authContextReady } = useAuthStore()
+  if (!authContextReady) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+        <Spin size="large" tip="正在加载账套信息..." />
+      </div>
+    )
+  }
   if (userLedgers.length === 0) {
     if (authContext?.missing_bindings?.includes('team')) {
       return <Navigate to="/onboarding-request" replace />

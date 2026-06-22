@@ -19,7 +19,10 @@ from app.schemas.accounting_period import (
 )
 from app.services.accounting_period_service import AccountingPeriodService
 from app.services import period_close_service
-from app.services.ledger_context_service import resolve_organization_id_for_ledger
+from app.services.ledger_context_service import (
+    resolve_organization_id_for_ledger,
+    resolve_or_create_organization_for_ledger,
+)
 
 router = APIRouter(prefix="/api/accounting-periods", tags=["accounting-periods"])
 
@@ -90,6 +93,8 @@ def create_period(payload: AccountingPeriodCreate, db: Session = Depends(get_db)
         resolved_org_id = resolve_organization_id_for_ledger(db, payload.ledger_id)
         if resolved_org_id is not None:
             organization_id = resolved_org_id
+        elif organization_id is None:
+            organization_id = resolve_or_create_organization_for_ledger(db, payload.ledger_id)
 
     if organization_id is None:
         raise HTTPException(status_code=400, detail="无法确定组织，请先完成账套导入或指定组织 ID")

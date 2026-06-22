@@ -27,6 +27,7 @@ interface AuthState {
   token: string | null
   user: User | null
   isLoggedIn: boolean
+  authContextReady: boolean
   currentLedgerId: number | null
   userLedgers: Ledger[]
   authContext: AuthContextState | null
@@ -51,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   })
   const [userLedgers, setUserLedgersState] = useState<Ledger[]>([])
   const [authContext, setAuthContextState] = useState<AuthContextState | null>(null)
+  const [authContextReady, setAuthContextReady] = useState<boolean>(() => !localStorage.getItem('token'))
 
   const setToken = useCallback((t: string) => {
     localStorage.setItem('token', t)
@@ -98,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       localStorage.removeItem('current_ledger_id')
     }
+    setAuthContextReady(true)
   }, [])
 
   const logout = useCallback(() => {
@@ -109,10 +112,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCurrentLedgerIdState(null)
     setUserLedgersState([])
     setAuthContextState(null)
+    setAuthContextReady(true)
   }, [])
 
   useEffect(() => {
-    if (!token) return
+    if (!token) {
+      setAuthContextReady(true)
+      return
+    }
+    setAuthContextReady(false)
     refreshAuthContext().catch(() => logout())
   }, [token, logout, refreshAuthContext])
 
@@ -122,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token,
         user,
         isLoggedIn,
+        authContextReady,
         currentLedgerId,
         userLedgers,
         authContext,
