@@ -4,6 +4,7 @@ import { Form, Input, Button, Tabs, message, Alert } from 'antd'
 import { UserOutlined, LockOutlined, MobileOutlined, SafetyOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
+import { resolvePostLoginPath } from '../../utils/navigation'
 import { SetPasswordModal } from './SetPasswordModal'
 
 export function LoginPage() {
@@ -38,7 +39,7 @@ export function LoginPage() {
       }
 
       message.success('登录成功')
-      navigate('/workspace', { replace: true })
+      navigate(resolvePostLoginPath(context), { replace: true })
     } catch (error) {
       localStorage.removeItem('token')
       throw error
@@ -103,7 +104,9 @@ export function LoginPage() {
 
   const handleModalAfterClose = () => {
     message.success('登录成功')
-    navigate('/workspace', { replace: true })
+    api.getAuthContext().then((context) => {
+      navigate(resolvePostLoginPath(context), { replace: true })
+    }).catch(() => navigate('/workspace', { replace: true }))
   }
 
   const sendSmsCode = async () => {

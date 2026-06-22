@@ -2,6 +2,7 @@ from datetime import date
 from calendar import monthrange
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,10 @@ from app.schemas.accounting_period import (
 )
 from app.services.accounting_period_service import AccountingPeriodService
 from app.services import period_close_service
+from app.services.ledger_context_service import (
+    resolve_organization_id_for_ledger,
+    resolve_or_create_organization_for_ledger,
+)
 
 router = APIRouter(prefix="/api/accounting-periods", tags=["accounting-periods"])
 
@@ -83,14 +88,25 @@ def create_period(payload: AccountingPeriodCreate, db: Session = Depends(get_db)
     if payload.start_date > payload.end_date:
         raise HTTPException(status_code=400, detail="期间开始日期不能晚于结束日期")
 
-    organization = db.get(Organization, payload.organization_id)
+    organization_id = payload.organization_id
+    if payload.ledger_id is not None:
+        resolved_org_id = resolve_organization_id_for_ledger(db, payload.ledger_id)
+        if resolved_org_id is not None:
+            organization_id = resolved_org_id
+        elif organization_id is None:
+            organization_id = resolve_or_create_organization_for_ledger(db, payload.ledger_id)
+
+    if organization_id is None:
+        raise HTTPException(status_code=400, detail="无法确定组织，请先完成账套导入或指定组织 ID")
+
+    organization = db.get(Organization, organization_id)
     if not organization:
         raise HTTPException(status_code=404, detail="组织不存在")
 
     overlapped_period = (
         db.query(AccountingPeriod)
         .filter(
-            AccountingPeriod.organization_id == payload.organization_id,
+            AccountingPeriod.organization_id == organization_id,
             AccountingPeriod.start_date <= payload.end_date,
             AccountingPeriod.end_date >= payload.start_date,
         )
@@ -100,7 +116,8 @@ def create_period(payload: AccountingPeriodCreate, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail="同一组织内会计期间日期不能重叠")
 
     period = AccountingPeriod(
-        organization_id=payload.organization_id,
+        organization_id=organization_id,
+        ledger_id=payload.ledger_id,
         period_code=payload.period_code,
         period_type=payload.period_type,
         start_date=payload.start_date,
@@ -118,11 +135,22 @@ def create_period(payload: AccountingPeriodCreate, db: Session = Depends(get_db)
 
 
 @router.get("", response_model=list[AccountingPeriodRead])
-def list_periods(organization_id: int | None = None, db: Session = Depends(get_db)) -> list[AccountingPeriodRead]:
+def list_periods(
+    organization_id: int | None = None,
+    ledger_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> list[AccountingPeriodRead]:
     try:
+        if ledger_id is not None and organization_id is None:
+            organization_id = resolve_organization_id_for_ledger(db, ledger_id)
+
         query = db.query(AccountingPeriod).order_by(AccountingPeriod.start_date.desc(), AccountingPeriod.id.desc())
-        if organization_id:
+        if organization_id is not None:
             query = query.filter(AccountingPeriod.organization_id == organization_id)
+        if ledger_id is not None:
+            query = query.filter(
+                or_(AccountingPeriod.ledger_id == ledger_id, AccountingPeriod.ledger_id.is_(None))
+            )
         return [_period_response(db, period) for period in query.all()]
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=422, detail=f"会计期间加载失败，请检查期间表结构或迁移状态：{exc}")

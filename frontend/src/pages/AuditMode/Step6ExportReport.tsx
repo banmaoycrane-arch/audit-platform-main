@@ -4,6 +4,7 @@ import { DownloadOutlined, FileTextOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import { api } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { withJobQuery } from '../../utils/navigation'
 
 const { Title, Text } = Typography
 
@@ -61,7 +62,7 @@ export function Step6ExportReport() {
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev="/audit/step/5" style={{ marginBottom: '16px' }} />
+      <FlowNav prev={withJobQuery('/audit/step/5', jobId)} style={{ marginBottom: '16px' }} />
 
       <Title level={4}>生成审计报告</Title>
 

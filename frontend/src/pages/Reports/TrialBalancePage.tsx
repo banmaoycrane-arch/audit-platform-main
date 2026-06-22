@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Card, Table, Typography, Alert, message } from 'antd'
 import { api, type TrialBalanceReport } from '../../api/client'
 import { PeriodSelector } from '../../components/PeriodSelector'
+import { useAuthStore } from '../../stores/authStore'
 
 const { Title } = Typography
 
@@ -15,6 +16,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 }
 
 export function TrialBalancePage() {
+  const { currentLedgerId } = useAuthStore()
   const [filter, setFilter] = useState<{ organizationId: number | null; periodId: number | null }>({
     organizationId: null,
     periodId: null,
@@ -35,7 +37,7 @@ export function TrialBalancePage() {
     <div>
       <Title level={3}>科目余额表</Title>
       <Card style={{ marginBottom: 16 }}>
-        <PeriodSelector value={filter} onChange={setFilter} />
+        <PeriodSelector ledgerId={currentLedgerId} value={filter} onChange={setFilter} />
       </Card>
 
       {report && !report.is_balanced && (

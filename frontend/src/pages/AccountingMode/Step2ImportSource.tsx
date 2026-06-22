@@ -193,7 +193,7 @@ export function Step2AccountingImportSource() {
       setCounterpartiesLoading(true)
       try {
         const [periods, accounts, loadedCounterparties] = await Promise.all([
-          api.listAccountingPeriods(),
+          api.listAccountingPeriods(undefined, currentLedgerId || undefined),
           api.listChartOfAccounts(),
           api.listCounterparties(),
         ])
@@ -331,7 +331,7 @@ export function Step2AccountingImportSource() {
       let jobId = currentJobId
       if (!jobId) {
         // 创建导入任务
-        const job = await api.createImportJob('临时组织', 'ai_generated', currentLedgerId)
+        const job = await api.createImportJob('账套导入', 'ai_generated', currentLedgerId)
         jobId = job.id
         setCurrentJobId(jobId)
         setCurrentOrgId(job.organization_id)
@@ -432,7 +432,7 @@ export function Step2AccountingImportSource() {
     let jobId = currentJobId
     let orgId = currentOrgId
     if (!jobId) {
-      const job = await api.createImportJob('临时组织', sourceType, currentLedgerId)
+      const job = await api.createImportJob('账套导入', sourceType, currentLedgerId)
       jobId = job.id
       orgId = job.organization_id
       setCurrentJobId(jobId)
@@ -446,6 +446,7 @@ export function Step2AccountingImportSource() {
       }
       const period = await api.createAccountingPeriod({
         organization_id: orgId,
+        ledger_id: currentLedgerId || undefined,
         period_code: periodCode,
         start_date: periodStart,
         end_date: periodEnd,
@@ -510,6 +511,7 @@ export function Step2AccountingImportSource() {
       try {
         const period = await api.createAccountingPeriod({
           organization_id: currentOrgId,
+          ledger_id: currentLedgerId || undefined,
           period_code: periodCode,
           start_date: periodStart,
           end_date: periodEnd,
@@ -1120,7 +1122,7 @@ export function Step2AccountingImportSource() {
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev={stepPath(1)} next={stepPath(3)} style={{ marginBottom: '16px' }} />
+      <FlowNav prev={stepPath(1)} onNext={handleNext} nextDisabled={uploadedFiles.length === 0 || !currentJobId} style={{ marginBottom: '16px' }} />
 
       <Title level={4}>导入原始资料</Title>
         <Text type="secondary">

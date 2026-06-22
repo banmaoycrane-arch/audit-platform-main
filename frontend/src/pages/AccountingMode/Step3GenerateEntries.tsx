@@ -162,7 +162,7 @@ const detail = error instanceof Error ? error.message : String(error)
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev={prevQuery ? `${stepPath(2)}?${prevQuery}` : stepPath(2)} next={stepPath(4)} style={{ marginBottom: '16px' }} />
+      <FlowNav prev={stepPath(2)} onNext={handleCommit} nextDisabled={!jobId || !periodId || drafts.length === 0 || hasBlockedDraft || committing} style={{ marginBottom: '16px' }} />
 
       {(!jobId || !periodId) && (
         <Alert

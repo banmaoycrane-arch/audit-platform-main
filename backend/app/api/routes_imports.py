@@ -70,8 +70,11 @@ def create_job(payload: ImportJobCreate, db: Session = Depends(get_db)) -> Impor
 
 
 @router.get("", response_model=list[ImportJobRead])
-def list_jobs(db: Session = Depends(get_db)) -> list[ImportJob]:
-    return db.query(ImportJob).order_by(ImportJob.id.desc()).all()
+def list_jobs(ledger_id: int | None = None, db: Session = Depends(get_db)) -> list[ImportJob]:
+    query = db.query(ImportJob).order_by(ImportJob.id.desc())
+    if ledger_id is not None:
+        query = query.filter(ImportJob.ledger_id == ledger_id)
+    return query.all()
 
 
 @router.get("/{job_id}", response_model=ImportJobRead)

@@ -1,10 +1,11 @@
 import { Card, Upload, Button, Steps, Typography, message, Tag, Space, Modal, Input, List } from 'antd'
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { InboxOutlined, PlusOutlined, RobotOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
 import { useAuthStore } from '../../stores/authStore'
+import { withJobQuery } from '../../utils/navigation'
 
 const { Dragger } = Upload
 const { Title, Text } = Typography
@@ -32,14 +33,28 @@ interface UploadedFile {
 
 export function Step2AuditImportSource() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { currentLedgerId } = useAuthStore()
   const currentStep = 1
+  const initialJobId = Number(searchParams.get('jobId') || 0)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
   const [customTypeModalVisible, setCustomTypeModalVisible] = useState(false)
   const [customTypeInput, setCustomTypeInput] = useState('')
   const [customTypes, setCustomTypes] = useState<{ type: string; label: string; description: string }[]>([])
-  const [currentJobId, setCurrentJobId] = useState<number | null>(null)
+  const [currentJobId, setCurrentJobId] = useState<number | null>(initialJobId || null)
+
+  useEffect(() => {
+    if (initialJobId) {
+      setCurrentJobId(initialJobId)
+    }
+  }, [initialJobId])
+
+  const syncJobIdToUrl = (jobId: number) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('jobId', String(jobId))
+    setSearchParams(next, { replace: true })
+  }
 
   const handleUpload = async (file: File) => {
     try {
@@ -50,6 +65,7 @@ export function Step2AuditImportSource() {
         const job = await api.createImportJob('审计项目', undefined, currentLedgerId)
         jobId = job.id
         setCurrentJobId(jobId)
+        syncJobIdToUrl(jobId)
       }
 
       // 调用 API 上传文件
@@ -112,7 +128,7 @@ export function Step2AuditImportSource() {
       return
     }
     // 跳转到下一步，传递 jobId
-    navigate(`/audit/step/3?jobId=${currentJobId}`)
+    navigate(withJobQuery('/audit/step/3', currentJobId))
   }
 
   return (
@@ -130,7 +146,12 @@ export function Step2AuditImportSource() {
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev="/audit/step/1" next="/audit/step/3" style={{ marginBottom: '16px' }} />
+      <FlowNav
+        prev="/audit/step/1"
+        onNext={handleNext}
+        nextDisabled={uploadedFiles.length === 0 || !currentJobId}
+        style={{ marginBottom: '16px' }}
+      />
 
       <Title level={4}>导入审计证据</Title>
       <Text type="secondary">选择原始凭证类型，上传支持性文件</Text>

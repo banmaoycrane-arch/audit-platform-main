@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { ConfigProvider } from 'antd'
+import { ConfigProvider, Spin } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { AuthProvider, useAuthStore } from './stores/authStore'
 import { HomePage } from './pages/HomePage'
@@ -69,9 +69,19 @@ function LoggedInRedirect({ children }: { children: React.ReactNode }) {
 }
 
 function LedgerDataGuard({ children }: { children: React.ReactNode }) {
-  const { userLedgers } = useAuthStore()
+  const { userLedgers, authContext, authContextReady } = useAuthStore()
+  if (!authContextReady) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+        <Spin size="large" tip="正在加载账套信息..." />
+      </div>
+    )
+  }
   if (userLedgers.length === 0) {
-    return <Navigate to="/workspace" replace />
+    if (authContext?.missing_bindings?.includes('team')) {
+      return <Navigate to="/onboarding-request" replace />
+    }
+    return <Navigate to="/onboarding" replace />
   }
   return <>{children}</>
 }
@@ -237,6 +247,26 @@ function AppRoutes() {
               title="发票管理"
               description="发票管理用于归集销项、进项和费用票据，并与往来、收入、成本费用和税务申报形成勾稽。"
               items={['销项发票', '进项发票', '费用票据', '发票与凭证匹配']}
+            />
+          )}
+        />
+        <Route
+          path="/tax/invoice-issuance-ledger"
+          element={(
+            <PlaceholderModulePage
+              title="发票开具台账"
+              description="发票开具台账用于汇总销项发票开具记录，跟踪开票金额、税率和对应收入确认情况。"
+              items={['销项发票汇总', '开票金额统计', '收入勾稽']}
+            />
+          )}
+        />
+        <Route
+          path="/tax/certification-deduction-ledger"
+          element={(
+            <PlaceholderModulePage
+              title="认证抵扣台账"
+              description="认证抵扣台账用于管理进项发票认证、抵扣状态和可抵扣税额，辅助增值税申报。"
+              items={['进项认证状态', '可抵扣税额', '申报勾稽']}
             />
           )}
         />

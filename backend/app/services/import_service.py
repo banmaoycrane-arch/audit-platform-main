@@ -52,6 +52,7 @@ from app.services.logic_check_service import (
 )
 from app.services.risk_rule_service import generate_risks
 from app.services.risk_case_library import enhance_entry_with_risk_analysis
+from app.services.ledger_context_service import resolve_or_create_organization_for_ledger
 from app.services.tagging_service import suggest_tags, suggest_voucher_type
 from app.services.vector_store_service import chunk_hash, chunk_text, safe_vector_store
 from app.storage.local_storage import save_upload
@@ -140,9 +141,20 @@ def create_import_job(
     Returns:
         ImportJob: 创建的导入任务对象
     """
-    organization = Organization(name=organization_name, industry=industry, fiscal_year=fiscal_year)
-    db.add(organization)
-    db.flush()
+    organization = None
+    if ledger_id is not None:
+        organization_id = resolve_or_create_organization_for_ledger(
+            db,
+            ledger_id,
+            organization_name=organization_name,
+            industry=industry,
+            fiscal_year=fiscal_year,
+        )
+        organization = db.get(Organization, organization_id)
+    if organization is None:
+        organization = Organization(name=organization_name, industry=industry, fiscal_year=fiscal_year)
+        db.add(organization)
+        db.flush()
     job = ImportJob(organization_id=organization.id, ledger_id=ledger_id, source_type=source_type)
     db.add(job)
     db.commit()

@@ -5,15 +5,17 @@ import { api, type AccountingPeriod } from '../api/client'
 const { Text } = Typography
 
 type Props = {
+  ledgerId?: number | null
   value: { organizationId: number | null; periodId: number | null }
   onChange: (v: { organizationId: number | null; periodId: number | null }) => void
 }
 
-export function PeriodSelector({ value, onChange }: Props) {
+export function PeriodSelector({ ledgerId, value, onChange }: Props) {
   const [periods, setPeriods] = useState<AccountingPeriod[]>([])
 
   useEffect(() => {
-    api.listAccountingPeriods()
+    api
+      .listAccountingPeriods(undefined, ledgerId || undefined)
       .then((data) => {
         setPeriods(data)
         if (!value.periodId && data.length > 0) {
@@ -22,7 +24,7 @@ export function PeriodSelector({ value, onChange }: Props) {
       })
       .catch(() => setPeriods([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [ledgerId])
 
   return (
     <Space>

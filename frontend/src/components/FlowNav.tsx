@@ -6,6 +6,8 @@ interface FlowNavProps {
   prev?: string
   next?: string
   nextLabel?: string
+  nextDisabled?: boolean
+  onNext?: () => void
   style?: CSSProperties
 }
 
@@ -20,11 +22,22 @@ function withSearch(path: string, search: string) {
   return `${path}${search}`
 }
 
-export function FlowNav({ prev, next, nextLabel = '下一步', style }: FlowNavProps) {
+export function FlowNav({ prev, next, nextLabel = '下一步', nextDisabled = false, onNext, style }: FlowNavProps) {
   const navigate = useNavigate()
   const location = useLocation()
 
   const goStep = (path: string) => navigate(withSearch(resolveStepPath(path, location.pathname), location.search))
+
+  const handleNext = () => {
+    if (nextDisabled) return
+    if (onNext) {
+      onNext()
+      return
+    }
+    if (next) {
+      goStep(next)
+    }
+  }
 
   return (
     <Space style={style} wrap>
@@ -36,8 +49,8 @@ export function FlowNav({ prev, next, nextLabel = '下一步', style }: FlowNavP
           上一步
         </Button>
       )}
-      {next && (
-        <Button type="primary" onClick={() => goStep(next)}>
+      {(next || onNext) && (
+        <Button type="primary" disabled={nextDisabled} onClick={handleNext}>
           {nextLabel}
         </Button>
       )}

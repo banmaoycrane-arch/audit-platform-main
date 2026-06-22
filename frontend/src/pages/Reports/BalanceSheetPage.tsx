@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { Card, Table, Typography, Alert, Row, Col, Statistic, message } from 'antd'
 import { api, type BalanceSheetReport, type TrialBalanceRow } from '../../api/client'
 import { PeriodSelector } from '../../components/PeriodSelector'
+import { useAuthStore } from '../../stores/authStore'
 
 const { Title } = Typography
 
 export function BalanceSheetPage() {
+  const { currentLedgerId } = useAuthStore()
   const [filter, setFilter] = useState<{ organizationId: number | null; periodId: number | null }>({
     organizationId: null,
     periodId: null,
@@ -43,7 +45,7 @@ export function BalanceSheetPage() {
     <div>
       <Title level={3}>资产负债表</Title>
       <Card style={{ marginBottom: 16 }}>
-        <PeriodSelector value={filter} onChange={setFilter} />
+        <PeriodSelector ledgerId={currentLedgerId} value={filter} onChange={setFilter} />
       </Card>
 
       {report && (

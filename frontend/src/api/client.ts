@@ -25,6 +25,7 @@ export type AccountingEntry = {
   counterparty: string | null
   normalized_text: string
   entry_line_no: number
+  review_status: string
   created_at: string
 }
 
@@ -728,7 +729,12 @@ export const api = {
         ledger_id: ledgerId || undefined,
       })
     }),
-  listImportJobs: () => request<ImportJob[]>('/api/import-jobs'),
+  listImportJobs: (ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<ImportJob[]>(`/api/import-jobs${query ? `?${query}` : ''}`)
+  },
   getImportJob: (jobId: number) => request<ImportJob>(`/api/import-jobs/${jobId}`),
   uploadFile: (jobId: number, file: File, documentTypeHints?: string[]) => {
     const form = new FormData()
@@ -750,8 +756,32 @@ export const api = {
   getImportReport: (jobId: number) => request<any>(`/api/import-jobs/${jobId}/report`),
   getDayBookReport: (jobId: number) => request<DayBookReport>(`/api/import-jobs/${jobId}/day-book-report`),
   getImportPeriodSuggestion: (jobId: number) => request<ImportPeriodSuggestion>(`/api/import-jobs/${jobId}/period-suggestion`),
-  listEntries: (jobId?: number) => request<AccountingEntry[]>(`/api/entries${jobId ? `?import_job_id=${jobId}` : ''}`),
-  listRisks: (jobId?: number) => request<AuditRisk[]>(`/api/risks${jobId ? `?import_job_id=${jobId}` : ''}`),
+  listEntries: (jobId?: number, ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (jobId) params.set('import_job_id', String(jobId))
+    if (!jobId && ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<AccountingEntry[]>(`/api/entries${query ? `?${query}` : ''}`)
+  },
+  reviewEntry: (entryId: number, reviewStatus: string) =>
+    request<AccountingEntry>(`/api/entries/${entryId}/review`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ review_status: reviewStatus }),
+    }),
+  batchReviewEntries: (entryIds: number[], reviewStatus: string) =>
+    request<{ updated: number }>('/api/entries/batch-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry_ids: entryIds, review_status: reviewStatus }),
+    }),
+  listRisks: (jobId?: number, ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (jobId) params.set('import_job_id', String(jobId))
+    if (!jobId && ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<AuditRisk[]>(`/api/risks${query ? `?${query}` : ''}`)
+  },
   getRisk: (riskId: number) => request<RiskDetail>(`/api/risks/${riskId}`),
   reviewRisk: (riskId: number, action: string, comment?: string) =>
     request<AuditRisk>(`/api/risks/${riskId}/review`, {
@@ -789,12 +819,13 @@ export const api = {
     }
     return response.blob()
   },
-  listAccountingPeriods: (organizationId?: number) =>
-    request<AccountingPeriod[]>(
-      organizationId
-        ? `/api/accounting-periods?organization_id=${organizationId}`
-        : '/api/accounting-periods'
-    ),
+  listAccountingPeriods: (organizationId?: number, ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (organizationId) params.set('organization_id', String(organizationId))
+    if (ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<AccountingPeriod[]>(`/api/accounting-periods${query ? `?${query}` : ''}`)
+  },
   recommendAccountingPeriod: (targetDate?: string, organizationId?: number, periodType?: string) => {
     const params = new URLSearchParams()
     if (targetDate) params.set('target_date', targetDate)
@@ -853,7 +884,8 @@ export const api = {
   deleteFile: (fileId: number) =>
     request<{ deleted: number; message: string }>(`/api/files/${fileId}`, { method: 'DELETE' }),
   createAccountingPeriod: (payload: {
-    organization_id: number
+    organization_id?: number
+    ledger_id?: number
     period_code: string
     start_date: string
     end_date: string

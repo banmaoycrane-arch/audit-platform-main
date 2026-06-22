@@ -146,6 +146,38 @@ def _ensure_local_sqlite_schema() -> None:
             connection.execute(text("CREATE INDEX ix_sms_verification_codes_created_at ON sms_verification_codes (created_at)"))
             connection.execute(text("CREATE INDEX ix_sms_verification_codes_expires_at ON sms_verification_codes (expires_at)"))
 
+        if "teams" in table_names:
+            team_columns = {column["name"] for column in inspector.get_columns("teams")}
+            if "parent_team_id" not in team_columns:
+                connection.execute(text("ALTER TABLE teams ADD COLUMN parent_team_id INTEGER"))
+
+        if "entry_tags" in table_names:
+            tag_columns = {column["name"] for column in inspector.get_columns("entry_tags")}
+            tag_missing_columns = {
+                "tag_type": "ALTER TABLE entry_tags ADD COLUMN tag_type VARCHAR(40)",
+                "tag_value": "ALTER TABLE entry_tags ADD COLUMN tag_value VARCHAR(200)",
+                "tag_value_normalized": "ALTER TABLE entry_tags ADD COLUMN tag_value_normalized VARCHAR(200)",
+                "vector_pending": "ALTER TABLE entry_tags ADD COLUMN vector_pending BOOLEAN DEFAULT 1 NOT NULL",
+            }
+            for column_name, ddl in tag_missing_columns.items():
+                if column_name not in tag_columns:
+                    connection.execute(text(ddl))
+
+        if "accounting_entries" in table_names:
+            entry_columns = {column["name"] for column in inspector.get_columns("accounting_entries")}
+            entry_missing_columns = {
+                "entity_id": "ALTER TABLE accounting_entries ADD COLUMN entity_id INTEGER",
+                "original_entity_name": "ALTER TABLE accounting_entries ADD COLUMN original_entity_name VARCHAR(500)",
+                "source_file_id": "ALTER TABLE accounting_entries ADD COLUMN source_file_id INTEGER",
+                "entry_source": "ALTER TABLE accounting_entries ADD COLUMN entry_source VARCHAR(20) DEFAULT 'auto' NOT NULL",
+                "counterparty_id": "ALTER TABLE accounting_entries ADD COLUMN counterparty_id INTEGER",
+                "entry_line_no": "ALTER TABLE accounting_entries ADD COLUMN entry_line_no INTEGER DEFAULT 1 NOT NULL",
+                "review_status": "ALTER TABLE accounting_entries ADD COLUMN review_status VARCHAR(20) DEFAULT 'draft' NOT NULL",
+            }
+            for column_name, ddl in entry_missing_columns.items():
+                if column_name not in entry_columns:
+                    connection.execute(text(ddl))
+
 
 _ensure_local_sqlite_schema()
 

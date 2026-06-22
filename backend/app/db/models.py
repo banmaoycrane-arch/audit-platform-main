@@ -380,6 +380,7 @@ class AccountingEntry(Base):
     original_row: Mapped[dict] = mapped_column(JSON, default=dict)
     normalized_text: Mapped[str] = mapped_column(Text, default="")
     entry_line_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    review_status: Mapped[str] = mapped_column(String(20), default="draft")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
