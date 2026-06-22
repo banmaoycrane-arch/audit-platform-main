@@ -272,6 +272,8 @@ class LedgerService:
         self.inventory_ledger: Dict[str, InventoryLedger] = {}
         self.bank_statement_ledger: Dict[str, BankStatementLedger] = {}
         self.payroll_ledger: Dict[str, PayrollLedger] = {}
+        # 按功能模块分组的台账（税务/银行/往来/采购/销售等）
+        self.module_ledgers: Dict[str, Dict[str, LedgerEntry]] = {}
         
         # 业务关联记录
         self.business_links: List[BusinessLink] = []

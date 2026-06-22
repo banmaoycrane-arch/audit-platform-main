@@ -423,3 +423,29 @@ def get_consolidated_report(
         dict: 包含汇总数据、项目账套列表、科目发生额汇总、内部交易识别
     """
     return project_service.get_consolidated_report(db, project_id, period_start, period_end)
+
+
+@router.get("/{project_id}/files")
+def list_project_files(
+    project_id: int,
+    ledger_id: int | None = None,
+    archive_category: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
+    """列出项目下已自动归档的底稿资料。"""
+    project = project_service.get_project_by_id(db, project_id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+
+    from app.api.routes_files import _to_dict
+    from app.services.draft_archive_service import list_project_archived_files, load_archive_metadata
+
+    items = list_project_archived_files(db, project_id, ledger_id=ledger_id)
+    if archive_category:
+        items = [
+            item
+            for item in items
+            if (load_archive_metadata(item) or {}).get("archive_category") == archive_category
+        ]
+    return [_to_dict(db, item) for item in items]

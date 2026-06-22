@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Counterparty, ImportJob, SourceFile
 from app.db.session import get_db
+from app.services.draft_archive_service import load_archive_metadata
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -102,6 +103,7 @@ def _to_dict(db: Session, item: SourceFile) -> dict[str, Any]:
     _ensure_file_context(db, item)
     parsed = _extract_parse_summary(item)
     counterparty = db.get(Counterparty, item.counterparty_id) if item.counterparty_id else None
+    archive = load_archive_metadata(item)
     return {
         "id": item.id,
         "organization_id": item.organization_id,
@@ -122,6 +124,13 @@ def _to_dict(db: Session, item: SourceFile) -> dict[str, Any]:
             "match_source": item.customer_match_source,
             "confidence_note": item.customer_confidence_note,
         },
+        "archive_path": archive.get("archive_path") if archive else None,
+        "archive_category": archive.get("archive_category") if archive else None,
+        "archive_folder": archive.get("archive_folder") if archive else None,
+        "project_id": archive.get("project_id") if archive else None,
+        "project_name": archive.get("project_name") if archive else None,
+        "period_code": archive.get("period_code") if archive else None,
+        "archive_context": archive,
         "created_at": item.created_at,
     }
 
@@ -130,13 +139,27 @@ def _to_dict(db: Session, item: SourceFile) -> dict[str, Any]:
 def list_source_files(
     import_job_id: int | None = None,
     ledger_id: int | None = None,
+    project_id: int | None = None,
     counterparty_id: int | None = None,
     customer_id: int | None = None,
     file_type: str | None = None,
     parse_status: str | None = None,
     text_extract_status: str | None = None,
+    archive_category: str | None = None,
     db: Session = Depends(get_db),
 ) -> list[dict]:
+    if project_id:
+        from app.services.draft_archive_service import list_project_archived_files
+
+        items = list_project_archived_files(db, project_id, ledger_id=ledger_id)
+        if archive_category:
+            items = [
+                item
+                for item in items
+                if (load_archive_metadata(item) or {}).get("archive_category") == archive_category
+            ]
+        return [_to_dict(db, item) for item in items]
+
     query = db.query(SourceFile).outerjoin(ImportJob, SourceFile.import_job_id == ImportJob.id)
     if import_job_id:
         query = query.filter(SourceFile.import_job_id == import_job_id)
@@ -152,6 +175,12 @@ def list_source_files(
         query = query.filter(SourceFile.text_extract_status == selected_status)
 
     items = query.order_by(SourceFile.id.desc()).limit(200).all()
+    if archive_category:
+        items = [
+            item
+            for item in items
+            if (load_archive_metadata(item) or {}).get("archive_category") == archive_category
+        ]
     return [_to_dict(db, item) for item in items]
 
 
