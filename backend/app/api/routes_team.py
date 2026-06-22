@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.models.ledger import Ledger
 from app.services import ledger_management_service
 
 router = APIRouter(prefix="/api/teams", tags=["teams"])
@@ -41,6 +42,8 @@ class TeamResponse(BaseModel):
     name: str
     type: str
     created_at: str | None
+    member_count: int = 0
+    ledger_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -54,6 +57,19 @@ class TeamMemberResponse(BaseModel):
     team_id: int | None
 
     model_config = {"from_attributes": True}
+
+
+def _team_response(db: Session, team) -> TeamResponse:
+    member_count = db.query(User).filter(User.team_id == team.id).count()
+    ledger_count = db.query(Ledger).filter(Ledger.team_id == team.id).count()
+    return TeamResponse(
+        id=team.id,
+        name=team.name,
+        type=team.type,
+        created_at=str(team.created_at) if team.created_at else None,
+        member_count=member_count,
+        ledger_count=ledger_count,
+    )
 
 
 @router.post("", response_model=TeamResponse)
@@ -75,12 +91,7 @@ def create_team(
     db.commit()
     db.refresh(current_user)
 
-    return TeamResponse(
-        id=team.id,
-        name=team.name,
-        type=team.type,
-        created_at=str(team.created_at) if team.created_at else None,
-    )
+    return _team_response(db, team)
 
 
 @router.get("", response_model=list[TeamResponse])
@@ -92,15 +103,7 @@ def list_user_teams(
     返回当前用户所属团队列表。
     """
     teams = ledger_management_service.get_teams_by_user(db, current_user.id)
-    return [
-        TeamResponse(
-            id=team.id,
-            name=team.name,
-            type=team.type,
-            created_at=str(team.created_at) if team.created_at else None,
-        )
-        for team in teams
-    ]
+    return [_team_response(db, team) for team in teams]
 
 
 @router.get("/{team_id}/members", response_model=list[TeamMemberResponse])

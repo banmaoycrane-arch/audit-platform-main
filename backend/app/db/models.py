@@ -1591,3 +1591,36 @@ class DocumentTag(Base):
     source: Mapped[str] = mapped_column(String(50), default="rule")  # rule/ai/manual
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class BankAccount(Base):
+    __tablename__ = "bank_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
+    bank_name: Mapped[str] = mapped_column(String(200))
+    account_no: Mapped[str] = mapped_column(String(100))
+    account_name: Mapped[str] = mapped_column(String(200))
+    coa_account_code: Mapped[str] = mapped_column(String(40), default="1002")
+    opening_balance: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    current_balance: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class BankTransaction(Base):
+    __tablename__ = "bank_transactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
+    transaction_date: Mapped[date] = mapped_column(Date)
+    direction: Mapped[str] = mapped_column(String(10))  # in / out
+    amount: Mapped[float] = mapped_column(Numeric(18, 2))
+    summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    counterparty: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    reconciliation_status: Mapped[str] = mapped_column(String(20), default="unmatched")
+    matched_entry_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_entries.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    bank_account: Mapped["BankAccount"] = relationship()

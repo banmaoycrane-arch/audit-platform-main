@@ -285,7 +285,7 @@ export type EntityCreatePayload = {
 }
 
 export type AuthContext = {
-  user: { id: number; username: string | null; phone: string | null; email: string | null }
+  user: { id: number; username: string | null; phone: string | null; email: string | null; has_password?: boolean }
   teams: Team[]
   ledgers: Ledger[]
   projects: Project[]
@@ -401,6 +401,65 @@ export type Team = {
   name: string
   type: string
   created_at: string | null
+  member_count?: number
+  ledger_count?: number
+}
+
+export type BankAccount = {
+  id: number
+  ledger_id: number
+  bank_name: string
+  account_no: string
+  account_name: string
+  coa_account_code: string
+  opening_balance: number
+  current_balance: number
+  is_active: boolean
+}
+
+export type BankTransaction = {
+  id: number
+  bank_account_id: number
+  ledger_id: number
+  transaction_date: string
+  direction: 'in' | 'out'
+  amount: number
+  summary: string | null
+  counterparty: string | null
+  reconciliation_status: string
+  matched_entry_id: number | null
+}
+
+export type BankReconcileResult = {
+  matched_count: number
+  matches: Array<{
+    transaction_id: number
+    entry_id: number
+    amount: number
+    transaction_date: string
+    voucher_date: string
+  }>
+  unmatched_transactions: Array<{
+    id: number
+    transaction_date: string
+    amount: number
+    direction: string
+    summary: string | null
+  }>
+  unmatched_entries: Array<{
+    id: number
+    voucher_no: string | null
+    voucher_date: string | null
+    summary: string | null
+    amount: number
+    direction: string
+  }>
+}
+
+export type BankSummary = {
+  account_count: number
+  unreconciled_count: number
+  total_balance: number
 }
 
 export type TeamMember = {
@@ -925,6 +984,46 @@ export const api = {
     }),
   deleteProject: (id: number) =>
     request<{ deleted: number }>(`/api/projects/${id}`, { method: 'DELETE' }),
+
+  listBankAccounts: (ledgerId: number) =>
+    request<BankAccount[]>('/api/bank/accounts', { headers: { 'X-Ledger-Id': String(ledgerId) } }),
+  createBankAccount: (ledgerId: number, payload: {
+    bank_name: string
+    account_no: string
+    account_name: string
+    coa_account_code?: string
+    opening_balance?: number
+  }) =>
+    request<BankAccount>('/api/bank/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+  listBankTransactions: (ledgerId: number, status?: string) =>
+    request<BankTransaction[]>(`/api/bank/transactions${status ? `?status=${status}` : ''}`, {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  createBankTransaction: (ledgerId: number, payload: {
+    bank_account_id: number
+    transaction_date: string
+    direction: 'in' | 'out'
+    amount: number
+    summary?: string
+    counterparty?: string
+  }) =>
+    request<BankTransaction>('/api/bank/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+  getBankSummary: (ledgerId: number) =>
+    request<BankSummary>('/api/bank/summary', { headers: { 'X-Ledger-Id': String(ledgerId) } }),
+  autoReconcile: (ledgerId: number) =>
+    request<BankReconcileResult>('/api/bank/reconcile/auto', {
+      method: 'POST',
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+
   createEntity: (payload: EntityCreatePayload) =>
     request<{ id: number; entity_name: string; ledger_id?: number | null; is_accounting_entity: boolean }>('/api/entities', {
       method: 'POST',

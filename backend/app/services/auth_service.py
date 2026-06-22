@@ -183,6 +183,7 @@ def get_auth_context(db: Session, user: User) -> dict:
             "username": user.username,
             "phone": user.phone,
             "email": user.email,
+            "has_password": bool(user.hashed_password),
         },
         "teams": [
             {
