@@ -23,6 +23,7 @@ from app.api.routes_imports import router as imports_router
 from app.api.routes_internal_controls import router as internal_controls_router
 from app.api.routes_ledger import router as ledger_router
 from app.api.routes_materials import router as materials_router
+from app.api.routes_module_registers import router as module_registers_router
 from app.api.routes_opening_balances import router as opening_balances_router
 from app.api.routes_reports import router as reports_router
 from app.api.routes_risks import router as risks_router
@@ -178,6 +179,33 @@ def _ensure_local_sqlite_schema() -> None:
                 if column_name not in entry_columns:
                     connection.execute(text(ddl))
 
+        register_table_columns = {
+            "contracts": {
+                "ledger_id": "ALTER TABLE contracts ADD COLUMN ledger_id INTEGER",
+                "counterparty_id": "ALTER TABLE contracts ADD COLUMN counterparty_id INTEGER",
+                "execution_status": "ALTER TABLE contracts ADD COLUMN execution_status VARCHAR(30) DEFAULT 'pending' NOT NULL",
+            },
+            "invoices": {
+                "ledger_id": "ALTER TABLE invoices ADD COLUMN ledger_id INTEGER",
+                "counterparty_id": "ALTER TABLE invoices ADD COLUMN counterparty_id INTEGER",
+            },
+            "bank_statements": {
+                "ledger_id": "ALTER TABLE bank_statements ADD COLUMN ledger_id INTEGER",
+                "counterparty_id": "ALTER TABLE bank_statements ADD COLUMN counterparty_id INTEGER",
+            },
+            "inventory_documents": {
+                "ledger_id": "ALTER TABLE inventory_documents ADD COLUMN ledger_id INTEGER",
+                "counterparty_id": "ALTER TABLE inventory_documents ADD COLUMN counterparty_id INTEGER",
+            },
+        }
+        for table_name, missing_columns in register_table_columns.items():
+            if table_name not in table_names:
+                continue
+            existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+            for column_name, ddl in missing_columns.items():
+                if column_name not in existing_columns:
+                    connection.execute(text(ddl))
+
 
 _ensure_local_sqlite_schema()
 
@@ -215,6 +243,7 @@ app.include_router(ledger_router)
 app.include_router(dashboard_router)
 app.include_router(transactions_router)
 app.include_router(materials_router)
+app.include_router(module_registers_router)
 app.include_router(project_router)
 app.include_router(lifecycle_router)
 app.include_router(team_router)

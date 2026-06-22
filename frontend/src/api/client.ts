@@ -179,6 +179,48 @@ export type SourceFileRead = {
   created_at: string
 }
 
+export type ModuleRegisterItem = {
+  id?: number
+  module_key?: string
+  ledger_id?: number | null
+  counterparty_id?: number | null
+  counterparty_name?: string | null
+  contract_no?: string | null
+  contract_name?: string | null
+  contract_type?: string | null
+  contract_amount?: number | null
+  execution_status?: string | null
+  execution_status_label?: string | null
+  sign_date?: string | null
+  invoice_no?: string | null
+  invoice_date?: string | null
+  buyer_name?: string | null
+  seller_name?: string | null
+  total_amount?: number | null
+  transaction_date?: string | null
+  transaction_type?: string | null
+  amount?: number | null
+  summary?: string | null
+  balance_type?: string | null
+  balance_type_label?: string | null
+  document_count?: number | null
+  created_at?: string | null
+}
+
+export type ModuleRegisterListResponse = {
+  module_key: string
+  module_label: string
+  module_path: string
+  ledger_id: number
+  count: number
+  items: ModuleRegisterItem[]
+}
+
+export type ModuleRegisterSummary = {
+  ledger_id: number
+  modules: Record<string, { module_key: string; module_label: string; module_path: string; count: number }>
+}
+
 export type ImportPeriodSuggestion = {
   detected_month: string | null
   suggested_period: AccountingPeriodSuggestion | null
@@ -869,6 +911,18 @@ export const api = {
     const query = params.toString()
     return request<SourceFileRead[]>(`/api/projects/${projectId}/files${query ? `?${query}` : ''}`)
   },
+  listModuleRegisters: (
+    moduleKey: string,
+    filters: { ledger_id: number; execution_status?: string; contract_type?: string; limit?: number },
+  ) => {
+    const params = new URLSearchParams({ ledger_id: String(filters.ledger_id) })
+    if (filters.execution_status) params.set('execution_status', filters.execution_status)
+    if (filters.contract_type) params.set('contract_type', filters.contract_type)
+    if (filters.limit) params.set('limit', String(filters.limit))
+    return request<ModuleRegisterListResponse>(`/api/module-registers/${moduleKey}?${params.toString()}`)
+  },
+  getModuleRegisterSummary: (ledgerId: number) =>
+    request<ModuleRegisterSummary>(`/api/module-registers/summary?ledger_id=${ledgerId}`),
   bindFileCounterparty: (fileId: number, counterpartyId: number | null) =>
     request<SourceFileRead>(`/api/files/${fileId}/bind-counterparty`, {
       method: 'POST',

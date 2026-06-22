@@ -1194,6 +1194,11 @@ class Contract(Base):
     revenue_recognition_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # point_in_time/over_time
     risk_flags: Mapped[dict] = mapped_column(JSON, default=dict)
     
+    # 账套与往来归属
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)
+    execution_status: Mapped[str] = mapped_column(String(30), default="pending")
+    
     # 元数据
     source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1318,6 +1323,10 @@ class Invoice(Base):
     related_contract_id: Mapped[int | None] = mapped_column(ForeignKey("contracts.id"), nullable=True)
     related_order_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
+    # 账套与往来归属
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)
+    
     # 元数据
     source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1373,6 +1382,10 @@ class InventoryDocument(Base):
     related_contract_id: Mapped[int | None] = mapped_column(ForeignKey("contracts.id"), nullable=True)
     related_order_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
     related_invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)
+    
+    # 账套与往来归属
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)
     
     # 验收信息
     inspector: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -1439,6 +1452,10 @@ class BankStatement(Base):
     # 审计关联
     related_contract_id: Mapped[int | None] = mapped_column(ForeignKey("contracts.id"), nullable=True)
     related_invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)
+    
+    # 账套与往来归属
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)
     
     # 元数据
     source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
