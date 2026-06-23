@@ -131,11 +131,11 @@ B3 三单匹配 ────┘（依赖 Contract/Invoice/Inventory 外键链，
 
 开发者在 `cursor/phase-b-audit-workflow-mvp-5d1b` 上按下列 checklist 开工：
 
-- [ ] `0008` 迁移 + `BankReconciliation` / `BankReconciliationItem` 模型
-- [ ] `bank_reconciliation_service.build_draft()`
-- [ ] `routes_bank.py` 增加 reconciliation 端点
-- [ ] `test_bank_reconciliation_draft.py`
-- [ ] `BankReconciliationPage` 调节表预览 UI
+- [x] `0008` 迁移 + `BankReconciliation` / `BankReconciliationItem` 模型
+- [x] `bank_reconciliation_service.build_draft()`
+- [x] `routes_bank.py` 增加 reconciliation 端点
+- [x] `test_bank_reconciliation_draft.py`
+- [x] `BankReconciliationPage` 调节表预览 UI
 - [ ] 文档：本文件 B1 项勾选 + PR 描述链回 L2-1
 
 **首 PR 标题建议**：`feat(phase-b): 银行调节表草稿（B1）`

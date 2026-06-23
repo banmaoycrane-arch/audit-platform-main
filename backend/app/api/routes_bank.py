@@ -8,6 +8,7 @@ from app.core.dependencies import get_current_ledger, get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.services import bank_service
+from app.services import bank_reconciliation_service
 
 router = APIRouter(prefix="/api/bank", tags=["bank"])
 
@@ -145,3 +146,81 @@ def auto_reconcile(
     ledger_id: int = Depends(require_ledger),
 ) -> dict:
     return bank_service.auto_reconcile(db, ledger_id)
+
+
+class CreateBankReconciliationRequest(BaseModel):
+    bank_account_id: int
+    period_end: date
+    statement_balance: float | None = None
+
+
+class BankReconciliationItemResponse(BaseModel):
+    id: int
+    item_type: str
+    item_type_label: str
+    amount: float
+    direction: str | None
+    bank_transaction_id: int | None
+    entry_id: int | None
+    summary: str | None
+    note: str | None
+
+
+class BankReconciliationResponse(BaseModel):
+    id: int
+    ledger_id: int
+    bank_account_id: int
+    bank_name: str | None
+    account_no: str | None
+    period_end: str
+    statement_balance: float
+    book_balance: float
+    adjusted_statement_balance: float
+    adjusted_book_balance: float
+    difference: float
+    status: str
+    created_at: str | None
+    items: list[BankReconciliationItemResponse]
+
+
+@router.get("/reconciliations", response_model=list[BankReconciliationResponse])
+def list_bank_reconciliations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    ledger_id: int = Depends(require_ledger),
+) -> list[BankReconciliationResponse]:
+    rows = bank_reconciliation_service.list_reconciliations(db, ledger_id)
+    return [BankReconciliationResponse.model_validate(row) for row in rows]
+
+
+@router.post("/reconciliations", response_model=BankReconciliationResponse, status_code=status.HTTP_201_CREATED)
+def create_bank_reconciliation_draft(
+    payload: CreateBankReconciliationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    ledger_id: int = Depends(require_ledger),
+) -> BankReconciliationResponse:
+    try:
+        row = bank_reconciliation_service.build_draft(
+            db,
+            ledger_id,
+            payload.bank_account_id,
+            payload.period_end,
+            statement_balance=payload.statement_balance,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return BankReconciliationResponse.model_validate(row)
+
+
+@router.get("/reconciliations/{reconciliation_id}", response_model=BankReconciliationResponse)
+def get_bank_reconciliation(
+    reconciliation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    ledger_id: int = Depends(require_ledger),
+) -> BankReconciliationResponse:
+    row = bank_reconciliation_service.get_reconciliation(db, reconciliation_id, ledger_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="调节表不存在")
+    return BankReconciliationResponse.model_validate(row)

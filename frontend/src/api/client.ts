@@ -535,6 +535,35 @@ export type BankSummary = {
   total_balance: number
 }
 
+export type BankReconciliationItem = {
+  id: number
+  item_type: string
+  item_type_label: string
+  amount: number
+  direction: string | null
+  bank_transaction_id: number | null
+  entry_id: number | null
+  summary: string | null
+  note: string | null
+}
+
+export type BankReconciliationDraft = {
+  id: number
+  ledger_id: number
+  bank_account_id: number
+  bank_name: string | null
+  account_no: string | null
+  period_end: string
+  statement_balance: number
+  book_balance: number
+  adjusted_statement_balance: number
+  adjusted_book_balance: number
+  difference: number
+  status: string
+  created_at: string | null
+  items: BankReconciliationItem[]
+}
+
 export type TeamMember = {
   id: number
   username: string | null
@@ -1121,6 +1150,23 @@ export const api = {
   autoReconcile: (ledgerId: number) =>
     request<BankReconcileResult>('/api/bank/reconcile/auto', {
       method: 'POST',
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  listBankReconciliations: (ledgerId: number) =>
+    request<BankReconciliationDraft[]>('/api/bank/reconciliations', {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  createBankReconciliationDraft: (
+    ledgerId: number,
+    payload: { bank_account_id: number; period_end: string; statement_balance?: number },
+  ) =>
+    request<BankReconciliationDraft>('/api/bank/reconciliations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+  getBankReconciliation: (ledgerId: number, reconciliationId: number) =>
+    request<BankReconciliationDraft>(`/api/bank/reconciliations/${reconciliationId}`, {
       headers: { 'X-Ledger-Id': String(ledgerId) },
     }),
 
