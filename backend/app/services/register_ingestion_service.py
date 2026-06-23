@@ -83,6 +83,33 @@ HINT_TO_DOCUMENT_TYPE: dict[str, str] = {
 PURCHASE_KEYWORDS = ("采购", "购买", "进货", "供应", "purchase", "procurement", "买方", "购入")
 SALES_KEYWORDS = ("销售", "出售", "经销", "客户", "sales", "sell", "卖方", "销货")
 
+EXECUTION_STATUS_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "cancelled": ("取消", "终止", "作废", "解除"),
+    "not_executed": ("未执行", "未履行", "未开工"),
+    "completed": ("已完成", "履行完毕", "执行完毕"),
+    "executing": ("执行中", "履行中", "进行中"),
+}
+
+
+def _scope_payload(source_file: SourceFile, **extra: Any) -> dict[str, Any]:
+    payload = {
+        "ledger_id": source_file.ledger_id,
+        "counterparty_id": source_file.counterparty_id,
+        "source_file_id": source_file.id,
+    }
+    payload.update(extra)
+    return payload
+
+
+def _infer_execution_status(data: dict[str, Any], raw_text: str | None, filename: str) -> str:
+    if data.get("execution_status"):
+        return str(data["execution_status"])
+    text = " ".join([raw_text or "", filename or "", str(data.get("content") or "")])
+    for status, keywords in EXECUTION_STATUS_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            return status
+    return "pending"
+
 
 @dataclass
 class ModuleRegistration:
@@ -247,20 +274,20 @@ def _persist_invoice(
     decomposition: SemanticDecomposition,
 ) -> tuple[list[int], list[ModuleRegistration]]:
     service = DocumentParsingService(db)
-    payload = {
-        "invoice_no": data.get("invoice_number") or data.get("invoice_no"),
-        "invoice_date": _parse_date(data.get("invoice_date")),
-        "buyer_name": data.get("buyer_name"),
-        "seller_name": data.get("seller_name"),
-        "tax_amount": data.get("tax_amount"),
-        "tax_rate": data.get("tax_rate"),
-        "total_amount": data.get("total_amount"),
-        "items": data.get("items") or [],
-        "extracted_text": raw_text,
-        "confidence_score": confidence,
-    }
+    payload = _scope_payload(
+        source_file,
+        invoice_no=data.get("invoice_number") or data.get("invoice_no"),
+        invoice_date=_parse_date(data.get("invoice_date")),
+        buyer_name=data.get("buyer_name"),
+        seller_name=data.get("seller_name"),
+        tax_amount=data.get("tax_amount"),
+        tax_rate=data.get("tax_rate"),
+        total_amount=data.get("total_amount"),
+        items=data.get("items") or [],
+        extracted_text=raw_text,
+        confidence_score=confidence,
+    )
     invoice = service.parse_invoice(organization_id, payload)
-    invoice.source_file_id = source_file.id
     db.commit()
 
     invoice_entry = ledger_service.add_invoice(data, source_file.filename)
@@ -308,19 +335,19 @@ def _persist_contract(
     module_keys = decomposition.module_keys() or ["contract_register"]
     contract_type = "purchase" if "purchase" in module_keys else "sales" if "sales" in module_keys else "service"
 
-    payload = {
-        "contract_no": data.get("contract_number") or data.get("contract_no"),
-        "contract_type": contract_type,
-        "contract_name": data.get("contract_name") or data.get("content", "")[:80] or source_file.filename,
-        "sign_date": _parse_date(data.get("sign_date")),
-        "contract_amount": data.get("amount") or data.get("contract_amount"),
-        "parties": parties,
-        "extracted_text": raw_text,
-        "confidence_score": confidence,
-        "execution_status": data.get("execution_status") or "pending",
-    }
+    payload = _scope_payload(
+        source_file,
+        contract_no=data.get("contract_number") or data.get("contract_no"),
+        contract_type=contract_type,
+        contract_name=data.get("contract_name") or data.get("content", "")[:80] or source_file.filename,
+        sign_date=_parse_date(data.get("sign_date")),
+        contract_amount=data.get("amount") or data.get("contract_amount"),
+        parties=parties,
+        extracted_text=raw_text,
+        confidence_score=confidence,
+        execution_status=_infer_execution_status(data, raw_text, filename),
+    )
     contract = service.parse_contract(organization_id, payload)
-    contract.source_file_id = source_file.id
     db.commit()
 
     base_entry = ledger_service.add_contract(data, source_file.filename)
@@ -389,18 +416,18 @@ def _persist_bank_statements(
         transactions = [data]
 
     for index, transaction in enumerate(transactions, start=1):
-        payload = {
-            "transaction_no": transaction.get("transaction_no") or f"{source_file.id}-{index}",
-            "transaction_date": _parse_date(transaction.get("transaction_date") or transaction.get("date")),
-            "transaction_type": _map_bank_transaction_type(transaction.get("transaction_type")),
-            "counterparty_name": transaction.get("counterparty"),
-            "amount": abs(float(transaction.get("amount") or 0)),
-            "summary": transaction.get("summary"),
-            "extracted_text": raw_text,
-            "confidence_score": confidence,
-        }
+        payload = _scope_payload(
+            source_file,
+            transaction_no=transaction.get("transaction_no") or f"{source_file.id}-{index}",
+            transaction_date=_parse_date(transaction.get("transaction_date") or transaction.get("date")),
+            transaction_type=_map_bank_transaction_type(transaction.get("transaction_type")),
+            counterparty_name=transaction.get("counterparty"),
+            amount=abs(float(transaction.get("amount") or 0)),
+            summary=transaction.get("summary"),
+            extracted_text=raw_text,
+            confidence_score=confidence,
+        )
         statement = service.parse_bank_statement(organization_id, payload)
-        statement.source_file_id = source_file.id
         db.commit()
         register_ids.append(statement.id)
 
@@ -434,19 +461,19 @@ def _persist_inventory(
     raw_text: str | None,
 ) -> tuple[list[int], list[ModuleRegistration]]:
     service = DocumentParsingService(db)
-    payload = {
-        "document_no": data.get("receipt_number") or data.get("document_no") or f"INV-{source_file.id}",
-        "document_type": data.get("document_type") or "inventory_in",
-        "document_date": _parse_date(data.get("receipt_date") or data.get("document_date")),
-        "counterparty_name": data.get("supplier") or data.get("counterparty_name"),
-        "counterparty_type": "supplier",
-        "total_amount": data.get("total_amount"),
-        "items": data.get("items") or [],
-        "extracted_text": raw_text,
-        "confidence_score": confidence,
-    }
+    payload = _scope_payload(
+        source_file,
+        document_no=data.get("receipt_number") or data.get("document_no") or f"INV-{source_file.id}",
+        document_type=data.get("document_type") or "inventory_in",
+        document_date=_parse_date(data.get("receipt_date") or data.get("document_date")),
+        counterparty_name=data.get("supplier") or data.get("counterparty_name"),
+        counterparty_type="supplier",
+        total_amount=data.get("total_amount"),
+        items=data.get("items") or [],
+        extracted_text=raw_text,
+        confidence_score=confidence,
+    )
     document = service.parse_inventory_document(organization_id, payload)
-    document.source_file_id = source_file.id
     db.commit()
 
     inventory_entry = ledger_service.add_inventory(data, source_file.filename)

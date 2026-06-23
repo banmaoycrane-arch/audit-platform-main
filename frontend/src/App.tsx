@@ -25,6 +25,7 @@ import { TrialBalancePage } from './pages/Reports/TrialBalancePage'
 import { BalanceSheetPage } from './pages/Reports/BalanceSheetPage'
 import { IncomeStatementPage } from './pages/Reports/IncomeStatementPage'
 import { AgentChatPage } from './pages/AgentChatPage'
+import { ModuleRegisterPage } from './pages/ModuleRegisterPage'
 import { PlaceholderModulePage } from './pages/PlaceholderModulePage'
 import { Step1AccountingSelectType } from './pages/AccountingMode/Step1SelectType'
 import { Step2AccountingImportSource } from './pages/AccountingMode/Step2ImportSource'
@@ -137,6 +138,10 @@ function AppRoutes() {
         <Route path="/audit/step/4" element={<LedgerDataGuard><Step4RunTests /></LedgerDataGuard>} />
         <Route path="/audit/step/5" element={<LedgerDataGuard><Step5ReviewFindings /></LedgerDataGuard>} />
         <Route path="/audit/step/6" element={<LedgerDataGuard><Step6ExportReport /></LedgerDataGuard>} />
+        <Route path="/audit/contracts" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="contract_register" /></LedgerDataGuard>} />
+        <Route path="/basic/receivable-payable" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="counterparty_ledger" /></LedgerDataGuard>} />
+        <Route path="/bank/cash-flow-ledger" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="bank_cash_flow" /></LedgerDataGuard>} />
+        <Route path="/registers/:moduleKey" element={<LedgerDataGuard><ModuleRegisterPage /></LedgerDataGuard>} />
         <Route path="/agent" element={<AgentChatPage />} />
         <Route path="/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
         <Route path="/ledger/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
@@ -243,11 +248,9 @@ function AppRoutes() {
         <Route
           path="/tax/invoices"
           element={(
-            <PlaceholderModulePage
-              title="发票管理"
-              description="发票管理用于归集销项、进项和费用票据，并与往来、收入、成本费用和税务申报形成勾稽。"
-              items={['销项发票', '进项发票', '费用票据', '发票与凭证匹配']}
-            />
+            <LedgerDataGuard>
+              <ModuleRegisterPage fixedModuleKey="tax_invoice" />
+            </LedgerDataGuard>
           )}
         />
         <Route
@@ -305,11 +308,9 @@ function AppRoutes() {
         <Route
           path="/inventory/purchase-in"
           element={(
-            <PlaceholderModulePage
-              title="采购入库"
-              description="采购入库用于记录存货入库业务，后续与供应商往来、发票和存货成本核算形成勾稽。"
-              items={['采购订单', '入库单', '供应商与发票匹配']}
-            />
+            <LedgerDataGuard>
+              <ModuleRegisterPage fixedModuleKey="purchase" />
+            </LedgerDataGuard>
           )}
         />
         <Route

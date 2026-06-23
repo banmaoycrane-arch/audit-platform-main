@@ -39,6 +39,10 @@ class DocumentParsingService:
 
         contract = Contract(
             organization_id=organization_id,
+            ledger_id=contract_data.get("ledger_id"),
+            counterparty_id=contract_data.get("counterparty_id"),
+            execution_status=contract_data.get("execution_status", "pending"),
+            source_file_id=contract_data.get("source_file_id"),
             contract_no=contract_data.get("contract_no"),
             contract_type=contract_data.get("contract_type", "service"),
             contract_name=contract_data.get("contract_name"),
@@ -201,6 +205,9 @@ class DocumentParsingService:
     def parse_invoice(self, organization_id: int, invoice_data: Dict[str, Any]) -> Invoice:
         invoice = Invoice(
             organization_id=organization_id,
+            ledger_id=invoice_data.get("ledger_id"),
+            counterparty_id=invoice_data.get("counterparty_id"),
+            source_file_id=invoice_data.get("source_file_id"),
             invoice_no=invoice_data.get("invoice_no"),
             invoice_code=invoice_data.get("invoice_code"),
             invoice_type=invoice_data.get("invoice_type", "增值税专用发票"),
@@ -256,6 +263,9 @@ class DocumentParsingService:
     def parse_inventory_document(self, organization_id: int, doc_data: Dict[str, Any]) -> InventoryDocument:
         document = InventoryDocument(
             organization_id=organization_id,
+            ledger_id=doc_data.get("ledger_id"),
+            counterparty_id=doc_data.get("counterparty_id"),
+            source_file_id=doc_data.get("source_file_id"),
             document_no=doc_data.get("document_no"),
             document_type=doc_data.get("document_type", "inventory_in"),
             document_date=doc_data.get("document_date"),
@@ -303,6 +313,9 @@ class DocumentParsingService:
     def parse_bank_statement(self, organization_id: int, statement_data: Dict[str, Any]) -> BankStatement:
         statement = BankStatement(
             organization_id=organization_id,
+            ledger_id=statement_data.get("ledger_id"),
+            counterparty_id=statement_data.get("counterparty_id"),
+            source_file_id=statement_data.get("source_file_id"),
             transaction_no=statement_data.get("transaction_no"),
             transaction_date=statement_data.get("transaction_date"),
             transaction_time=statement_data.get("transaction_time"),
