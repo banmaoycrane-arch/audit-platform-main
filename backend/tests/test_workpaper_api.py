@@ -182,3 +182,22 @@ def test_sync_from_archive_is_idempotent(client):
     assert second.status_code == 200
     listing = client.get("/api/workpapers/index", headers=ledger_headers).json()
     assert len(listing) >= 1
+
+
+def test_revise_rejects_source_file_from_other_ledger(client):
+    headers_a = _auth_headers(client, "wp_user4a")
+    ledger_headers_a, ledger_id_a = _create_ledger(client, headers_a)
+    _, file2_id = _seed_archived_source_files(ledger_id_a)
+
+    headers_b = _auth_headers(client, "wp_user4b")
+    ledger_headers_b, ledger_id_b = _create_ledger(client, headers_b)
+    _seed_archived_source_files(ledger_id_b)
+
+    index_id = client.get("/api/workpapers/index", headers=ledger_headers_b).json()[0]["id"]
+    response = client.post(
+        f"/api/workpapers/index/{index_id}/revise",
+        json={"source_file_id": file2_id, "change_reason": "跨账套修订应被拒绝"},
+        headers=ledger_headers_b,
+    )
+    assert response.status_code == 400
+    assert "does not belong to ledger" in response.json()["detail"]

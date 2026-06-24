@@ -221,4 +221,16 @@ def build_draft(
 
     db.commit()
     db.refresh(reconciliation)
-    return _serialize_reconciliation(reconciliation)
+    result = _serialize_reconciliation(reconciliation)
+    try:
+        from app.services import audit_workflow_service
+
+        audit_workflow_service.sync_bank_reconciliation_procedure(
+            db,
+            ledger_id,
+            reconciliation.id,
+            reconciliation.status,
+        )
+    except Exception:
+        pass
+    return result

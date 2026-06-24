@@ -351,9 +351,9 @@ WorkpaperLink           # 底稿勾稽
 - [x] 审计工作台「工作底稿」入口
 - [x] 版本修订 + 索引号 + 导出目录
 
-### Phase D — 工作流编排（本 PR）
+### Phase D — 工作流编排 ✅ 已合入 main（PR #14）
 
-> 分支：`cursor/auto-phase-bcd-audit-workflow-5d1b`
+> 合入提交：`52e199c` feat(phase-c+d)
 
 - [x] Project 级颗粒度配置
 - [x] 审计程序状态机（函证→回函→调节→结论）
@@ -372,13 +372,25 @@ WorkpaperLink           # 底稿勾稽
 
 ---
 
-## 10. 待决策项
+## 10. 产品决策项（v0.2 已冻结）
 
-1. ~~**往来账款台账**是否显式建模为「视图」而非独立 Register 表？~~ → 已冻结：余额视图 + 独立登记入口，不与合同/银行重叠
-2. **函证**是否复用 `Counterparty` 主档，还是独立 `Confirmation` 实体？
-3. **底稿版本**物理文件是否每次修订都新上传，还是同文件覆盖 + 版本元数据？
-4. **颗粒度配置**放在 Project 还是 Team 默认？
-5. **合同执行状态**是否扩展为独立字段落库（`Contract.execution_status`）？
+| # | 议题 | 决策 | 实现口径 |
+|---|------|------|----------|
+| 1 | ~~往来账款台账是否独立 Register 表？~~ | 余额视图 + 独立登记入口 | 见 v0.2 边界修正 |
+| 2 | 函证复用 `Counterparty` 还是独立实体？ | **混合**：主档复用 `Counterparty`，业务事实独立 `CounterpartyConfirmation` 表 | 发函/回函/差异在 Confirmation 表；单位名称来自 Counterparty |
+| 3 | 底稿修订：新上传还是同文件覆盖？ | **每次修订新上传** `SourceFile`，旧版本标记 `superseded`，版本号递增（如 1.0→1.1） | `workpaper_service.revise_workpaper()` |
+| 4 | 颗粒度配置放 Project 还是 Team？ | **Project 级**（`ProjectWorkflowConfig`）；Team 默认模板留 v0.3 | 多项目同 Team 可各自配置启用程序与粒度 |
+| 5 | 合同执行状态是否独立落库？ | **是**，使用 `Contract.execution_status`（pending/in_progress/completed 等） | 三单匹配与分解引擎可读此字段辅助判断 |
+
+### 程序状态自动同步（Phase D+）
+
+| 程序 | 触发点 | 程序状态映射 |
+|------|--------|-------------|
+| 往来函证 | `confirmation_service` 更新/回函 | draft→planned, sent→awaiting_evidence, replied→in_review/concluded, exception→exception |
+| 银行调节 | `bank_reconciliation_service.build_draft()` | balanced→concluded, draft→in_review |
+| 采购三单匹配 | `three_way_match_service.match_purchase_contract()` | matched→concluded, incomplete→in_review, exception→exception |
+
+同步规则：按 `related_entity_id` 查找或自动创建 `AuditProcedureRun`；不自动改账、不自动过账。
 
 ---
 
