@@ -7,6 +7,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.models import AccountingPeriod, Organization
+from app.models.ledger import Ledger
+from app.models.team import Team
 from app.db.session import Base, get_db
 from app.main import app
 
@@ -178,3 +180,69 @@ def test_delete_unknown_returns_404(client):
     test_client, _ = client
     resp = test_client.delete("/api/opening-balances/9999")
     assert resp.status_code == 404
+
+
+def test_opening_balances_scoped_by_ledger_period(client):
+    test_client, TestingSessionLocal = client
+    db = TestingSessionLocal()
+    try:
+        team = Team(name="期初团队", type="company")
+        db.add(team)
+        db.flush()
+        ledger_a = Ledger(name="山西尚德鑫", team_id=team.id)
+        ledger_b = Ledger(name="新建账套", team_id=team.id)
+        db.add_all([ledger_a, ledger_b])
+        db.flush()
+        org = Organization(name="期初测试", fiscal_year=2026)
+        db.add(org)
+        db.flush()
+        period_a = AccountingPeriod(
+            organization_id=org.id,
+            ledger_id=ledger_a.id,
+            period_code="2026-01",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+        )
+        period_b = AccountingPeriod(
+            organization_id=org.id,
+            ledger_id=ledger_b.id,
+            period_code="2026-02",
+            start_date=date(2026, 2, 1),
+            end_date=date(2026, 2, 28),
+        )
+        db.add_all([period_a, period_b])
+        db.commit()
+        org_id, period_a_id, period_b_id = org.id, period_a.id, period_b.id
+        ledger_a_id, ledger_b_id = ledger_a.id, ledger_b.id
+    finally:
+        db.close()
+
+    test_client.post(
+        "/api/opening-balances",
+        json={
+            "organization_id": org_id,
+            "period_id": period_a_id,
+            "ledger_id": ledger_a_id,
+            "account_code": "1002",
+            "debit_balance": 8888,
+        },
+    )
+
+    ledger_a_list = test_client.get(
+        "/api/opening-balances",
+        params={"organization_id": org_id, "period_id": period_a_id, "ledger_id": ledger_a_id},
+    ).json()
+    assert len(ledger_a_list) == 1
+    assert ledger_a_list[0]["debit_balance"] == 8888
+
+    ledger_b_list = test_client.get(
+        "/api/opening-balances",
+        params={"organization_id": org_id, "period_id": period_b_id, "ledger_id": ledger_b_id},
+    ).json()
+    assert ledger_b_list == []
+
+    wrong_ledger = test_client.get(
+        "/api/opening-balances",
+        params={"organization_id": org_id, "period_id": period_a_id, "ledger_id": ledger_b_id},
+    ).json()
+    assert wrong_ledger == []

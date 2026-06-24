@@ -405,6 +405,7 @@ export type BindingOptions = {
 export type OpeningBalance = {
   id: number
   organization_id: number
+  ledger_id?: number | null
   period_id: number
   account_code: string
   debit_balance: number
@@ -978,11 +979,18 @@ export const api = {
         organization_name: organizationName || '临时组织'
       })
     }),
-  listOpeningBalances: (organizationId: number, periodId: number) =>
-    request<OpeningBalance[]>(`/api/opening-balances?organization_id=${organizationId}&period_id=${periodId}`),
+  listOpeningBalances: (organizationId: number, periodId: number, ledgerId?: number) => {
+    const params = new URLSearchParams({
+      organization_id: String(organizationId),
+      period_id: String(periodId),
+    })
+    if (ledgerId) params.set('ledger_id', String(ledgerId))
+    return request<OpeningBalance[]>(`/api/opening-balances?${params.toString()}`)
+  },
   upsertOpeningBalance: (payload: {
     organization_id: number
     period_id: number
+    ledger_id?: number
     account_code: string
     debit_balance?: number
     credit_balance?: number
@@ -1000,16 +1008,27 @@ export const api = {
     credit_balance?: number
     currency?: string
     notes?: string | null
-  }>) =>
+  }>, ledgerId?: number) =>
     request<OpeningBalance[]>('/api/opening-balances/bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ organization_id: organizationId, period_id: periodId, items })
+      body: JSON.stringify({
+        organization_id: organizationId,
+        period_id: periodId,
+        ledger_id: ledgerId,
+        items,
+      })
     }),
   deleteOpeningBalance: (id: number) =>
     request<{ deleted: number }>(`/api/opening-balances/${id}`, { method: 'DELETE' }),
-  getOpeningTrialBalance: (organizationId: number, periodId: number) =>
-    request<TrialBalance>(`/api/opening-balances/trial-balance?organization_id=${organizationId}&period_id=${periodId}`),
+  getOpeningTrialBalance: (organizationId: number, periodId: number, ledgerId?: number) => {
+    const params = new URLSearchParams({
+      organization_id: String(organizationId),
+      period_id: String(periodId),
+    })
+    if (ledgerId) params.set('ledger_id', String(ledgerId))
+    return request<TrialBalance>(`/api/opening-balances/trial-balance?${params.toString()}`)
+  },
   getTrialBalanceReport: (organizationId: number, periodId: number) =>
     request<TrialBalanceReport>(`/api/reports/trial-balance?organization_id=${organizationId}&period_id=${periodId}`),
   getBalanceSheetReport: (organizationId: number, periodId: number) =>
