@@ -128,4 +128,6 @@ def test_binding_requests_router_is_mounted(client: TestClient):
         json={"team_id": 1, "requested_role": "viewer"},
         headers={"Authorization": f"Bearer {visitor_token}"},
     )
-    assert response.status_code != 404
+    # Unmounted router returns 404; mounted router reaches business validation (400).
+    assert response.status_code == 400
+    assert response.json()["detail"] == "申请团队不存在"
