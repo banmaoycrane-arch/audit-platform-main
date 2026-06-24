@@ -275,7 +275,7 @@ def test_me_with_token() -> None:
     # register and get token
     reg = client.post("/api/auth/register", json={
         "username": "meuser",
-        "phone": "13800138004",
+        "phone": "13800138014",
         "password": "password123",
         "agreed_terms": True,
         "agreed_privacy": True,
@@ -285,7 +285,7 @@ def test_me_with_token() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["username"] == "meuser"
-    assert data["phone"] == "13800138004"
+    assert data["phone"] == "13800138014"
     assert data["is_active"] is True
 
 
