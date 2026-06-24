@@ -1679,3 +1679,24 @@ class BankReconciliationItem(Base):
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     reconciliation: Mapped["BankReconciliation"] = relationship(back_populates="items")
+
+
+class CounterpartyConfirmation(Base):
+    __tablename__ = "counterparty_confirmations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True, index=True)
+    counterparty_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    balance_type: Mapped[str] = mapped_column(String(40))
+    book_balance: Mapped[float] = mapped_column(Numeric(18, 2))
+    confirmation_amount: Mapped[float] = mapped_column(Numeric(18, 2))
+    reply_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    difference: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    source_file_id: Mapped[int | None] = mapped_column(ForeignKey("source_files.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    counterparty: Mapped["Counterparty | None"] = relationship()

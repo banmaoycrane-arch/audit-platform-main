@@ -340,7 +340,7 @@ WorkpaperLink           # 底稿勾稽
 > 分支：`cursor/phase-b-audit-workflow-mvp-5d1b`
 
 - [x] **B1** 银行调节表草稿（bank statement ↔ GL）
-- [ ] **B2** 往来函证控制表（counterparty balance ↔ confirmation）
+- [x] **B2** 往来函证控制表（counterparty balance ↔ confirmation）
 - [ ] **B3** 采购三单匹配（contract ↔ inventory ↔ invoice）
 
 ### Phase C — 底稿独立模块

@@ -564,6 +564,24 @@ export type BankReconciliationDraft = {
   items: BankReconciliationItem[]
 }
 
+export type CounterpartyConfirmation = {
+  id: number
+  ledger_id: number
+  counterparty_id: number | null
+  counterparty_name: string | null
+  balance_type: string
+  balance_type_label: string
+  book_balance: number
+  confirmation_amount: number
+  reply_amount: number | null
+  difference: number | null
+  status: string
+  sent_at: string | null
+  replied_at: string | null
+  source_file_id: number | null
+  created_at: string | null
+}
+
 export type TeamMember = {
   id: number
   username: string | null
@@ -1168,6 +1186,40 @@ export const api = {
   getBankReconciliation: (ledgerId: number, reconciliationId: number) =>
     request<BankReconciliationDraft>(`/api/bank/reconciliations/${reconciliationId}`, {
       headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+
+  listConfirmations: (ledgerId: number) =>
+    request<CounterpartyConfirmation[]>('/api/confirmations', {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  generateConfirmations: (
+    ledgerId: number,
+    payload: { counterparty_ids?: number[]; balance_types?: string[] },
+  ) =>
+    request<CounterpartyConfirmation[]>('/api/confirmations/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+  updateConfirmation: (
+    ledgerId: number,
+    confirmationId: number,
+    payload: { status?: string; confirmation_amount?: number; reply_amount?: number; source_file_id?: number },
+  ) =>
+    request<CounterpartyConfirmation>(`/api/confirmations/${confirmationId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+  recordConfirmationReply: (
+    ledgerId: number,
+    confirmationId: number,
+    payload: { reply_amount: number; source_file_id?: number },
+  ) =>
+    request<CounterpartyConfirmation>(`/api/confirmations/${confirmationId}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
     }),
 
   createEntity: (payload: EntityCreatePayload) =>
