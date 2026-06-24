@@ -50,6 +50,7 @@ import { Step6ExportReport } from './pages/AuditMode/Step6ExportReport'
 import { BankAccountsPage } from './pages/Bank/BankAccountsPage'
 import { BankReconciliationPage } from './pages/Bank/BankReconciliationPage'
 import { ConfirmationsPage } from './pages/Audit/ConfirmationsPage'
+import { PurchaseMatchPage } from './pages/Audit/PurchaseMatchPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -141,6 +142,7 @@ function AppRoutes() {
         <Route path="/audit/step/6" element={<LedgerDataGuard><Step6ExportReport /></LedgerDataGuard>} />
         <Route path="/audit/contracts" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="contract_register" /></LedgerDataGuard>} />
         <Route path="/audit/confirmations" element={<LedgerDataGuard><ConfirmationsPage /></LedgerDataGuard>} />
+        <Route path="/audit/purchase-match" element={<LedgerDataGuard><PurchaseMatchPage /></LedgerDataGuard>} />
         <Route path="/basic/receivable-payable" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="counterparty_ledger" /></LedgerDataGuard>} />
         <Route path="/bank/cash-flow-ledger" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="bank_cash_flow" /></LedgerDataGuard>} />
         <Route path="/registers/:moduleKey" element={<LedgerDataGuard><ModuleRegisterPage /></LedgerDataGuard>} />

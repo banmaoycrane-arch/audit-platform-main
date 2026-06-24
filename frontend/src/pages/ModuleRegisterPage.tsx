@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Select, Space, Table, Tag, Typography, message } from 'antd'
-import { MailOutlined } from '@ant-design/icons'
+import { MailOutlined, ShoppingOutlined } from '@ant-design/icons'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ModuleRegisterItem, ModuleRegisterListResponse } from '../api/client'
@@ -163,6 +163,13 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
             <Link to="/audit/confirmations">
               <Button type="primary" icon={<MailOutlined />}>
                 往来函证控制表
+              </Button>
+            </Link>
+          )}
+          {moduleKey === 'purchase' && (
+            <Link to="/audit/purchase-match">
+              <Button type="primary" icon={<ShoppingOutlined />}>
+                采购三单匹配
               </Button>
             </Link>
           )}

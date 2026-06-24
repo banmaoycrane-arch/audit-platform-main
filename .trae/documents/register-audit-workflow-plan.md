@@ -341,7 +341,7 @@ WorkpaperLink           # 底稿勾稽
 
 - [x] **B1** 银行调节表草稿（bank statement ↔ GL）
 - [x] **B2** 往来函证控制表（counterparty balance ↔ confirmation）
-- [ ] **B3** 采购三单匹配（contract ↔ inventory ↔ invoice）
+- [x] **B3** 采购三单匹配（contract ↔ inventory ↔ invoice）
 
 ### Phase C — 底稿独立模块
 

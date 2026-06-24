@@ -582,6 +582,77 @@ export type CounterpartyConfirmation = {
   created_at: string | null
 }
 
+export type PurchaseMatchCheck = {
+  check_key: string
+  label: string
+  left_amount: number
+  right_amount: number
+  passed: boolean
+}
+
+export type PurchaseMatchException = {
+  exception_type: string
+  exception_label: string
+  message: string
+  left_amount?: number
+  right_amount?: number
+}
+
+export type PurchaseMatchResult = {
+  ledger_id: number
+  contract: {
+    id: number
+    contract_no: string | null
+    contract_name: string | null
+    contract_amount: number
+    execution_status: string
+    counterparty_name: string | null
+  }
+  invoices: Array<{
+    id: number
+    invoice_no: string | null
+    invoice_date: string | null
+    total_amount: number
+    seller_name: string | null
+    buyer_name: string | null
+  }>
+  inventory_documents: Array<{
+    id: number
+    document_no: string
+    document_type: string
+    document_date: string | null
+    total_amount: number
+    counterparty_name: string | null
+  }>
+  totals: {
+    contract_amount: number
+    invoice_total: number
+    inventory_total: number
+  }
+  checks: PurchaseMatchCheck[]
+  exceptions: PurchaseMatchException[]
+  match_status: string
+  match_status_label: string
+}
+
+export type PurchaseMatchSummary = {
+  ledger_id: number
+  contract_count: number
+  matched_count: number
+  incomplete_count: number
+  exception_count: number
+  exception_items: Array<{
+    contract_id: number
+    contract_no: string | null
+    contract_name: string | null
+    match_status: string
+    exception_type: string
+    exception_label: string
+    message: string
+  }>
+  results: PurchaseMatchResult[]
+}
+
 export type TeamMember = {
   id: number
   username: string | null
@@ -1220,6 +1291,16 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
       body: JSON.stringify(payload),
+    }),
+
+  listPurchaseMatches: (ledgerId: number, contractId?: number) =>
+    request<PurchaseMatchResult[]>(
+      `/api/audit/purchase-match${contractId ? `?contract_id=${contractId}` : ''}`,
+      { headers: { 'X-Ledger-Id': String(ledgerId) } },
+    ),
+  getPurchaseMatchSummary: (ledgerId: number) =>
+    request<PurchaseMatchSummary>('/api/audit/purchase-match/summary', {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
     }),
 
   createEntity: (payload: EntityCreatePayload) =>
