@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, Table, Select, Space, InputNumber, Button, Alert, message, Typography, Tag } from 'antd'
 import { api, type OpeningBalance, type AccountingPeriod, type TrialBalance } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
@@ -35,8 +35,21 @@ const CATEGORY_LABEL: Record<string, string> = {
   profit: '损益',
 }
 
+function buildEmptyRows(coa: CoaItem[]): Row[] {
+  return coa.map((c) => ({
+    key: c.code,
+    account_code: c.code,
+    account_name: c.name,
+    category: c.category,
+    direction: c.direction,
+    debit_balance: 0,
+    credit_balance: 0,
+  }))
+}
+
 export function OpeningBalancesPage() {
-  const { currentLedgerId } = useAuthStore()
+  const { currentLedgerId, userLedgers } = useAuthStore()
+  const currentLedger = userLedgers.find((l) => l.id === currentLedgerId)
   const [periods, setPeriods] = useState<AccountingPeriod[]>([])
   const [coa, setCoa] = useState<CoaItem[]>([])
   const [periodId, setPeriodId] = useState<number | null>(null)
@@ -46,22 +59,29 @@ export function OpeningBalancesPage() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // 初次加载：期间 + CoA
   useEffect(() => {
+    setPeriods([])
+    setPeriodId(null)
+    setOrganizationId(null)
+    setRows([])
+    setTrial(null)
+
+    if (!currentLedgerId) return
+
     void (async () => {
       try {
         const [p, coaResp] = await Promise.all([
-          api.listAccountingPeriods(undefined, currentLedgerId || undefined),
+          api.listAccountingPeriods(undefined, currentLedgerId),
           fetch(`${API_BASE}/api/coa`).then((r) => r.json()),
         ])
+        const activeCoa = (coaResp as CoaItem[]).filter((c) => c.status === 'active')
+        setCoa(activeCoa)
         setPeriods(p)
-        setCoa((coaResp as CoaItem[]).filter((c) => c.status === 'active'))
         if (p.length > 0) {
           setPeriodId(p[0].id)
           setOrganizationId(p[0].organization_id)
         } else {
-          setPeriodId(null)
-          setOrganizationId(null)
+          setRows(buildEmptyRows(activeCoa))
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
@@ -70,13 +90,24 @@ export function OpeningBalancesPage() {
     })()
   }, [currentLedgerId])
 
-  const reload = async () => {
-    if (!periodId || !organizationId) return
+  const reload = useCallback(async () => {
+    if (!periodId || !organizationId || !currentLedgerId || coa.length === 0) {
+      setRows(coa.length > 0 ? buildEmptyRows(coa) : [])
+      setTrial(null)
+      return
+    }
+    const selectedPeriod = periods.find((p) => p.id === periodId)
+    if (!selectedPeriod) {
+      setRows(buildEmptyRows(coa))
+      setTrial(null)
+      return
+    }
+
     setLoading(true)
     try {
       const [items, tb] = await Promise.all([
-        api.listOpeningBalances(organizationId, periodId),
-        api.getOpeningTrialBalance(organizationId, periodId),
+        api.listOpeningBalances(organizationId, periodId, currentLedgerId),
+        api.getOpeningTrialBalance(organizationId, periodId, currentLedgerId),
       ])
       const byCode = new Map<string, OpeningBalance>()
       items.forEach((i) => byCode.set(i.account_code, i))
@@ -98,24 +129,23 @@ export function OpeningBalancesPage() {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       message.error(`加载期初失败：${detail}`)
+      setRows(buildEmptyRows(coa))
+      setTrial(null)
     } finally {
       setLoading(false)
     }
-  }
+  }, [periodId, organizationId, currentLedgerId, coa, periods])
 
   useEffect(() => {
-    if (periodId && organizationId && coa.length > 0) {
-      void reload()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periodId, organizationId, coa])
+    void reload()
+  }, [reload])
 
   const updateRow = (code: string, patch: Partial<Row>) => {
     setRows((prev) => prev.map((r) => (r.account_code === code ? { ...r, ...patch } : r)))
   }
 
   const handleSaveAll = async () => {
-    if (!periodId || !organizationId) return
+    if (!periodId || !organizationId || !currentLedgerId) return
     setSaving(true)
     try {
       const items = rows
@@ -125,7 +155,7 @@ export function OpeningBalancesPage() {
           debit_balance: r.debit_balance || 0,
           credit_balance: r.credit_balance || 0,
         }))
-      await api.bulkUpsertOpeningBalances(organizationId, periodId, items)
+      await api.bulkUpsertOpeningBalances(organizationId, periodId, items, currentLedgerId)
       message.success(`已保存 ${items.length} 条期初余额`)
       await reload()
     } catch (error) {
@@ -148,8 +178,19 @@ export function OpeningBalancesPage() {
     <div>
       <Title level={3}>期初科目余额</Title>
 
+      {!currentLedgerId && (
+        <Alert
+          type="warning"
+          showIcon
+          title="请先选择账套"
+          description="期初余额按当前账套隔离，请在顶部选择账套后再录入。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       <Card style={{ marginBottom: 16 }}>
-        <Space>
+        <Space wrap>
+          <Text>当前账套：{currentLedger?.name || '未选择'}</Text>
           <Text>会计期间：</Text>
           <Select
             value={periodId ?? undefined}
@@ -164,15 +205,30 @@ export function OpeningBalancesPage() {
               label: `${p.period_code}（${p.start_date} ~ ${p.end_date}）`,
             }))}
             placeholder="请选择期间"
+            disabled={!currentLedgerId || periods.length === 0}
           />
-          <Button onClick={reload} disabled={!periodId}>刷新</Button>
-          <Button type="primary" loading={saving} onClick={handleSaveAll} disabled={!periodId}>
+          <Button onClick={() => void reload()} disabled={!periodId || !currentLedgerId}>刷新</Button>
+          <Button
+            type="primary"
+            loading={saving}
+            onClick={handleSaveAll}
+            disabled={!periodId || !currentLedgerId}
+          >
             保存全部
           </Button>
         </Space>
+        {currentLedgerId && periods.length === 0 && (
+          <Alert
+            type="info"
+            showIcon
+            title="当前账套暂无会计期间"
+            description="请先在「会计期间」页面为当前账套创建期间，再录入期初余额。"
+            style={{ marginTop: 16 }}
+          />
+        )}
       </Card>
 
-      {!isBalanced && (
+      {!isBalanced && rows.some((r) => r.debit_balance || r.credit_balance) && (
         <Alert
           type="error"
           title="期初借贷不平衡"
@@ -224,6 +280,7 @@ export function OpeningBalancesPage() {
                   value={val}
                   min={0}
                   step={100}
+                  disabled={!currentLedgerId}
                   onChange={(v) => updateRow(row.account_code, { debit_balance: Number(v ?? 0) })}
                   style={{ width: '100%' }}
                 />
@@ -239,6 +296,7 @@ export function OpeningBalancesPage() {
                   value={val}
                   min={0}
                   step={100}
+                  disabled={!currentLedgerId}
                   onChange={(v) => updateRow(row.account_code, { credit_balance: Number(v ?? 0) })}
                   style={{ width: '100%' }}
                 />

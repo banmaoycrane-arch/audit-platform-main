@@ -206,6 +206,16 @@ def _ensure_local_sqlite_schema() -> None:
                 if column_name not in existing_columns:
                     connection.execute(text(ddl))
 
+        if "opening_balances" in table_names:
+            ob_columns = {column["name"] for column in inspector.get_columns("opening_balances")}
+            if "ledger_id" not in ob_columns:
+                connection.execute(text("ALTER TABLE opening_balances ADD COLUMN ledger_id INTEGER"))
+                connection.execute(text(
+                    "UPDATE opening_balances SET ledger_id = ("
+                    "SELECT ledger_id FROM accounting_periods WHERE accounting_periods.id = opening_balances.period_id"
+                    ") WHERE ledger_id IS NULL"
+                ))
+
 
 _ensure_local_sqlite_schema()
 

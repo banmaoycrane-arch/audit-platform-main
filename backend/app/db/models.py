@@ -890,6 +890,7 @@ class OpeningBalance(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
     period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id"))
     account_code: Mapped[str] = mapped_column(String(20), index=True)
     debit_balance: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
