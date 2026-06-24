@@ -654,6 +654,47 @@ export type PurchaseMatchSummary = {
   results: PurchaseMatchResult[]
 }
 
+export type WorkpaperVersion = {
+  id: number
+  workpaper_index_id: number
+  source_file_id: number
+  filename: string | null
+  version_no: string
+  status: string
+  status_label: string
+  prepared_by: number | null
+  reviewed_by: number | null
+  change_reason: string | null
+  supersedes_id: number | null
+  created_at: string | null
+}
+
+export type WorkpaperIndex = {
+  id: number
+  ledger_id: number
+  project_id: number | null
+  parent_id: number | null
+  index_no: string
+  title: string
+  audit_area: string | null
+  archive_path: string | null
+  source_module_key: string | null
+  sort_order: number
+  version_count: number
+  current_version_no: string | null
+  current_status: string | null
+  created_at: string | null
+  versions: WorkpaperVersion[]
+}
+
+export type WorkpaperCatalog = {
+  ledger_id: number
+  exported_at: string
+  index_count: number
+  version_count: number
+  items: WorkpaperIndex[]
+}
+
 export type TeamMember = {
   id: number
   username: string | null
@@ -1319,6 +1360,25 @@ export const api = {
     ),
   getPurchaseMatchSummary: (ledgerId: number) =>
     request<PurchaseMatchSummary>('/api/audit/purchase-match/summary', {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+
+  listWorkpaperIndexes: (ledgerId: number, projectId?: number) =>
+    request<WorkpaperIndex[]>(
+      `/api/workpapers/index${projectId ? `?project_id=${projectId}` : ''}`,
+      { headers: { 'X-Ledger-Id': String(ledgerId) } },
+    ),
+  getWorkpaperIndex: (ledgerId: number, indexId: number) =>
+    request<WorkpaperIndex>(`/api/workpapers/index/${indexId}`, {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  syncWorkpapersFromArchive: (ledgerId: number) =>
+    request<WorkpaperIndex[]>('/api/workpapers/sync-from-archive', {
+      method: 'POST',
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  exportWorkpaperCatalog: (ledgerId: number) =>
+    request<WorkpaperCatalog>('/api/workpapers/export', {
       headers: { 'X-Ledger-Id': String(ledgerId) },
     }),
 

@@ -1701,3 +1701,44 @@ class CounterpartyConfirmation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     counterparty: Mapped["Counterparty | None"] = relationship()
+
+
+class WorkpaperIndex(Base):
+    __tablename__ = "workpaper_indexes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("workpaper_indexes.id"), nullable=True, index=True)
+    index_no: Mapped[str] = mapped_column(String(50), index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    audit_area: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    archive_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    source_module_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    parent: Mapped["WorkpaperIndex | None"] = relationship(remote_side="WorkpaperIndex.id")
+    versions: Mapped[list["WorkpaperVersion"]] = relationship(
+        back_populates="workpaper_index",
+        cascade="all, delete-orphan",
+    )
+
+
+class WorkpaperVersion(Base):
+    __tablename__ = "workpaper_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    workpaper_index_id: Mapped[int] = mapped_column(ForeignKey("workpaper_indexes.id"), index=True)
+    source_file_id: Mapped[int] = mapped_column(ForeignKey("source_files.id"), index=True)
+    version_no: Mapped[str] = mapped_column(String(20), default="1.0")
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    prepared_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    change_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("workpaper_versions.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    workpaper_index: Mapped["WorkpaperIndex"] = relationship(back_populates="versions")
+    source_file: Mapped["SourceFile"] = relationship()
+    supersedes: Mapped["WorkpaperVersion | None"] = relationship(remote_side="WorkpaperVersion.id")

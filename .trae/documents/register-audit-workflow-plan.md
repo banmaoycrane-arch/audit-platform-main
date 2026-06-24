@@ -343,11 +343,13 @@ WorkpaperLink           # 底稿勾稽
 - [x] **B2** 往来函证控制表（counterparty balance ↔ confirmation）
 - [x] **B3** 采购三单匹配（contract ↔ inventory ↔ invoice）
 
-### Phase C — 底稿独立模块
+### Phase C — 底稿独立模块（进行中）
 
-- [ ] `WorkpaperIndex` + `WorkpaperVersion` 模型与 API
-- [ ] 审计工作台「工作底稿」入口
-- [ ] 版本修订 + 索引号 + 导出目录
+> 分支：`cursor/phase-c-workpaper-version-5d1b`
+
+- [x] `WorkpaperIndex` + `WorkpaperVersion` 模型与 API
+- [x] 审计工作台「工作底稿」入口
+- [x] 版本修订 + 索引号 + 导出目录
 
 ### Phase D — 工作流编排
 

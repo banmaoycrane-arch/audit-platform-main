@@ -10,6 +10,7 @@ import {
   ClockCircleOutlined,
   ReconciliationOutlined,
   TeamOutlined,
+  FileProtectOutlined,
 } from '@ant-design/icons'
 import { api, type AuditRisk, type Project, type ImportJob, type AuditTestReport } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
@@ -18,6 +19,7 @@ const { Title, Paragraph } = Typography
 
 const functionsList = [
   { key: 'projects', icon: <FileSearchOutlined />, label: '审计项目', path: '/audit/step/1' },
+  { key: 'workpapers', icon: <FileProtectOutlined />, label: '工作底稿', path: '/audit/workpapers' },
   { key: 'tests', icon: <ExperimentOutlined />, label: '测试执行', path: '/audit/step/4' },
   { key: 'bank-reconciliation', icon: <ReconciliationOutlined />, label: '银行调节表草稿', path: '/audit/bank-reconciliation' },
   { key: 'confirmations', icon: <TeamOutlined />, label: '往来函证控制表', path: '/audit/confirmations' },
