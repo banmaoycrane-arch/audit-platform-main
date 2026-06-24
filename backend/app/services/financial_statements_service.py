@@ -154,7 +154,11 @@ def _apply_counterparty_reclassification(rows: list[dict[str, Any]]) -> tuple[li
     adjustments: list[dict[str, Any]] = []
 
     for row in rows:
-        result = classify_counterparty_balance(row["account_code"], _normal_balance_amount(row))
+        try:
+            result = classify_counterparty_balance(row["account_code"], _normal_balance_amount(row))
+        except ValueError:
+            # 非标准会计科目编码（如测试科目、外部系统临时编码）不参与往来重分类，避免影响整张报表出具。
+            continue
         target_code = result["presentation_account_code"]
         if target_code == row["account_code"] or result["balance_direction"] == "zero":
             continue

@@ -71,6 +71,7 @@ def _seed(TestingSessionLocal):
             ("6001", "主营业务收入", "profit", "credit"),
             ("6601", "销售费用", "profit", "debit"),
             ("6801", "所得税费用", "profit", "debit"),
+            ("AGTEST", "Agent测试科目", "asset", "debit"),
         ]:
             db.add(
                 ChartOfAccounts(
