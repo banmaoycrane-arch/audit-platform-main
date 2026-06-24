@@ -51,6 +51,8 @@ import { BankAccountsPage } from './pages/Bank/BankAccountsPage'
 import { BankReconciliationPage } from './pages/Bank/BankReconciliationPage'
 import { ConfirmationsPage } from './pages/Audit/ConfirmationsPage'
 import { PurchaseMatchPage } from './pages/Audit/PurchaseMatchPage'
+import { WorkpapersPage } from './pages/Audit/WorkpapersPage'
+import { AuditWorkflowPage } from './pages/Audit/AuditWorkflowPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -144,6 +146,8 @@ function AppRoutes() {
         <Route path="/audit/confirmations" element={<LedgerDataGuard><ConfirmationsPage /></LedgerDataGuard>} />
         <Route path="/audit/purchase-match" element={<LedgerDataGuard><PurchaseMatchPage /></LedgerDataGuard>} />
         <Route path="/audit/bank-reconciliation" element={<LedgerDataGuard><BankReconciliationPage /></LedgerDataGuard>} />
+        <Route path="/audit/workpapers" element={<LedgerDataGuard><WorkpapersPage /></LedgerDataGuard>} />
+        <Route path="/audit/workflow" element={<LedgerDataGuard><AuditWorkflowPage /></LedgerDataGuard>} />
         <Route path="/basic/receivable-payable" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="counterparty_ledger" /></LedgerDataGuard>} />
         <Route path="/bank/cash-flow-ledger" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="bank_cash_flow" /></LedgerDataGuard>} />
         <Route path="/registers/:moduleKey" element={<LedgerDataGuard><ModuleRegisterPage /></LedgerDataGuard>} />

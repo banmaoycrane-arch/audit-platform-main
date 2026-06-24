@@ -334,26 +334,30 @@ WorkpaperLink           # 底稿勾稽
 - [x] `counterparty_ledger` 提供按单位+科目方向余额视图
 - [x] 采购/销售/往来共享 `counterparty_id` + `contract_id` 外键链
 
-### Phase B — 审计业务流程 MVP（进行中）
+### Phase B — 审计业务流程 MVP ✅ 已合入 main
 
 > 执行计划：`.trae/documents/phase-b-execution-plan.md`  
-> 分支：`cursor/phase-b-audit-workflow-mvp-5d1b`
+> 合入提交：`cb78f5c` Phase B：审计工作流 MVP
 
 - [x] **B1** 银行调节表草稿（bank statement ↔ GL）
 - [x] **B2** 往来函证控制表（counterparty balance ↔ confirmation）
 - [x] **B3** 采购三单匹配（contract ↔ inventory ↔ invoice）
 
-### Phase C — 底稿独立模块
+### Phase C — 底稿独立模块（本 PR）
 
-- [ ] `WorkpaperIndex` + `WorkpaperVersion` 模型与 API
-- [ ] 审计工作台「工作底稿」入口
-- [ ] 版本修订 + 索引号 + 导出目录
+> 分支：`cursor/auto-phase-bcd-audit-workflow-5d1b`
 
-### Phase D — 工作流编排
+- [x] `WorkpaperIndex` + `WorkpaperVersion` 模型与 API
+- [x] 审计工作台「工作底稿」入口
+- [x] 版本修订 + 索引号 + 导出目录
 
-- [ ] Project 级颗粒度配置
-- [ ] 审计程序状态机（函证→回函→调节→结论）
-- [ ] 分解引擎推荐程序 + 自动挂索引
+### Phase D — 工作流编排（本 PR）
+
+> 分支：`cursor/auto-phase-bcd-audit-workflow-5d1b`
+
+- [x] Project 级颗粒度配置
+- [x] 审计程序状态机（函证→回函→调节→结论）
+- [x] 分解引擎推荐程序 + 自动挂索引
 
 ---
 

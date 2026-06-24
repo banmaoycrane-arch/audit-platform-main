@@ -211,6 +211,14 @@ def auto_archive_draft(
     if source_file.ledger_id is None and ledger_id is not None:
         source_file.ledger_id = ledger_id
 
+    if ledger_id is not None:
+        try:
+            from app.services import workpaper_service
+
+            workpaper_service.register_source_file(db, ledger_id, source_file.id)
+        except Exception:
+            pass
+
     return archive
 
 

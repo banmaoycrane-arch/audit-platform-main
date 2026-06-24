@@ -654,6 +654,77 @@ export type PurchaseMatchSummary = {
   results: PurchaseMatchResult[]
 }
 
+export type WorkpaperVersion = {
+  id: number
+  workpaper_index_id: number
+  source_file_id: number
+  filename: string | null
+  version_no: string
+  status: string
+  status_label: string
+  prepared_by: number | null
+  reviewed_by: number | null
+  change_reason: string | null
+  supersedes_id: number | null
+  created_at: string | null
+}
+
+export type WorkpaperIndex = {
+  id: number
+  ledger_id: number
+  project_id: number | null
+  parent_id: number | null
+  index_no: string
+  title: string
+  audit_area: string | null
+  archive_path: string | null
+  source_module_key: string | null
+  sort_order: number
+  version_count: number
+  current_version_no: string | null
+  current_status: string | null
+  created_at: string | null
+  versions: WorkpaperVersion[]
+}
+
+export type WorkpaperCatalog = {
+  ledger_id: number
+  exported_at: string
+  index_count: number
+  version_count: number
+  items: WorkpaperIndex[]
+}
+
+export type WorkflowConfig = {
+  project_id: number
+  granularity: string
+  enabled_procedures: string[]
+  auto_link_workpaper: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type AuditProcedureRun = {
+  id: number
+  project_id: number | null
+  ledger_id: number
+  procedure_key: string
+  procedure_label: string
+  status: string
+  status_label: string
+  title: string
+  related_entity_type: string | null
+  related_entity_id: number | null
+  workpaper_index_id: number | null
+  source_file_id: number | null
+  recommended_by: string
+  notes: string | null
+  allowed_next_statuses: string[]
+  concluded_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
 export type TeamMember = {
   id: number
   username: string | null
@@ -1320,6 +1391,55 @@ export const api = {
   getPurchaseMatchSummary: (ledgerId: number) =>
     request<PurchaseMatchSummary>('/api/audit/purchase-match/summary', {
       headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+
+  listWorkpaperIndexes: (ledgerId: number, projectId?: number) =>
+    request<WorkpaperIndex[]>(
+      `/api/workpapers/index${projectId ? `?project_id=${projectId}` : ''}`,
+      { headers: { 'X-Ledger-Id': String(ledgerId) } },
+    ),
+  getWorkpaperIndex: (ledgerId: number, indexId: number) =>
+    request<WorkpaperIndex>(`/api/workpapers/index/${indexId}`, {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  syncWorkpapersFromArchive: (ledgerId: number) =>
+    request<WorkpaperIndex[]>('/api/workpapers/sync-from-archive', {
+      method: 'POST',
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  exportWorkpaperCatalog: (ledgerId: number) =>
+    request<WorkpaperCatalog>('/api/workpapers/export', {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+
+  getWorkflowConfig: (projectId: number) =>
+    request<WorkflowConfig>(`/api/audit/workflow/config?project_id=${projectId}`),
+  updateWorkflowConfig: (
+    projectId: number,
+    payload: { granularity?: string; enabled_procedures?: string[]; auto_link_workpaper?: boolean },
+  ) =>
+    request<WorkflowConfig>(`/api/audit/workflow/config?project_id=${projectId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  listAuditProcedureRuns: (ledgerId: number, projectId?: number, status?: string) =>
+    request<AuditProcedureRun[]>(
+      `/api/audit/workflow/runs?${[
+        projectId ? `project_id=${projectId}` : '',
+        status ? `status=${status}` : '',
+      ].filter(Boolean).join('&')}`,
+      { headers: { 'X-Ledger-Id': String(ledgerId) } },
+    ),
+  advanceAuditProcedureRun: (
+    ledgerId: number,
+    runId: number,
+    payload: { action?: string; target_status?: string; notes?: string },
+  ) =>
+    request<AuditProcedureRun>(`/api/audit/workflow/runs/${runId}/advance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
     }),
 
   createEntity: (payload: EntityCreatePayload) =>
