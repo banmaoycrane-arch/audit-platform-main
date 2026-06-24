@@ -343,9 +343,9 @@ WorkpaperLink           # 底稿勾稽
 - [x] **B2** 往来函证控制表（counterparty balance ↔ confirmation）
 - [x] **B3** 采购三单匹配（contract ↔ inventory ↔ invoice）
 
-### Phase C — 底稿独立模块（本 PR）
+### Phase C — 底稿独立模块 ✅ 已合入 main（PR #14）
 
-> 分支：`cursor/auto-phase-bcd-audit-workflow-5d1b`
+> 合入提交：`52e199c` feat(phase-c+d)
 
 - [x] `WorkpaperIndex` + `WorkpaperVersion` 模型与 API
 - [x] 审计工作台「工作底稿」入口
