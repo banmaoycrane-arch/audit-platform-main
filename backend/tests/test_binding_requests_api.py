@@ -1,11 +1,40 @@
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from app.db.session import Base, get_db
 from app.main import app
 
-client = TestClient(app)
+
+@pytest.fixture
+def client():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
 
 
-def register_user(username: str, phone: str) -> str:
+def register_user(client: TestClient, username: str, phone: str) -> str:
     response = client.post(
         "/api/auth/register",
         json={
@@ -20,9 +49,9 @@ def register_user(username: str, phone: str) -> str:
     return response.json()["access_token"]
 
 
-def test_binding_request_approval_writes_authorization_relationships():
-    admin_token = register_user("binding_admin", "13900001001")
-    visitor_token = register_user("binding_visitor", "13900001002")
+def test_binding_request_approval_writes_authorization_relationships(client: TestClient):
+    admin_token = register_user(client, "binding_admin", "13900001001")
+    visitor_token = register_user(client, "binding_visitor", "13900001002")
 
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
     visitor_headers = {"Authorization": f"Bearer {visitor_token}"}
@@ -89,3 +118,16 @@ def test_binding_request_approval_writes_authorization_relationships():
     assert visitor_context["projects"][0]["id"] == project_id
     assert visitor_context["current_ledger_id"] == ledger_id
     assert "accounting_entity" in visitor_context["missing_bindings"]
+
+
+def test_binding_requests_router_is_mounted(client: TestClient):
+    """Regression: binding-requests routes must be registered in main.py."""
+    visitor_token = register_user(client, "binding_route_check", "13900001099")
+    response = client.post(
+        "/api/binding-requests",
+        json={"team_id": 1, "requested_role": "viewer"},
+        headers={"Authorization": f"Bearer {visitor_token}"},
+    )
+    # Unmounted router returns 404; mounted router reaches business validation (400).
+    assert response.status_code == 400
+    assert response.json()["detail"] == "申请团队不存在"
