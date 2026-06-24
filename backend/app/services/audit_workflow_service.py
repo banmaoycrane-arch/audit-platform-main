@@ -364,29 +364,15 @@ def sync_confirmation_procedure(
     *,
     difference: float | None = None,
 ) -> dict[str, Any] | None:
-    run = (
-        db.query(AuditProcedureRun)
-        .filter(
-            AuditProcedureRun.ledger_id == ledger_id,
-            AuditProcedureRun.procedure_key == "counterparty_confirmation",
-            AuditProcedureRun.related_entity_type == "counterparty_confirmation",
-            AuditProcedureRun.related_entity_id == confirmation_id,
-        )
-        .order_by(AuditProcedureRun.id.desc())
-        .first()
+    run = _get_or_create_procedure_run(
+        db,
+        ledger_id,
+        "counterparty_confirmation",
+        confirmation_id,
+        entity_type="counterparty_confirmation",
     )
     if run is None:
-        run_data = create_procedure_run(
-            db,
-            ledger_id,
-            "counterparty_confirmation",
-            related_entity_type="counterparty_confirmation",
-            related_entity_id=confirmation_id,
-            recommended_by="system",
-        )
-        run = db.get(AuditProcedureRun, run_data["id"])
-        if run is None:
-            return None
+        return None
 
     status_map = {
         "draft": "planned",
@@ -400,10 +386,109 @@ def sync_confirmation_procedure(
             target = "concluded"
         if confirmation_status == "exception":
             target = "exception"
-        run.status = target
-        if target == "concluded":
+        return _apply_procedure_status(db, run, target)
+    return _serialize_run(run)
+
+
+def _get_or_create_procedure_run(
+    db: Session,
+    ledger_id: int,
+    procedure_key: str,
+    entity_id: int,
+    *,
+    entity_type: str | None = None,
+    title: str | None = None,
+) -> AuditProcedureRun | None:
+    catalog = PROCEDURE_CATALOG.get(procedure_key)
+    if catalog is None:
+        return None
+
+    entity_type = entity_type or catalog["entity_type"]
+    run = (
+        db.query(AuditProcedureRun)
+        .filter(
+            AuditProcedureRun.ledger_id == ledger_id,
+            AuditProcedureRun.procedure_key == procedure_key,
+            AuditProcedureRun.related_entity_type == entity_type,
+            AuditProcedureRun.related_entity_id == entity_id,
+        )
+        .order_by(AuditProcedureRun.id.desc())
+        .first()
+    )
+    if run is not None:
+        return run
+
+    run_data = create_procedure_run(
+        db,
+        ledger_id,
+        procedure_key,
+        title=title,
+        related_entity_type=entity_type,
+        related_entity_id=entity_id,
+        recommended_by="system",
+    )
+    return db.get(AuditProcedureRun, run_data["id"])
+
+
+def _apply_procedure_status(db: Session, run: AuditProcedureRun, target_status: str) -> dict[str, Any]:
+    if run.status != target_status:
+        run.status = target_status
+        if target_status == "concluded":
             run.concluded_at = datetime.utcnow()
         run.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(run)
     return _serialize_run(run)
+
+
+def sync_bank_reconciliation_procedure(
+    db: Session,
+    ledger_id: int,
+    reconciliation_id: int,
+    reconciliation_status: str,
+) -> dict[str, Any] | None:
+    run = _get_or_create_procedure_run(
+        db,
+        ledger_id,
+        "bank_reconciliation",
+        reconciliation_id,
+        entity_type="bank_reconciliation",
+        title="银行调节",
+    )
+    if run is None:
+        return None
+
+    if reconciliation_status == "balanced":
+        target = "concluded"
+    else:
+        target = "in_review"
+
+    return _apply_procedure_status(db, run, target)
+
+
+def sync_purchase_match_procedure(
+    db: Session,
+    ledger_id: int,
+    contract_id: int,
+    match_status: str,
+    *,
+    title: str | None = None,
+) -> dict[str, Any] | None:
+    run = _get_or_create_procedure_run(
+        db,
+        ledger_id,
+        "purchase_three_way_match",
+        contract_id,
+        entity_type="purchase_match",
+        title=title or "采购三单匹配",
+    )
+    if run is None:
+        return None
+
+    status_map = {
+        "matched": "concluded",
+        "incomplete": "in_review",
+        "exception": "exception",
+    }
+    target = status_map.get(match_status, "in_review")
+    return _apply_procedure_status(db, run, target)

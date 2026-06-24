@@ -240,7 +240,7 @@ def match_purchase_contract(db: Session, ledger_id: int, contract_id: int) -> di
     )
     match_status = _resolve_match_status(exceptions)
 
-    return {
+    result = {
         "ledger_id": ledger_id,
         "contract": _contract_dict(contract, db),
         "invoices": [_invoice_dict(item) for item in invoices],
@@ -255,6 +255,19 @@ def match_purchase_contract(db: Session, ledger_id: int, contract_id: int) -> di
         "match_status": match_status,
         "match_status_label": MATCH_STATUS_LABELS.get(match_status, match_status),
     }
+    try:
+        from app.services import audit_workflow_service
+
+        audit_workflow_service.sync_purchase_match_procedure(
+            db,
+            ledger_id,
+            contract_id,
+            match_status,
+            title=contract.contract_name or contract.contract_no,
+        )
+    except Exception:
+        pass
+    return result
 
 
 def match_purchase_cycle(db: Session, ledger_id: int, contract_id: int | None = None) -> list[dict[str, Any]]:
