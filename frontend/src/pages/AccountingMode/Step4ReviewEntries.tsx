@@ -2,7 +2,7 @@ import { Card, Table, Button, Steps, Typography, Tag, Space, Checkbox, Input, Se
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import type { ColumnsType } from 'antd/es/table'
-import { api, type AccountingEntry } from '../../api/client'
+import { api, type AccountingEntry, type AccountingEntryUpdate } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
 
 const { Title } = Typography
@@ -27,6 +27,7 @@ export function Step4ReviewEntries() {
   const currentStep = 3
 
   const [entries, setEntries] = useState<AccountingEntry[]>([])
+  const [draftEdits, setDraftEdits] = useState<Record<number, AccountingEntryUpdate>>({})
   const [loading, setLoading] = useState(false)
   const [savingIds, setSavingIds] = useState<Set<number>>(new Set())
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
@@ -38,6 +39,7 @@ export function Step4ReviewEntries() {
     try {
       const list = await api.listEntries(jobId)
       setEntries(list)
+      setDraftEdits({})
     } catch (error) {
       console.error('获取分录失败', error)
       message.error('获取分录失败')
@@ -81,6 +83,46 @@ export function Step4ReviewEntries() {
   const toggleVerified = async (entry: AccountingEntry) => {
     const nextStatus = isVerified(entry) ? 'draft' : 'verified'
     await updateEntryStatus(entry.id, nextStatus)
+  }
+
+  const getEntryValue = (entry: AccountingEntry, field: keyof AccountingEntryUpdate) => {
+    const edited = draftEdits[entry.id]?.[field]
+    return edited ?? entry[field]
+  }
+
+  const updateDraftEdit = (entryId: number, field: keyof AccountingEntryUpdate, value: string | number | null) => {
+    setDraftEdits((prev) => ({
+      ...prev,
+      [entryId]: {
+        ...(prev[entryId] || {}),
+        [field]: value,
+      },
+    }))
+  }
+
+  const saveEntryEdit = async (entry: AccountingEntry) => {
+    const edit = draftEdits[entry.id]
+    if (!edit) return
+    setSavingIds((prev) => new Set(prev).add(entry.id))
+    try {
+      const updated = await api.updateEntry(entry.id, edit)
+      setEntries((prev) => prev.map((item) => (item.id === entry.id ? updated : item)))
+      setDraftEdits((prev) => {
+        const next = { ...prev }
+        delete next[entry.id]
+        return next
+      })
+      message.success('分录调整已保存')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      message.error(`保存分录调整失败：${detail}`)
+    } finally {
+      setSavingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(entry.id)
+        return next
+      })
+    }
   }
 
   const batchVerify = async () => {
@@ -130,7 +172,13 @@ export function Step4ReviewEntries() {
       title: '凭证号',
       dataIndex: 'voucher_no',
       key: 'voucher_no',
-      render: (val: string | null) => val || '-',
+      render: (_val: string | null, record: AccountingEntry) => (
+        <Input
+          value={String(getEntryValue(record, 'voucher_no') || '')}
+          disabled={isVerified(record)}
+          onChange={(event) => updateDraftEdit(record.id, 'voucher_no', event.target.value)}
+        />
+      ),
     },
     {
       title: '行号',
@@ -141,17 +189,38 @@ export function Step4ReviewEntries() {
       title: '日期',
       dataIndex: 'voucher_date',
       key: 'voucher_date',
-      render: (val: string | null) => val || '-',
+      render: (_val: string | null, record: AccountingEntry) => (
+        <Input
+          value={String(getEntryValue(record, 'voucher_date') || '')}
+          disabled={isVerified(record)}
+          placeholder="YYYY-MM-DD"
+          onChange={(event) => updateDraftEdit(record.id, 'voucher_date', event.target.value)}
+        />
+      ),
     },
     {
-      title: '科目',
+      title: '科目代码',
+      dataIndex: 'account_code',
+      key: 'account_code',
+      width: 110,
+      render: (_val: string | null, record: AccountingEntry) => (
+        <Input
+          value={String(getEntryValue(record, 'account_code') || '')}
+          disabled={isVerified(record)}
+          onChange={(event) => updateDraftEdit(record.id, 'account_code', event.target.value)}
+        />
+      ),
+    },
+    {
+      title: '科目名称',
       dataIndex: 'account_name',
       key: 'account_name',
-      render: (val: string | null, record: AccountingEntry) => (
+      render: (_val: string | null, record: AccountingEntry) => (
         <Input
-          defaultValue={val || ''}
+          value={String(getEntryValue(record, 'account_name') || '')}
           style={{ width: '150px' }}
           disabled={isVerified(record)}
+          onChange={(event) => updateDraftEdit(record.id, 'account_name', event.target.value)}
         />
       ),
     },
@@ -159,10 +228,11 @@ export function Step4ReviewEntries() {
       title: '摘要',
       dataIndex: 'summary',
       key: 'summary',
-      render: (val: string | null, record: AccountingEntry) => (
+      render: (_val: string | null, record: AccountingEntry) => (
         <Input
-          defaultValue={val || ''}
+          value={String(getEntryValue(record, 'summary') || '')}
           disabled={isVerified(record)}
+          onChange={(event) => updateDraftEdit(record.id, 'summary', event.target.value)}
         />
       ),
     },
@@ -170,19 +240,57 @@ export function Step4ReviewEntries() {
       title: '借方金额',
       dataIndex: 'debit_amount',
       key: 'debit_amount',
-      render: (val: number) => (Number(val) > 0 ? `¥${Number(val).toLocaleString()}` : '-'),
+      width: 120,
+      render: (_val: number, record: AccountingEntry) => (
+        <Input
+          type="number"
+          value={Number(getEntryValue(record, 'debit_amount') || 0)}
+          disabled={isVerified(record)}
+          onChange={(event) => updateDraftEdit(record.id, 'debit_amount', Number(event.target.value || 0))}
+        />
+      ),
     },
     {
       title: '贷方金额',
       dataIndex: 'credit_amount',
       key: 'credit_amount',
-      render: (val: number) => (Number(val) > 0 ? `¥${Number(val).toLocaleString()}` : '-'),
+      width: 120,
+      render: (_val: number, record: AccountingEntry) => (
+        <Input
+          type="number"
+          value={Number(getEntryValue(record, 'credit_amount') || 0)}
+          disabled={isVerified(record)}
+          onChange={(event) => updateDraftEdit(record.id, 'credit_amount', Number(event.target.value || 0))}
+        />
+      ),
     },
     {
       title: '对方单位',
       dataIndex: 'counterparty',
       key: 'counterparty',
-      render: (val: string | null) => val || '-',
+      render: (_val: string | null, record: AccountingEntry) => (
+        <Input
+          value={String(getEntryValue(record, 'counterparty') || '')}
+          disabled={isVerified(record)}
+          onChange={(event) => updateDraftEdit(record.id, 'counterparty', event.target.value)}
+        />
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      fixed: 'right',
+      width: 90,
+      render: (_: unknown, record: AccountingEntry) => (
+        <Button
+          size="small"
+          disabled={isVerified(record) || !draftEdits[record.id]}
+          loading={savingIds.has(record.id)}
+          onClick={() => void saveEntryEdit(record)}
+        >
+          保存
+        </Button>
+      ),
     },
   ]
 

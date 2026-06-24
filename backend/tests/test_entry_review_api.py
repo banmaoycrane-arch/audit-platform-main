@@ -52,6 +52,9 @@ def _seed_entry(db) -> int:
         import_job_id=job.id,
         voucher_no="V100",
         voucher_date=date(2026, 6, 1),
+        summary="原摘要",
+        account_code="1002",
+        account_name="银行存款",
         debit_amount=100,
         credit_amount=0,
         review_status="draft",
@@ -89,3 +92,45 @@ def test_batch_update_entry_review_status(client: TestClient):
     get_resp = client.get(f"/api/entries/{entry_id}")
     assert get_resp.status_code == 200
     assert get_resp.json()["review_status"] == "ready"
+
+
+def test_update_entry_fields_before_review(client: TestClient):
+    db = client._SessionLocal()  # type: ignore[attr-defined]
+    try:
+        entry_id = _seed_entry(db)
+    finally:
+        db.close()
+
+    response = client.patch(
+        f"/api/entries/{entry_id}",
+        json={
+            "summary": "调整后摘要",
+            "account_code": "6602",
+            "account_name": "管理费用",
+            "debit_amount": 88,
+            "credit_amount": 0,
+            "counterparty": "测试供应商",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["summary"] == "调整后摘要"
+    assert data["account_code"] == "6602"
+    assert data["account_name"] == "管理费用"
+    assert data["debit_amount"] == 88
+    assert data["counterparty"] == "测试供应商"
+
+
+def test_verified_entry_cannot_be_edited_directly(client: TestClient):
+    db = client._SessionLocal()  # type: ignore[attr-defined]
+    try:
+        entry_id = _seed_entry(db)
+    finally:
+        db.close()
+
+    review_response = client.patch(f"/api/entries/{entry_id}/review", json={"review_status": "verified"})
+    assert review_response.status_code == 200
+
+    edit_response = client.patch(f"/api/entries/{entry_id}", json={"summary": "不应修改"})
+    assert edit_response.status_code == 400
+    assert "已复核分录不能直接修改" in edit_response.json()["detail"]

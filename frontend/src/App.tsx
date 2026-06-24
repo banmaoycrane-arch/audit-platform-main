@@ -51,6 +51,7 @@ import { BankAccountsPage } from './pages/Bank/BankAccountsPage'
 import { BankReconciliationPage } from './pages/Bank/BankReconciliationPage'
 import { ConfirmationsPage } from './pages/Audit/ConfirmationsPage'
 import { PurchaseMatchPage } from './pages/Audit/PurchaseMatchPage'
+import { GeneralLedgerPage, LedgerBooksPage, SubsidiaryLedgerPage } from './pages/Ledger/LedgerBookPages'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -150,36 +151,9 @@ function AppRoutes() {
         <Route path="/agent" element={<AgentChatPage />} />
         <Route path="/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
         <Route path="/ledger/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
-        <Route
-          path="/ledger/books"
-          element={(
-            <PlaceholderModulePage
-              title="账簿管理"
-              description="账簿管理用于按会计期间汇总凭证，形成总账、明细账和辅助账，后续将与结账、反结账、审计抽样联动。"
-              items={['按期间生成账簿', '凭证过账与反过账', '账簿导出与审计留痕']}
-            />
-          )}
-        />
-        <Route
-          path="/ledger/general-ledger"
-          element={(
-            <PlaceholderModulePage
-              title="总账"
-              description="总账按会计科目汇总借贷发生额和余额，是试算平衡、财务报表和审计分析的核心数据来源。"
-              items={['科目期初余额', '本期借贷发生额', '期末余额与报表取数']}
-            />
-          )}
-        />
-        <Route
-          path="/ledger/subsidiary-ledger"
-          element={(
-            <PlaceholderModulePage
-              title="明细账"
-              description="明细账展示每个科目的分录流水，便于追查凭证、往来单位、银行流水和业务单据之间的勾稽关系。"
-              items={['按科目查看流水', '按往来单位筛选', '追溯凭证与附件']}
-            />
-          )}
-        />
+        <Route path="/ledger/books" element={<LedgerDataGuard><LedgerBooksPage /></LedgerDataGuard>} />
+        <Route path="/ledger/general-ledger" element={<LedgerDataGuard><GeneralLedgerPage /></LedgerDataGuard>} />
+        <Route path="/ledger/subsidiary-ledger" element={<LedgerDataGuard><SubsidiaryLedgerPage /></LedgerDataGuard>} />
         <Route path="/risks" element={<RisksPageRoute />} />
         <Route path="/periods" element={<AccountingPeriodsPage />} />
         <Route path="/accounting-periods" element={<AccountingPeriodsPage />} />

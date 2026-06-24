@@ -29,6 +29,11 @@ export type AccountingEntry = {
   created_at: string
 }
 
+export type AccountingEntryUpdate = Partial<Pick<
+  AccountingEntry,
+  'voucher_no' | 'voucher_date' | 'summary' | 'account_code' | 'account_name' | 'debit_amount' | 'credit_amount' | 'counterparty'
+>>
+
 export type AuditRisk = {
   id: number
   import_job_id: number
@@ -924,6 +929,12 @@ export const api = {
     const query = params.toString()
     return request<AccountingEntry[]>(`/api/entries${query ? `?${query}` : ''}`)
   },
+  updateEntry: (entryId: number, payload: AccountingEntryUpdate) =>
+    request<AccountingEntry>(`/api/entries/${entryId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
   reviewEntry: (entryId: number, reviewStatus: string) =>
     request<AccountingEntry>(`/api/entries/${entryId}/review`, {
       method: 'PATCH',
