@@ -278,6 +278,15 @@ def revise_workpaper(
     if source_file is None:
         raise ValueError("source file not found")
 
+    file_ledger_id = source_file.ledger_id
+    if file_ledger_id is None and source_file.import_job_id:
+        from app.db.models import ImportJob
+
+        job = db.get(ImportJob, source_file.import_job_id)
+        file_ledger_id = job.ledger_id if job else None
+    if file_ledger_id != ledger_id:
+        raise ValueError("source file does not belong to ledger")
+
     current = (
         db.query(WorkpaperVersion)
         .filter(WorkpaperVersion.workpaper_index_id == index_id, WorkpaperVersion.status != "superseded")
