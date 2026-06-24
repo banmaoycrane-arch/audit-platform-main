@@ -16,6 +16,7 @@ import {
   Table,
   Tag,
   Typography,
+  Alert,
 } from 'antd'
 import { FileTextOutlined, PlusOutlined, ReconciliationOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -29,6 +30,16 @@ import {
 import { useAuthStore } from '../../stores/authStore'
 
 const { Title, Paragraph } = Typography
+
+function getBankActionBlockMessage(currentLedgerId: number | null, accountCount: number): string | null {
+  if (!currentLedgerId) {
+    return '请先选择账套，再录入银行流水或生成银行调节表。'
+  }
+  if (accountCount === 0) {
+    return '请先维护银行账户，再录入银行流水或生成银行调节表。'
+  }
+  return null
+}
 
 export function BankReconciliationPage() {
   const { currentLedgerId } = useAuthStore()
@@ -65,6 +76,24 @@ export function BankReconciliationPage() {
   useEffect(() => {
     loadData()
   }, [currentLedgerId])
+
+  const handleOpenTxnModal = () => {
+    const blockMessage = getBankActionBlockMessage(currentLedgerId, accounts.length)
+    if (blockMessage) {
+      message.warning(blockMessage)
+      return
+    }
+    setOpen(true)
+  }
+
+  const handleOpenDraftModal = () => {
+    const blockMessage = getBankActionBlockMessage(currentLedgerId, accounts.length)
+    if (blockMessage) {
+      message.warning(blockMessage)
+      return
+    }
+    setDraftOpen(true)
+  }
 
   const handleCreateTxn = async () => {
     if (!currentLedgerId) return
@@ -202,6 +231,10 @@ export function BankReconciliationPage() {
     },
   ]
 
+  const hasAutoReconcileDifference = Boolean(
+    result && (result.unmatched_transactions.length > 0 || result.unmatched_entries.length > 0),
+  )
+
   const itemColumns = [
     { title: '类型', dataIndex: 'item_type_label', key: 'item_type_label' },
     {
@@ -227,10 +260,10 @@ export function BankReconciliationPage() {
         </Col>
         <Col>
           <Space>
-            <Button icon={<PlusOutlined />} onClick={() => setOpen(true)} disabled={!currentLedgerId || accounts.length === 0}>
+            <Button icon={<PlusOutlined />} onClick={handleOpenTxnModal}>
               录入流水
             </Button>
-            <Button icon={<FileTextOutlined />} onClick={() => setDraftOpen(true)} disabled={!currentLedgerId || accounts.length === 0}>
+            <Button icon={<FileTextOutlined />} onClick={handleOpenDraftModal}>
               生成调节表
             </Button>
             <Button type="primary" loading={reconciling} onClick={handleAutoReconcile} disabled={!currentLedgerId}>
@@ -261,6 +294,15 @@ export function BankReconciliationPage() {
             </Button>
           }
         >
+          {Math.abs(selectedDraft.difference) >= 0.01 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="调节表存在差异，需先核实差异原因"
+              description="请逐项检查未匹配银行流水、未匹配账套分录、银行手续费、利息收入、企业已收银行未收、银行已付企业未付等事项。确认属于应入账事项后，再由人工在凭证复核流程中编制差异凭证。"
+            />
+          )}
           <Descriptions bordered size="small" column={{ xs: 1, sm: 2, md: 3 }}>
             <Descriptions.Item label="银行对账单余额">
               ¥ {selectedDraft.statement_balance.toLocaleString()}
@@ -299,8 +341,24 @@ export function BankReconciliationPage() {
       </Card>
 
       {result && (
-        <Row gutter={16}>
-          <Col xs={24} lg={12}>
+        <>
+          {hasAutoReconcileDifference && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="自动对账发现差异，请先核实后处理"
+              description="建议按顺序检查：1. 未匹配银行流水是否为手续费、利息、未入账收付款；2. 未匹配账套分录是否缺少银行流水或日期金额不一致；3. 确认属于应入账差异后，再人工编制差异凭证并复核，不由系统自动入账。"
+              action={(
+                <Space direction="vertical">
+                  <Button size="small" onClick={handleOpenDraftModal}>生成调节表草稿</Button>
+                  <Button size="small" onClick={() => message.info('请在凭证复核流程中人工编制差异凭证，系统不会自动入账。')}>查看凭证处理提示</Button>
+                </Space>
+              )}
+            />
+          )}
+          <Row gutter={16}>
+            <Col xs={24} lg={12}>
             <Card title={`未匹配银行流水（${result.unmatched_transactions.length}）`} size="small">
               {result.unmatched_transactions.length === 0 ? (
                 <Paragraph type="secondary">暂无未匹配银行流水</Paragraph>
@@ -327,6 +385,7 @@ export function BankReconciliationPage() {
             </Card>
           </Col>
         </Row>
+        </>
       )}
 
       <Modal title="录入银行流水" open={open} onOk={handleCreateTxn} onCancel={() => setOpen(false)} okText="保存" cancelText="取消">

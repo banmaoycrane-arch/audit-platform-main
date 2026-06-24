@@ -67,6 +67,8 @@ const navItems = [
       { key: '/audit/step/2', label: <Link to="/audit/step/2">Step 2 导入证据</Link> },
       { key: '/audit/step/3', label: <Link to="/audit/step/3">Step 3 导入序时簿</Link> },
       { key: '/audit/step/4', label: <Link to="/audit/step/4">Step 4 执行测试</Link> },
+      { key: '/audit/bank-reconciliation', icon: <ReconciliationOutlined />, label: <Link to="/audit/bank-reconciliation">银行调节表草稿</Link> },
+      { key: '/audit/confirmations', label: <Link to="/audit/confirmations">往来函证控制表</Link> },
       { key: '/audit/step/5', label: <Link to="/audit/step/5">Step 5 复核发现</Link> },
       { key: '/audit/step/6', label: <Link to="/audit/step/6">Step 6 导出报告</Link> },
     ],

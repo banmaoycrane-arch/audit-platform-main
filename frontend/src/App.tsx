@@ -143,6 +143,7 @@ function AppRoutes() {
         <Route path="/audit/contracts" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="contract_register" /></LedgerDataGuard>} />
         <Route path="/audit/confirmations" element={<LedgerDataGuard><ConfirmationsPage /></LedgerDataGuard>} />
         <Route path="/audit/purchase-match" element={<LedgerDataGuard><PurchaseMatchPage /></LedgerDataGuard>} />
+        <Route path="/audit/bank-reconciliation" element={<LedgerDataGuard><BankReconciliationPage /></LedgerDataGuard>} />
         <Route path="/basic/receivable-payable" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="counterparty_ledger" /></LedgerDataGuard>} />
         <Route path="/bank/cash-flow-ledger" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="bank_cash_flow" /></LedgerDataGuard>} />
         <Route path="/registers/:moduleKey" element={<LedgerDataGuard><ModuleRegisterPage /></LedgerDataGuard>} />
