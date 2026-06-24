@@ -30,6 +30,8 @@ from app.api.routes_risks import router as risks_router
 from app.api.routes_transactions import router as transactions_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_bank import router as bank_router
+from app.api.routes_confirmations import router as confirmations_router
+from app.api.routes_purchase_match import router as purchase_match_router
 from app.api.routes_project import router as project_router
 from app.api.routes_lifecycle import router as lifecycle_router
 from app.api.routes_team import router as team_router
@@ -258,6 +260,8 @@ app.include_router(project_router)
 app.include_router(lifecycle_router)
 app.include_router(team_router)
 app.include_router(bank_router)
+app.include_router(confirmations_router)
+app.include_router(purchase_match_router)
 
 
 @app.get("/")

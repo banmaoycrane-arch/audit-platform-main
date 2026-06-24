@@ -536,6 +536,124 @@ export type BankSummary = {
   total_balance: number
 }
 
+export type BankReconciliationItem = {
+  id: number
+  item_type: string
+  item_type_label: string
+  amount: number
+  direction: string | null
+  bank_transaction_id: number | null
+  entry_id: number | null
+  summary: string | null
+  note: string | null
+}
+
+export type BankReconciliationDraft = {
+  id: number
+  ledger_id: number
+  bank_account_id: number
+  bank_name: string | null
+  account_no: string | null
+  period_end: string
+  statement_balance: number
+  book_balance: number
+  adjusted_statement_balance: number
+  adjusted_book_balance: number
+  difference: number
+  status: string
+  created_at: string | null
+  items: BankReconciliationItem[]
+}
+
+export type CounterpartyConfirmation = {
+  id: number
+  ledger_id: number
+  counterparty_id: number | null
+  counterparty_name: string | null
+  balance_type: string
+  balance_type_label: string
+  book_balance: number
+  confirmation_amount: number
+  reply_amount: number | null
+  difference: number | null
+  status: string
+  sent_at: string | null
+  replied_at: string | null
+  source_file_id: number | null
+  created_at: string | null
+}
+
+export type PurchaseMatchCheck = {
+  check_key: string
+  label: string
+  left_amount: number
+  right_amount: number
+  passed: boolean
+}
+
+export type PurchaseMatchException = {
+  exception_type: string
+  exception_label: string
+  message: string
+  left_amount?: number
+  right_amount?: number
+}
+
+export type PurchaseMatchResult = {
+  ledger_id: number
+  contract: {
+    id: number
+    contract_no: string | null
+    contract_name: string | null
+    contract_amount: number
+    execution_status: string
+    counterparty_name: string | null
+  }
+  invoices: Array<{
+    id: number
+    invoice_no: string | null
+    invoice_date: string | null
+    total_amount: number
+    seller_name: string | null
+    buyer_name: string | null
+  }>
+  inventory_documents: Array<{
+    id: number
+    document_no: string
+    document_type: string
+    document_date: string | null
+    total_amount: number
+    counterparty_name: string | null
+  }>
+  totals: {
+    contract_amount: number
+    invoice_total: number
+    inventory_total: number
+  }
+  checks: PurchaseMatchCheck[]
+  exceptions: PurchaseMatchException[]
+  match_status: string
+  match_status_label: string
+}
+
+export type PurchaseMatchSummary = {
+  ledger_id: number
+  contract_count: number
+  matched_count: number
+  incomplete_count: number
+  exception_count: number
+  exception_items: Array<{
+    contract_id: number
+    contract_no: string | null
+    contract_name: string | null
+    match_status: string
+    exception_type: string
+    exception_label: string
+    message: string
+  }>
+  results: PurchaseMatchResult[]
+}
+
 export type TeamMember = {
   id: number
   username: string | null
@@ -1140,6 +1258,67 @@ export const api = {
   autoReconcile: (ledgerId: number) =>
     request<BankReconcileResult>('/api/bank/reconcile/auto', {
       method: 'POST',
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  listBankReconciliations: (ledgerId: number) =>
+    request<BankReconciliationDraft[]>('/api/bank/reconciliations', {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  createBankReconciliationDraft: (
+    ledgerId: number,
+    payload: { bank_account_id: number; period_end: string; statement_balance?: number },
+  ) =>
+    request<BankReconciliationDraft>('/api/bank/reconciliations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+  getBankReconciliation: (ledgerId: number, reconciliationId: number) =>
+    request<BankReconciliationDraft>(`/api/bank/reconciliations/${reconciliationId}`, {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+
+  listConfirmations: (ledgerId: number) =>
+    request<CounterpartyConfirmation[]>('/api/confirmations', {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+  generateConfirmations: (
+    ledgerId: number,
+    payload: { counterparty_ids?: number[]; balance_types?: string[] },
+  ) =>
+    request<CounterpartyConfirmation[]>('/api/confirmations/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+  updateConfirmation: (
+    ledgerId: number,
+    confirmationId: number,
+    payload: { status?: string; confirmation_amount?: number; reply_amount?: number; source_file_id?: number },
+  ) =>
+    request<CounterpartyConfirmation>(`/api/confirmations/${confirmationId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+  recordConfirmationReply: (
+    ledgerId: number,
+    confirmationId: number,
+    payload: { reply_amount: number; source_file_id?: number },
+  ) =>
+    request<CounterpartyConfirmation>(`/api/confirmations/${confirmationId}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+
+  listPurchaseMatches: (ledgerId: number, contractId?: number) =>
+    request<PurchaseMatchResult[]>(
+      `/api/audit/purchase-match${contractId ? `?contract_id=${contractId}` : ''}`,
+      { headers: { 'X-Ledger-Id': String(ledgerId) } },
+    ),
+  getPurchaseMatchSummary: (ledgerId: number) =>
+    request<PurchaseMatchSummary>('/api/audit/purchase-match/summary', {
       headers: { 'X-Ledger-Id': String(ledgerId) },
     }),
 

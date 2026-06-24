@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Card, Select, Space, Table, Tag, Typography, message } from 'antd'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { Alert, Button, Card, Select, Space, Table, Tag, Typography, message } from 'antd'
+import { MailOutlined, ShoppingOutlined } from '@ant-design/icons'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ModuleRegisterItem, ModuleRegisterListResponse } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
@@ -150,12 +151,28 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
   return (
     <Card>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <div>
-          <Title level={4} style={{ margin: 0 }}>{title}</Title>
-          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            按账套查询已持久化的模块台账数据（Phase A）。当前账套：
-            {userLedgers.find((item) => item.id === ledgerId)?.name || ledgerId || '未选择'}
-          </Paragraph>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <Title level={4} style={{ margin: 0 }}>{title}</Title>
+            <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              按账套查询已持久化的模块台账数据（Phase A）。当前账套：
+              {userLedgers.find((item) => item.id === ledgerId)?.name || ledgerId || '未选择'}
+            </Paragraph>
+          </div>
+          {moduleKey === 'counterparty_ledger' && (
+            <Link to="/audit/confirmations">
+              <Button type="primary" icon={<MailOutlined />}>
+                往来函证控制表
+              </Button>
+            </Link>
+          )}
+          {moduleKey === 'purchase' && (
+            <Link to="/audit/purchase-match">
+              <Button type="primary" icon={<ShoppingOutlined />}>
+                采购三单匹配
+              </Button>
+            </Link>
+          )}
         </div>
 
         {!ledgerId && (

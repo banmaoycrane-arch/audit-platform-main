@@ -328,17 +328,20 @@ WorkpaperLink           # 底稿勾稽
 
 ## 8. 实施路线图（建议）
 
-### Phase A — 台账持久化与账套边界（基础）
+### Phase A — 台账持久化与账套边界（基础）✅ 已合入 main（PR #8）
 
-- [ ] Register 表增加 `ledger_id`；module ledger 查询 API 落库
-- [ ] `counterparty_ledger` 提供按单位+科目方向余额视图
-- [ ] 采购/销售/往来共享 `counterparty_id` + `contract_id` 外键链
+- [x] Register 表增加 `ledger_id`；module ledger 查询 API 落库
+- [x] `counterparty_ledger` 提供按单位+科目方向余额视图
+- [x] 采购/销售/往来共享 `counterparty_id` + `contract_id` 外键链
 
-### Phase B — 审计业务流程 MVP
+### Phase B — 审计业务流程 MVP（进行中）
 
-- [ ] 银行调节表草稿（bank statement ↔ GL）
-- [ ] 往来函证控制表（counterparty balance ↔ confirmation）
-- [ ] 采购三单匹配（contract ↔ inventory ↔ invoice）
+> 执行计划：`.trae/documents/phase-b-execution-plan.md`  
+> 分支：`cursor/phase-b-audit-workflow-mvp-5d1b`
+
+- [x] **B1** 银行调节表草稿（bank statement ↔ GL）
+- [x] **B2** 往来函证控制表（counterparty balance ↔ confirmation）
+- [x] **B3** 采购三单匹配（contract ↔ inventory ↔ invoice）
 
 ### Phase C — 底稿独立模块
 
