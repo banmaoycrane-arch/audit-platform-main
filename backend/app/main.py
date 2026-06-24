@@ -33,6 +33,7 @@ from app.api.routes_bank import router as bank_router
 from app.api.routes_confirmations import router as confirmations_router
 from app.api.routes_purchase_match import router as purchase_match_router
 from app.api.routes_workpapers import router as workpapers_router
+from app.api.routes_audit_workflow import router as audit_workflow_router
 from app.api.routes_project import router as project_router
 from app.api.routes_lifecycle import router as lifecycle_router
 from app.api.routes_team import router as team_router
@@ -264,6 +265,7 @@ app.include_router(bank_router)
 app.include_router(confirmations_router)
 app.include_router(purchase_match_router)
 app.include_router(workpapers_router)
+app.include_router(audit_workflow_router)
 
 
 @app.get("/")

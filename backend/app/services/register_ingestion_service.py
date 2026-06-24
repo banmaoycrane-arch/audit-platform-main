@@ -632,4 +632,26 @@ def classify_and_ingest_register(
         document_type_hints=document_type_hints,
         decomposition=decomposition,
     )
+    ledger_id = source_file.ledger_id
+    if ledger_id is None and source_file.import_job_id:
+        from app.db.models import ImportJob
+
+        job = db.get(ImportJob, source_file.import_job_id)
+        ledger_id = job.ledger_id if job else None
+    if ledger_id is not None:
+        try:
+            from app.services import audit_workflow_service
+
+            recommendations = audit_workflow_service.recommend_procedures_from_decomposition(
+                decomposition.to_dict()
+            )
+            if recommendations:
+                audit_workflow_service.create_runs_from_recommendations(
+                    db,
+                    ledger_id,
+                    recommendations,
+                    source_file_id=source_file.id,
+                )
+        except Exception:
+            pass
     return classification, ingestion

@@ -192,7 +192,20 @@ def update_confirmation(
 
     db.commit()
     db.refresh(row)
-    return _serialize(row, db)
+    result = _serialize(row, db)
+    try:
+        from app.services import audit_workflow_service
+
+        audit_workflow_service.sync_confirmation_procedure(
+            db,
+            ledger_id,
+            confirmation_id,
+            row.status,
+            difference=result.get("difference"),
+        )
+    except Exception:
+        pass
+    return result
 
 
 def record_reply(

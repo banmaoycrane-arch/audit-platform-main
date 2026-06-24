@@ -84,6 +84,15 @@ class RiskHint:
 
 
 @dataclass
+class RecommendedProcedure:
+    procedure_key: str
+    procedure_label: str
+    source_module_key: str
+    workpaper_index_hint: str
+    reason: str = ""
+
+
+@dataclass
 class SemanticDecomposition:
     decomposition_version: str
     decomposition_source: str
@@ -92,6 +101,8 @@ class SemanticDecomposition:
     module_targets: list[ModuleTarget]
     semantic_tags: list[str] = field(default_factory=list)
     risk_hints: list[RiskHint] = field(default_factory=list)
+    recommended_audit_procedures: list[RecommendedProcedure] = field(default_factory=list)
+    workpaper_index_hint: str | None = None
 
     def module_keys(self) -> list[str]:
         return [item.module_key for item in self.module_targets]
@@ -105,6 +116,8 @@ class SemanticDecomposition:
             "module_targets": [asdict(item) for item in self.module_targets],
             "semantic_tags": self.semantic_tags,
             "risk_hints": [asdict(item) for item in self.risk_hints],
+            "recommended_audit_procedures": [asdict(item) for item in self.recommended_audit_procedures],
+            "workpaper_index_hint": self.workpaper_index_hint,
         }
 
 
@@ -274,6 +287,39 @@ def _extract_risk_hints(text: str, data: dict[str, Any], dimensions: dict[str, b
     return hints
 
 
+def _recommend_audit_procedures(module_targets: list[ModuleTarget]) -> tuple[list[RecommendedProcedure], str | None]:
+    from app.services.audit_workflow_service import MODULE_PROCEDURE_MAP, PROCEDURE_CATALOG
+
+    recommendations: list[RecommendedProcedure] = []
+    seen: set[str] = set()
+    primary_hint: str | None = None
+    for target in module_targets:
+        for procedure_key in MODULE_PROCEDURE_MAP.get(target.module_key, []):
+            if procedure_key in seen:
+                continue
+            seen.add(procedure_key)
+            catalog = PROCEDURE_CATALOG[procedure_key]
+            if primary_hint is None:
+                primary_hint = catalog.get("workpaper_hint")
+            recommendations.append(
+                RecommendedProcedure(
+                    procedure_key=procedure_key,
+                    procedure_label=str(catalog.get("label", procedure_key)),
+                    source_module_key=target.module_key,
+                    workpaper_index_hint=str(catalog.get("workpaper_hint", "")),
+                    reason=f"模块 {target.module_key} 推荐审计程序",
+                )
+            )
+    return recommendations, primary_hint
+
+
+def _attach_recommendations(decomposition: SemanticDecomposition) -> SemanticDecomposition:
+    procedures, hint = _recommend_audit_procedures(decomposition.module_targets)
+    decomposition.recommended_audit_procedures = procedures
+    decomposition.workpaper_index_hint = hint
+    return decomposition
+
+
 def _parse_llm_decomposition(content: str) -> dict[str, Any] | None:
     try:
         payload = json.loads(content)
@@ -412,4 +458,4 @@ def decompose_draft(
         risk_hints=_extract_risk_hints(text, data, dimensions),
     )
 
-    return _llm_enhance_decomposition(base, text, llm_client=llm_client)
+    return _attach_recommendations(_llm_enhance_decomposition(base, text, llm_client=llm_client))

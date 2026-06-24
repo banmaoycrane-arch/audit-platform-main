@@ -1742,3 +1742,35 @@ class WorkpaperVersion(Base):
     workpaper_index: Mapped["WorkpaperIndex"] = relationship(back_populates="versions")
     source_file: Mapped["SourceFile"] = relationship()
     supersedes: Mapped["WorkpaperVersion | None"] = relationship(remote_side="WorkpaperVersion.id")
+
+
+class ProjectWorkflowConfig(Base):
+    __tablename__ = "project_workflow_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), unique=True, index=True)
+    granularity: Mapped[str] = mapped_column(String(20), default="standard")
+    enabled_procedures: Mapped[dict] = mapped_column(JSON, default=list)
+    auto_link_workpaper: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuditProcedureRun(Base):
+    __tablename__ = "audit_procedure_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
+    procedure_key: Mapped[str] = mapped_column(String(50), index=True)
+    status: Mapped[str] = mapped_column(String(30), default="planned", index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    related_entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    related_entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    workpaper_index_id: Mapped[int | None] = mapped_column(ForeignKey("workpaper_indexes.id"), nullable=True)
+    source_file_id: Mapped[int | None] = mapped_column(ForeignKey("source_files.id"), nullable=True)
+    recommended_by: Mapped[str] = mapped_column(String(30), default="manual")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    concluded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
