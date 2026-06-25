@@ -48,6 +48,55 @@ EVIDENCE_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 
 
+ACCOUNT_RECOGNITION_RULES: list[dict] = [
+    {"keywords": ("收入", "销售", "服务费", "服务费收入", "咨询费"), "code": "6001", "name": "主营业务收入", "category": "profit"},
+    {"keywords": ("采购", "进货", "供应商", "应付"), "code": "2202", "name": "应付账款", "category": "liability"},
+    {"keywords": ("应收", "客户", "应收账款"), "code": "1122", "name": "应收账款", "category": "asset"},
+    {"keywords": ("工资", "薪酬", "社保", "公积金"), "code": "2211", "name": "应付职工薪酬", "category": "liability"},
+    {"keywords": ("税", "增值税", "销项", "进项", "税额"), "code": "2221", "name": "应交税费", "category": "liability"},
+    {"keywords": ("费用", "报销", "差旅费", "办公费"), "code": "6602", "name": "管理费用", "category": "profit"},
+    {"keywords": ("销售费用", "广告费", "促销"), "code": "6601", "name": "销售费用", "category": "profit"},
+    {"keywords": ("成本", "主营业务成本"), "code": "6401", "name": "主营业务成本", "category": "profit"},
+    {"keywords": ("利息", "财务费用"), "code": "6603", "name": "财务费用", "category": "profit"},
+    {"keywords": ("现金", "库存现金"), "code": "1001", "name": "库存现金", "category": "asset"},
+    {"keywords": ("银行", "银行存款"), "code": "1002", "name": "银行存款", "category": "asset"},
+    {"keywords": ("固定资产", "设备", "机器"), "code": "1601", "name": "固定资产", "category": "asset"},
+    {"keywords": ("折旧", "累计折旧"), "code": "1602", "name": "累计折旧", "category": "asset"},
+    {"keywords": ("借款", "贷款"), "code": "2001", "name": "短期借款", "category": "liability"},
+    {"keywords": ("预收", "预收账款"), "code": "2203", "name": "预收账款", "category": "liability"},
+    {"keywords": ("预付", "预付账款"), "code": "1123", "name": "预付账款", "category": "asset"},
+    {"keywords": ("其他应收", "备用金"), "code": "1221", "name": "其他应收款", "category": "asset"},
+    {"keywords": ("其他应付", "押金", "保证金"), "code": "2241", "name": "其他应付款", "category": "liability"},
+    {"keywords": ("投资", "投资收益"), "code": "6111", "name": "投资收益", "category": "profit"},
+    {"keywords": ("营业外", "捐赠"), "code": "6301", "name": "营业外收入", "category": "profit"},
+]
+
+
+def _recognize_account_from_text(text: str) -> tuple[str, str] | tuple[None, None]:
+    """
+    功能描述：从提取的文本中识别会计科目
+    业务逻辑：按优先级匹配关键词，返回第一个匹配的科目代码和名称
+    会计口径：基于常见业务关键词与一级科目的映射规则
+
+    Args:
+        text: 提取的文本内容
+
+    Returns:
+        tuple[str, str] | tuple[None, None]: (科目代码, 科目名称) 或 (None, None)
+
+    注意事项：
+        1. 匹配顺序按优先级排列，先匹配更具体的关键词
+        2. 匹配是大小写不敏感的
+    """
+    if not text:
+        return None, None
+    text_lower = text.lower()
+    for rule in ACCOUNT_RECOGNITION_RULES:
+        if any(keyword.lower() in text_lower for keyword in rule["keywords"]):
+            return rule["code"], rule["name"]
+    return None, None
+
+
 def _voucher_prefix(account_name: str | None, summary: str | None, file_type: str | None) -> str:
     """按规则推荐凭证字。"""
     text = f"{summary or ''} {file_type or ''} {account_name or ''}"
@@ -349,7 +398,6 @@ def generate_drafts(
             drafts.append(draft)
         return drafts
 
-    # 没有既有分录：基于 source_files 生成最小占位草稿（仅展示流程）
     seq = 1
     for f in files:
         ftype = (f.file_type or "").lower()
@@ -357,8 +405,20 @@ def generate_drafts(
         prefix = "银" if evidence_type in {"bank", "receipt"} or "bank" in ftype else "记"
         voucher_no = f"{prefix}-{seq:03d}"
         voucher_date, clamped = _clamp_date(period.start_date, period)
-        account_code = "1002" if prefix == "银" and not evidence_check["is_blocked"] else ""
-        account_name = "银行存款" if prefix == "银" and not evidence_check["is_blocked"] else "待补充资料确认"
+
+        combined_text = f"{f.filename or ''} {f.file_type or ''} {f.extracted_text or ''}"
+        recognized_code, recognized_name = _recognize_account_from_text(combined_text)
+
+        if recognized_code and recognized_name:
+            account_code = recognized_code
+            account_name = recognized_name
+        elif prefix == "银" and not evidence_check["is_blocked"]:
+            account_code = "1002"
+            account_name = "银行存款"
+        else:
+            account_code = ""
+            account_name = "待补充资料确认"
+
         metadata = _merge_evidence_metadata(
             {
                 "date_clamped": clamped,
@@ -368,7 +428,7 @@ def generate_drafts(
             },
             evidence_check,
         )
-        summary = _format_summary(prefix, None, None, f.filename)
+        summary = _format_summary(prefix, account_name, None, f.filename)
         drafts.append(
             {
                 "source_file_id": f.id,
