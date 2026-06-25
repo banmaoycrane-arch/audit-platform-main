@@ -163,3 +163,9 @@ python -m pytest backend/tests
 pnpm --dir frontend lint
 pnpm --dir frontend build
 ```
+
+## 变更记录与 Agent 集成
+
+- [CHANGELOG.md](./CHANGELOG.md) — 重要功能修复与合并说明
+- [CURSOR_GITHUB_SETUP.md](./CURSOR_GITHUB_SETUP.md) — Cursor Cloud Agent 连接 GitHub、创建 PR 的逐步配置
+- [AUTOMATIONS_SETUP.md](./AUTOMATIONS_SETUP.md) — 定时测试、Issue 自动开发、PR 合并更新文档

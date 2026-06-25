@@ -1,8 +1,8 @@
 # Cursor Automations 设置指南 / Setup Guide
 
-本文档说明如何为 finance-vector-audit 项目在 Cursor 中配置三个自动化任务。
+本文档说明如何为 audit-platform-main 项目在 Cursor 中配置三个自动化任务。
 
-This document explains how to configure three Cursor Automations for the finance-vector-audit project.
+This document explains how to configure three Cursor Automations for the audit-platform-main project.
 
 ---
 
@@ -11,9 +11,13 @@ This document explains how to configure three Cursor Automations for the finance
 1. **GitHub 仓库已连接到 Cursor** / GitHub repo connected to Cursor
    - 打开 [cursor.com](https://cursor.com) → Settings → Integrations → GitHub → 授权
    - Open [cursor.com](https://cursor.com) → Settings → Integrations → GitHub → Authorize
+   - **完整逐项说明**（含 PR 权限、分支命名 `cursor/auto*`、保护 `main`）：见 [CURSOR_GITHUB_SETUP.md](./CURSOR_GITHUB_SETUP.md)
 
 2. **已启用 Cloud Agents** / Cloud Agents enabled
    - cursor.com → 左侧菜单 → Agents → 确认已开启
+
+3. **仓库名称** / Repository name
+   - 本仓库 GitHub 路径：`banmaoycrane-arch/audit-platform-main`（下文 Automation 仓库选择请选此项，而非旧名 `finance-vector-audit`）
 
 ---
 
@@ -34,7 +38,7 @@ This document explains how to configure three Cursor Automations for the finance
    Schedule: 0 2 * * *（每天凌晨 2 点 UTC）
 
 3. 仓库 / Repository:
-   选择 finance-vector-audit，分支选 main
+   选择 audit-platform-main，分支选 main
 
 4. 提示词 / Prompt:
    复制 .cursor/automation-prompts/1-daily-test-and-fix.md 中 "---" 之间的内容
@@ -74,7 +78,7 @@ This document explains how to configure three Cursor Automations for the finance
    事件选 "Issue created"（Issue 创建）
 
 3. 仓库 / Repository:
-   选择 finance-vector-audit
+   选择 audit-platform-main
 
 4. 提示词 / Prompt:
    复制 .cursor/automation-prompts/2-issue-auto-develop.md 中 "---" 之间的内容
@@ -115,7 +119,7 @@ This document explains how to configure three Cursor Automations for the finance
    事件选 "PR merged"（PR 合并）
 
 3. 仓库 / Repository:
-   选择 finance-vector-audit，目标分支选 main
+   选择 audit-platform-main，目标分支选 main
 
 4. 提示词 / Prompt:
    复制 .cursor/automation-prompts/3-pr-merge-changelog.md 中 "---" 之间的内容
