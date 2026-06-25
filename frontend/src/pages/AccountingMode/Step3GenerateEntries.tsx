@@ -24,6 +24,11 @@ const metadata = draft.metadata || {}
 return metadata.is_blocked === true || metadata.evidence_status === 'insufficient'
 }
 
+const isPartialEvidenceDraft = (draft: EntryDraft) => {
+const metadata = draft.metadata || {}
+return metadata.evidence_status === 'partial'
+}
+
 export function Step3GenerateEntries() {
 const navigate = useNavigate()
 const location = useLocation()
@@ -39,7 +44,9 @@ const [drafts, setDrafts] = useState<EntryDraft[]>([])
 const [loading, setLoading] = useState(false)
 const [committing, setCommitting] = useState(false)
 const blockedDrafts = drafts.filter(isDraftBlocked)
+const partialDrafts = drafts.filter(isPartialEvidenceDraft)
 const hasBlockedDraft = blockedDrafts.length > 0
+const hasPartialDraft = partialDrafts.length > 0
 
 useEffect(() => {
 if (!jobId || !periodId) return
@@ -133,6 +140,7 @@ const detail = error instanceof Error ? error.message : String(error)
       render: (_, record) => {
         const metadata = record.metadata || {}
         if (isDraftBlocked(record)) return <Tag color="red">资料不足</Tag>
+        if (metadata.evidence_status === 'partial') return <Tag color="orange">暂存-待收款确认</Tag>
         if (metadata.evidence_status === 'sufficient') return <Tag color="green">资料充分</Tag>
         return <Tag>未判断</Tag>
       }
@@ -186,6 +194,21 @@ const detail = error instanceof Error ? error.message : String(error)
             <Space direction="vertical" size={4}>
               {sourceTypes.length > 0 && <div><strong>用户选择资料类型：</strong>{sourceTypes.join('、')}</div>}
               {parseSummary && <div><strong>解析摘要：</strong>{parseSummary}</div>}
+            </Space>
+          }
+          type="info"
+          showIcon
+          style={{ marginBottom: '16px' }}
+        />
+      )}
+
+      {hasPartialDraft && !hasBlockedDraft && (
+        <Alert
+          title="发票已按权责发生制暂存，收款尚未确认"
+          description={
+            <Space direction="vertical" size="small">
+              <div>系统已生成应收与收入草案；补充银行流水后可再生成收款核销分录，现金流量表按收款环节归集。</div>
+              <Button size="small" onClick={continueSupplementEvidence}>补充银行流水/回单</Button>
             </Space>
           }
           type="info"

@@ -197,7 +197,7 @@ def test_generate_entries_requires_period(client):
     assert resp.status_code == 404
 
 
-def test_invoice_only_generates_blocked_draft_and_requires_bank_evidence(client):
+def test_invoice_only_generates_staging_draft_with_accounts_receivable(client):
     test_client, TestingSessionLocal = client
     job_id, period_id = _seed_source_files(
         TestingSessionLocal,
@@ -211,31 +211,34 @@ def test_invoice_only_generates_blocked_draft_and_requires_bank_evidence(client)
 
     assert resp.status_code == 200
     drafts = resp.json()
-    assert len(drafts) == 1
+    assert len(drafts) == 2
     metadata = drafts[0]["metadata"]
-    assert metadata["evidence_status"] == "insufficient"
-    assert metadata["is_blocked"] is True
+    assert metadata["evidence_status"] == "partial"
+    assert metadata["is_blocked"] is False
+    assert metadata["accounting_flow"] == "accrual_only"
     assert "银行流水" in metadata["missing_evidence"]
-    assert "收款回单/付款回单" in metadata["missing_evidence"]
-    assert "不得直接确认银行存款" in metadata["missing_reason"]
-    assert drafts[0]["account_code"] == ""
-    assert drafts[0]["account_name"] == "待补充资料确认"
+    assert "应收" in metadata["missing_reason"]
+    account_codes = {draft["account_code"] for draft in drafts}
+    assert "1122" in account_codes
+    assert "6001" in account_codes
+    assert "1002" not in account_codes
+    assert all(draft["metadata"].get("posting_phase") == "accrual" for draft in drafts)
 
     commit = test_client.post(
         f"/api/import-jobs/{job_id}/commit-entries",
         json={"period_id": period_id, "drafts": drafts},
     )
-    assert commit.status_code == 400
-    assert "AI 草稿证据不足" in commit.json()["detail"]
+    assert commit.status_code == 200
+    assert commit.json()["count"] == 2
 
     db = TestingSessionLocal()
     try:
-        assert db.query(AccountingEntry).filter(AccountingEntry.import_job_id == job_id).count() == 0
+        assert db.query(AccountingEntry).filter(AccountingEntry.import_job_id == job_id).count() == 2
     finally:
         db.close()
 
 
-def test_invoice_with_matching_bank_statement_generates_reviewable_draft(client):
+def test_invoice_with_matching_bank_statement_uses_accrual_then_collection(client):
     test_client, TestingSessionLocal = client
     job_id, period_id = _seed_source_files(
         TestingSessionLocal,
@@ -252,12 +255,18 @@ def test_invoice_with_matching_bank_statement_generates_reviewable_draft(client)
 
     assert resp.status_code == 200
     drafts = resp.json()
-    assert len(drafts) == 2
+    assert len(drafts) == 4
     assert all(draft["metadata"]["evidence_status"] == "sufficient" for draft in drafts)
     assert all(draft["metadata"]["is_blocked"] is False for draft in drafts)
-    assert all(draft["metadata"]["missing_evidence"] == [] for draft in drafts)
-    assert all(draft["metadata"]["missing_reason"] == "" for draft in drafts)
-    assert any(draft["account_code"] == "1002" for draft in drafts)
+    assert all(draft["metadata"]["accounting_flow"] == "accrual_then_collection" for draft in drafts)
+
+    accrual_drafts = [d for d in drafts if d["metadata"].get("posting_phase") == "accrual"]
+    collection_drafts = [d for d in drafts if d["metadata"].get("posting_phase") == "collection"]
+    assert len(accrual_drafts) == 2
+    assert len(collection_drafts) == 2
+    assert {d["account_code"] for d in accrual_drafts} == {"1122", "6001"}
+    assert {d["account_code"] for d in collection_drafts} == {"1002", "1122"}
+    assert not any(d["account_code"] == "1002" and d["metadata"].get("posting_phase") == "accrual" for d in drafts)
 
 
 def test_bank_only_generates_blocked_draft_and_requires_business_document(client):

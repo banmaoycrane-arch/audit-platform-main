@@ -272,6 +272,13 @@ def _build_evidence_context(files: list[SourceFile]) -> dict[str, Any]:
 
 
 def _check_evidence_sufficiency(files: list[SourceFile]) -> dict[str, Any]:
+    """判断导入任务级证据状态。
+
+    会计口径：
+    - 仅有发票：权责发生制暂存（应收 + 收入），收款未确认，允许落库为 draft。
+    - 发票 + 银行流水：先走开票挂应收，再走收款核销应收（不得发票直连银行存款）。
+    - 仅有流水：仍须补充合同/订单等业务单据。
+    """
     context = _build_evidence_context(files)
     evidence_types = set(context["evidence_types"])
     has_invoice = "invoice" in evidence_types
@@ -280,26 +287,46 @@ def _check_evidence_sufficiency(files: list[SourceFile]) -> dict[str, Any]:
 
     if has_invoice and not has_bank_or_receipt:
         return context | {
-            "evidence_status": "insufficient",
-            "is_blocked": True,
+            "evidence_status": "partial",
+            "is_blocked": False,
+            "accounting_flow": "accrual_only",
             "missing_evidence": ["银行流水", "收款回单/付款回单"],
-            "missing_reason": "当前仅能识别到发票。发票可证明开票和税额，但不能证明款项已经收付，因此不得直接确认银行存款。",
-            "suggested_actions": ["请补充银行流水", "请补充收款回单或付款回单", "如尚未收款，可人工改按应收/应付往来处理"],
+            "missing_reason": (
+                "当前仅能识别到发票。已按权责发生制暂存应收与收入，收款尚未确认，"
+                "不得直接确认银行存款；补充流水后可生成收款核销分录。"
+            ),
+            "suggested_actions": [
+                "请补充银行流水以确认收款并核销应收",
+                "请补充收款回单或付款回单",
+                "如尚未收款，可在复核环节确认应收暂存分录",
+            ],
         }
 
     if has_bank_or_receipt and not has_invoice and not has_business_document:
         return context | {
             "evidence_status": "insufficient",
             "is_blocked": True,
+            "accounting_flow": "blocked",
             "missing_evidence": ["合同", "订单", "结算单"],
             "missing_reason": "当前仅能识别到银行流水/回单。流水可证明资金收付，但不能单独证明业务性质、交易内容和收入成本归类。",
             "suggested_actions": ["请补充合同", "请补充订单", "请补充结算单"],
         }
 
-    if (has_invoice and has_bank_or_receipt) or (has_bank_or_receipt and has_business_document):
+    if has_invoice and has_bank_or_receipt:
         return context | {
             "evidence_status": "sufficient",
             "is_blocked": False,
+            "accounting_flow": "accrual_then_collection",
+            "missing_evidence": [],
+            "missing_reason": "",
+            "suggested_actions": [],
+        }
+
+    if has_bank_or_receipt and has_business_document:
+        return context | {
+            "evidence_status": "sufficient",
+            "is_blocked": False,
+            "accounting_flow": "business_then_cash",
             "missing_evidence": [],
             "missing_reason": "",
             "suggested_actions": [],
@@ -308,6 +335,7 @@ def _check_evidence_sufficiency(files: list[SourceFile]) -> dict[str, Any]:
     return context | {
         "evidence_status": "insufficient",
         "is_blocked": True,
+        "accounting_flow": "blocked",
         "missing_evidence": ["发票", "银行流水", "合同/订单/结算单"],
         "missing_reason": "当前原始资料不足以同时证明交易发生、业务性质和资金收付，AI 只能暂存草稿，不能直接落库。",
         "suggested_actions": ["请补充发票、银行流水或回单", "请补充合同、订单或结算单"],
@@ -317,6 +345,7 @@ def _check_evidence_sufficiency(files: list[SourceFile]) -> dict[str, Any]:
 def _merge_evidence_metadata(metadata: dict[str, Any], evidence_check: dict[str, Any]) -> dict[str, Any]:
     return metadata | {
         "evidence_status": evidence_check["evidence_status"],
+        "accounting_flow": evidence_check.get("accounting_flow"),
         "missing_evidence": evidence_check["missing_evidence"],
         "missing_reason": evidence_check["missing_reason"],
         "current_recognized_evidence": evidence_check["source_files"],
@@ -324,6 +353,213 @@ def _merge_evidence_metadata(metadata: dict[str, Any], evidence_check: dict[str,
         "suggested_actions": evidence_check["suggested_actions"],
         "is_blocked": evidence_check["is_blocked"],
     }
+
+
+def _draft_line(
+    *,
+    voucher_no: str,
+    entry_line_no: int,
+    voucher_date: date,
+    account_code: str,
+    account_name: str,
+    summary: str,
+    debit_amount: float = 0.0,
+    credit_amount: float = 0.0,
+    counterparty: str | None = None,
+    source_file_id: int | None = None,
+    evidence_type: str | None = None,
+    metadata: dict[str, Any],
+    posting_phase: str | None = None,
+) -> dict[str, Any]:
+    line_metadata = dict(metadata)
+    if posting_phase:
+        line_metadata["posting_phase"] = posting_phase
+    draft = {
+        "source_file_id": source_file_id,
+        "voucher_no": voucher_no,
+        "voucher_date": voucher_date.isoformat(),
+        "account_code": account_code,
+        "account_name": account_name,
+        "summary": summary,
+        "debit_amount": debit_amount,
+        "credit_amount": credit_amount,
+        "counterparty": counterparty,
+        "entry_line_no": entry_line_no,
+        "metadata": line_metadata,
+    }
+    draft["tags"] = _extract_tags(
+        {
+            "summary": summary,
+            "account_code": account_code,
+            "account_name": account_name,
+            "counterparty": counterparty,
+            "source_file_id": source_file_id,
+            "metadata": line_metadata,
+            "evidence_type": evidence_type,
+        }
+    )
+    if posting_phase:
+        draft["tags"].append(
+            {
+                "tag_type": "posting_phase",
+                "tag_value": posting_phase,
+                "tag_source": "rule",
+                "confidence": 0.95,
+            }
+        )
+    return draft
+
+
+def _build_invoice_accrual_drafts(
+    source_file: SourceFile,
+    seq: int,
+    period: AccountingPeriod,
+    evidence_check: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """发票：借应收、贷收入（权责发生制），不确认银行存款。"""
+    voucher_date, clamped = _clamp_date(period.start_date, period)
+    voucher_no = f"转-{seq:03d}"
+    combined_text = f"{source_file.filename or ''} {source_file.extracted_text or ''}"
+    if any(keyword in combined_text for keyword in ("采购", "进项", "应付", "供应商")):
+        revenue_code, revenue_name = "2202", "应付账款"
+    else:
+        revenue_code, revenue_name = "6001", "主营业务收入"
+    base_metadata = _merge_evidence_metadata(
+        {
+            "date_clamped": clamped,
+            "vector_pending": True,
+            "source_evidence_type": "invoice",
+            "source_file_id": source_file.id,
+        },
+        evidence_check,
+    )
+    counterparty = None
+    summary_base = _format_summary("转", revenue_name, counterparty, source_file.filename)
+    return [
+        _draft_line(
+            voucher_no=voucher_no,
+            entry_line_no=1,
+            voucher_date=voucher_date,
+            account_code="1122",
+            account_name="应收账款",
+            summary=f"{summary_base} 确认应收",
+            source_file_id=source_file.id,
+            evidence_type="invoice",
+            metadata=base_metadata,
+            posting_phase="accrual",
+        ),
+        _draft_line(
+            voucher_no=voucher_no,
+            entry_line_no=2,
+            voucher_date=voucher_date,
+            account_code=revenue_code,
+            account_name=revenue_name,
+            summary=f"{summary_base} 确认收入",
+            source_file_id=source_file.id,
+            evidence_type="invoice",
+            metadata=base_metadata,
+            posting_phase="accrual",
+        ),
+    ]
+
+
+def _build_bank_collection_drafts(
+    source_file: SourceFile,
+    seq: int,
+    period: AccountingPeriod,
+    evidence_check: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """有发票时的银行流水：借银行存款、贷应收（收款核销），不直接贷收入。"""
+    voucher_date, clamped = _clamp_date(period.start_date, period)
+    voucher_no = f"银-{seq:03d}"
+    base_metadata = _merge_evidence_metadata(
+        {
+            "date_clamped": clamped,
+            "vector_pending": True,
+            "source_evidence_type": _normalize_evidence_type(source_file) or "bank",
+            "source_file_id": source_file.id,
+        },
+        evidence_check,
+    )
+    summary_base = _format_summary("银", "银行存款", None, source_file.filename)
+    return [
+        _draft_line(
+            voucher_no=voucher_no,
+            entry_line_no=1,
+            voucher_date=voucher_date,
+            account_code="1002",
+            account_name="银行存款",
+            summary=f"{summary_base} 收款入账",
+            source_file_id=source_file.id,
+            evidence_type="bank",
+            metadata=base_metadata,
+            posting_phase="collection",
+        ),
+        _draft_line(
+            voucher_no=voucher_no,
+            entry_line_no=2,
+            voucher_date=voucher_date,
+            account_code="1122",
+            account_name="应收账款",
+            summary=f"{summary_base} 核销应收",
+            source_file_id=source_file.id,
+            evidence_type="bank",
+            metadata=base_metadata,
+            posting_phase="collection",
+        ),
+    ]
+
+
+def _build_single_file_draft(
+    source_file: SourceFile,
+    seq: int,
+    period: AccountingPeriod,
+    evidence_check: dict[str, Any],
+) -> dict[str, Any]:
+    """非发票/非「发票+流水」场景下的单文件草稿（如合同+流水）。"""
+    ftype = (source_file.file_type or "").lower()
+    evidence_type = _normalize_evidence_type(source_file)
+    prefix = "银" if evidence_type in {"bank", "receipt"} or "bank" in ftype else "记"
+    voucher_no = f"{prefix}-{seq:03d}"
+    voucher_date, clamped = _clamp_date(period.start_date, period)
+
+    combined_text = f"{source_file.filename or ''} {source_file.file_type or ''} {source_file.extracted_text or ''}"
+    recognized_code, recognized_name = _recognize_account_from_text(combined_text)
+
+    if evidence_check["is_blocked"]:
+        account_code = ""
+        account_name = "待补充资料确认"
+    elif recognized_code and recognized_name:
+        account_code = recognized_code
+        account_name = recognized_name
+    elif prefix == "银" and not evidence_check["is_blocked"]:
+        account_code = "1002"
+        account_name = "银行存款"
+    else:
+        account_code = ""
+        account_name = "待补充资料确认"
+
+    metadata = _merge_evidence_metadata(
+        {
+            "date_clamped": clamped,
+            "vector_pending": True,
+            "source_evidence_type": evidence_type,
+            "source_file_id": source_file.id,
+        },
+        evidence_check,
+    )
+    summary = _format_summary(prefix, account_name, None, source_file.filename)
+    return _draft_line(
+        voucher_no=voucher_no,
+        entry_line_no=1,
+        voucher_date=voucher_date,
+        account_code=account_code,
+        account_name=account_name,
+        summary=summary,
+        source_file_id=source_file.id,
+        evidence_type=evidence_type,
+        metadata=metadata,
+    )
 
 
 def generate_drafts(
@@ -399,60 +635,21 @@ def generate_drafts(
         return drafts
 
     seq = 1
+    accounting_flow = evidence_check.get("accounting_flow")
+    evidence_types = set(evidence_check.get("evidence_types") or [])
+    has_invoice = "invoice" in evidence_types
+
     for f in files:
-        ftype = (f.file_type or "").lower()
         evidence_type = _normalize_evidence_type(f)
-        prefix = "银" if evidence_type in {"bank", "receipt"} or "bank" in ftype else "记"
-        voucher_no = f"{prefix}-{seq:03d}"
-        voucher_date, clamped = _clamp_date(period.start_date, period)
-
-        combined_text = f"{f.filename or ''} {f.file_type or ''} {f.extracted_text or ''}"
-        recognized_code, recognized_name = _recognize_account_from_text(combined_text)
-
-        if recognized_code and recognized_name:
-            account_code = recognized_code
-            account_name = recognized_name
-        elif prefix == "银" and not evidence_check["is_blocked"]:
-            account_code = "1002"
-            account_name = "银行存款"
-        else:
-            account_code = ""
-            account_name = "待补充资料确认"
-
-        metadata = _merge_evidence_metadata(
-            {
-                "date_clamped": clamped,
-                "vector_pending": True,
-                "source_evidence_type": evidence_type,
-                "source_file_id": f.id,
-            },
-            evidence_check,
-        )
-        summary = _format_summary(prefix, account_name, None, f.filename)
-        drafts.append(
-            {
-                "source_file_id": f.id,
-                "voucher_no": voucher_no,
-                "voucher_date": voucher_date.isoformat(),
-                "account_code": account_code,
-                "account_name": account_name,
-                "summary": summary,
-                "debit_amount": 0.0,
-                "credit_amount": 0.0,
-                "counterparty": None,
-                "entry_line_no": 1,
-                "metadata": metadata,
-                "tags": _extract_tags(
-                    {
-                        "summary": summary,
-                        "account_code": account_code,
-                        "account_name": account_name,
-                        "source_file_id": f.id,
-                        "metadata": metadata,
-                    }
-                ),
-            }
-        )
+        if evidence_type == "invoice":
+            drafts.extend(_build_invoice_accrual_drafts(f, seq, period, evidence_check))
+            seq += 1
+            continue
+        if evidence_type in {"bank", "receipt"} and has_invoice and accounting_flow == "accrual_then_collection":
+            drafts.extend(_build_bank_collection_drafts(f, seq, period, evidence_check))
+            seq += 1
+            continue
+        drafts.append(_build_single_file_draft(f, seq, period, evidence_check))
         seq += 1
     return drafts
 
@@ -517,6 +714,26 @@ def commit_drafts(
         )
 
         tags = list(draft.get("tags", []) or [])
+        evidence_status = metadata.get("evidence_status")
+        if evidence_status:
+            tags.append(
+                {
+                    "tag_type": "evidence_status",
+                    "tag_value": str(evidence_status),
+                    "tag_source": "rule",
+                    "confidence": 1.0,
+                }
+            )
+        posting_phase = metadata.get("posting_phase")
+        if posting_phase:
+            tags.append(
+                {
+                    "tag_type": "posting_phase",
+                    "tag_value": str(posting_phase),
+                    "tag_source": "rule",
+                    "confidence": 0.95,
+                }
+            )
         tags.extend(
             _extract_tags(
                 {
