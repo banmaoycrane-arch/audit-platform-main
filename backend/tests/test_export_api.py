@@ -60,6 +60,8 @@ def _seed(TestingSessionLocal):
                 debit_amount=Decimal("1000"),
                 credit_amount=Decimal("0"),
                 counterparty="A公司",
+                review_status="ready",
+                post_status="posted",
             )
         )
         db.add(
@@ -75,6 +77,8 @@ def _seed(TestingSessionLocal):
                 debit_amount=Decimal("0"),
                 credit_amount=Decimal("1000"),
                 counterparty="A公司",
+                review_status="ready",
+                post_status="posted",
             )
         )
         db.commit()

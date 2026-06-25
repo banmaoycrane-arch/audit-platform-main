@@ -16,6 +16,7 @@ from app.db.session import get_db
 router = APIRouter(prefix="/api/import-jobs", tags=["export"])
 
 SUPPORTED_FORMATS = {"xlsx", "csv", "json"}
+POSTABLE_REVIEW_STATUSES = {"verified", "ready"}
 
 COLUMNS = [
     ("voucher_no", "凭证号"),
@@ -74,6 +75,47 @@ def _entries_to_json(entries: Iterable[AccountingEntry]) -> bytes:
     return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
 
+@router.post("/{job_id}/post")
+def post_import_job_entries(
+    job_id: int,
+    db: Session = Depends(get_db),
+):
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+
+    entries = (
+        db.query(AccountingEntry)
+        .filter(AccountingEntry.import_job_id == job_id)
+        .all()
+    )
+    if not entries:
+        raise HTTPException(status_code=400, detail="该导入任务下没有可入账的分录")
+
+    unreviewed = [e.id for e in entries if e.review_status not in POSTABLE_REVIEW_STATUSES]
+    if unreviewed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"存在未复核通过的分录（需 verified 或 ready），entry_ids={unreviewed}",
+        )
+
+    now = datetime.utcnow()
+    posted_count = 0
+    for entry in entries:
+        if entry.post_status != "posted":
+            entry.post_status = "posted"
+            entry.posted_at = now
+            posted_count += 1
+    db.commit()
+
+    return {
+        "job_id": job_id,
+        "posted": posted_count,
+        "total": len(entries),
+        "posted_at": now.isoformat(),
+    }
+
+
 @router.get("/{job_id}/export")
 def export_import_job(
     job_id: int,
@@ -92,7 +134,10 @@ def export_import_job(
 
     entries = (
         db.query(AccountingEntry)
-        .filter(AccountingEntry.import_job_id == job_id)
+        .filter(
+            AccountingEntry.import_job_id == job_id,
+            AccountingEntry.post_status == "posted",
+        )
         .order_by(AccountingEntry.voucher_no, AccountingEntry.entry_line_no)
         .all()
     )

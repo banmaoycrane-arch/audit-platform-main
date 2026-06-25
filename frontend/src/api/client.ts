@@ -1044,6 +1044,11 @@ export const api = {
     }
     return response.blob()
   },
+  postImportJobEntries: (jobId: number) =>
+    request<{ job_id: number; posted: number; total: number; posted_at: string }>(
+      `/api/import-jobs/${jobId}/post`,
+      { method: 'POST' }
+    ),
   exportAuditReport: async (jobId: number, format: 'xlsx' | 'json'): Promise<Blob> => {
     const response = await fetch(`${API_BASE}/api/audit-tests/${jobId}/export?format=${format}`)
     if (!response.ok) {
