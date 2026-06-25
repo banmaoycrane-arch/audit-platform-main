@@ -15,9 +15,11 @@
 
 **收到 PR 合并通知后，按以下流程处理：**
 
-### 步骤1：跳过条件检查
-如果合并的 PR 标题包含以下任一关键词，**直接跳过不处理**（避免递归循环）：
-- `docs:` / `chore:` / `auto-update` / `changelog`
+### ⚠️ 步骤1：防止循环触发（最高优先级）
+如果合并的 PR 满足以下任一条件，**立即停止，不做任何操作**：
+- PR 作者是 `cursor[bot]` 或 `Cursor Agent`
+- PR 标题包含：`docs:` / `chore:` / `auto-update` / `changelog` / `auto-fix` / `autobc`
+- PR 分支名包含：`autobc` / `auto-fix` / `auto-setup`
 
 否则继续。
 
