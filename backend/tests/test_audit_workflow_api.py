@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db.models import Contract, Counterparty, Invoice, Organization, SourceFile
+from app.db.models import Contract, Counterparty, InventoryDocument, Invoice, Organization, SourceFile
 from app.db.session import Base, get_db
 from app.main import app
 from app.models.project import Project
@@ -190,3 +190,92 @@ def test_confirmation_syncs_workflow_run(client):
     confirmation_run = next((item for item in runs if item["procedure_key"] == "counterparty_confirmation"), None)
     assert confirmation_run is not None
     assert confirmation_run["status"] in {"in_review", "concluded"}
+
+
+def test_bank_reconciliation_syncs_workflow_run(client):
+    headers = _auth_headers(client, "wf_user3")
+    ledger_headers, ledger_id, _project_id = _create_ledger_with_project(client, headers)
+
+    account = client.post(
+        "/api/bank/accounts",
+        json={
+            "bank_name": "招商银行",
+            "account_no": "62258888000002",
+            "account_name": "工作流公司",
+            "opening_balance": 5000,
+        },
+        headers=ledger_headers,
+    ).json()
+
+    draft = client.post(
+        "/api/bank/reconciliations",
+        json={
+            "bank_account_id": account["id"],
+            "period_end": "2026-06-30",
+            "statement_balance": 5000,
+        },
+        headers=ledger_headers,
+    )
+    assert draft.status_code == 201
+    body = draft.json()
+    assert body["status"] == "draft"
+
+    runs = client.get("/api/audit/workflow/runs", headers=ledger_headers).json()
+    bank_run = next((item for item in runs if item["procedure_key"] == "bank_reconciliation"), None)
+    assert bank_run is not None
+    assert bank_run["status"] == "in_review"
+    assert bank_run["related_entity_id"] == body["id"]
+
+
+def test_purchase_match_syncs_workflow_run(client):
+    headers = _auth_headers(client, "wf_user4")
+    ledger_headers, ledger_id, _project_id = _create_ledger_with_project(client, headers)
+
+    with next(app.dependency_overrides[get_db]()) as db:
+        org = Organization(name="采购组织")
+        db.add(org)
+        db.flush()
+        contract = Contract(
+            organization_id=org.id,
+            ledger_id=ledger_id,
+            contract_type="purchase",
+            contract_name="采购合同A",
+            contract_amount=100000,
+            execution_status="completed",
+        )
+        db.add(contract)
+        db.flush()
+        db.add(
+            Invoice(
+                organization_id=org.id,
+                ledger_id=ledger_id,
+                invoice_type="增值税专用发票",
+                buyer_name="本公司",
+                seller_name="供应商A",
+                total_amount=100000,
+                related_contract_id=contract.id,
+            )
+        )
+        db.add(
+            InventoryDocument(
+                organization_id=org.id,
+                ledger_id=ledger_id,
+                document_no="RK-001",
+                document_type="inventory_in",
+                counterparty_name="供应商A",
+                total_amount=100000,
+                related_contract_id=contract.id,
+            )
+        )
+        db.commit()
+        contract_id = contract.id
+
+    match = client.get(f"/api/audit/purchase-match?contract_id={contract_id}", headers=ledger_headers)
+    assert match.status_code == 200
+    assert match.json()[0]["match_status"] == "matched"
+
+    runs = client.get("/api/audit/workflow/runs", headers=ledger_headers).json()
+    purchase_run = next((item for item in runs if item["procedure_key"] == "purchase_three_way_match"), None)
+    assert purchase_run is not None
+    assert purchase_run["status"] == "concluded"
+    assert purchase_run["related_entity_id"] == contract_id
