@@ -9,7 +9,18 @@ export type ImportJob = {
   file_count: number
   entry_count: number
   error_message: string | null
+  audit_scope_type?: 'all' | 'by_account' | 'by_period' | null
+  audit_period_id?: number | null
+  audit_account_codes?: string[] | null
+  project_id?: number | null
   created_at: string
+}
+
+export type AuditScopePayload = {
+  audit_scope_type: 'all' | 'by_account' | 'by_period'
+  audit_period_id?: number | null
+  audit_account_codes?: string[] | null
+  project_id?: number | null
 }
 
 export type AccountingEntry = {
@@ -90,6 +101,11 @@ export type AuditTestReport = {
   test_date: string
   period: string
   scope: string
+  audit_scope?: AuditScopePayload & {
+    audit_period_code?: string
+    audit_period_start?: string
+    audit_period_end?: string
+  }
   total_transactions: number
   tested_transactions: number
   forward_test: Record<string, any>
@@ -951,7 +967,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message })
     }),
-  createImportJob: (organizationName: string, sourceType?: string, ledgerId?: number | null) =>
+  createImportJob: (
+    organizationName: string,
+    sourceType?: string,
+    ledgerId?: number | null,
+    auditScope?: AuditScopePayload,
+  ) =>
     request<ImportJob>('/api/import-jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -959,7 +980,17 @@ export const api = {
         organization_name: organizationName,
         source_type: sourceType || 'voucher_import',
         ledger_id: ledgerId || undefined,
+        audit_scope_type: auditScope?.audit_scope_type,
+        audit_period_id: auditScope?.audit_period_id ?? undefined,
+        audit_account_codes: auditScope?.audit_account_codes,
+        project_id: auditScope?.project_id ?? undefined,
       })
+    }),
+  updateImportJobAuditScope: (jobId: number, auditScope: AuditScopePayload) =>
+    request<ImportJob>(`/api/import-jobs/${jobId}/audit-scope`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(auditScope),
     }),
   listImportJobs: (ledgerId?: number) => {
     const params = new URLSearchParams()

@@ -58,14 +58,11 @@ export function Step2AuditImportSource() {
 
   const handleUpload = async (file: File) => {
     try {
-      // 确保有导入任务 ID
+      // 确保有导入任务 ID（Step1 应已创建；此处仅作兜底）
       let jobId = currentJobId
       if (!jobId) {
-        // 创建导入任务
-        const job = await api.createImportJob('审计项目', undefined, currentLedgerId)
-        jobId = job.id
-        setCurrentJobId(jobId)
-        syncJobIdToUrl(jobId)
+        message.warning('请先从步骤1选择审计范围')
+        return false
       }
 
       // 调用 API 上传文件
@@ -147,7 +144,7 @@ export function Step2AuditImportSource() {
       />
 
       <FlowNav
-        prev="/audit/step/1"
+        prev={withJobQuery('/audit/step/1', currentJobId)}
         onNext={handleNext}
         nextDisabled={uploadedFiles.length === 0 || !currentJobId}
         style={{ marginBottom: '16px' }}
@@ -236,7 +233,7 @@ export function Step2AuditImportSource() {
       </Card>
 
       <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
-        <Button onClick={() => navigate('/audit/step/1')}>
+        <Button onClick={() => navigate(withJobQuery('/audit/step/1', currentJobId))}>
           上一步
         </Button>
         <Button

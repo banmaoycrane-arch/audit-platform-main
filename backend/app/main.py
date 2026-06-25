@@ -81,8 +81,16 @@ def _ensure_local_sqlite_schema() -> None:
 
         if "import_jobs" in table_names:
             import_job_columns = {column["name"] for column in inspector.get_columns("import_jobs")}
-            if "ledger_id" not in import_job_columns:
-                connection.execute(text("ALTER TABLE import_jobs ADD COLUMN ledger_id INTEGER"))
+            import_job_missing_columns = {
+                "ledger_id": "ALTER TABLE import_jobs ADD COLUMN ledger_id INTEGER",
+                "audit_scope_type": "ALTER TABLE import_jobs ADD COLUMN audit_scope_type VARCHAR(40)",
+                "audit_period_id": "ALTER TABLE import_jobs ADD COLUMN audit_period_id INTEGER",
+                "audit_account_codes": "ALTER TABLE import_jobs ADD COLUMN audit_account_codes JSON",
+                "project_id": "ALTER TABLE import_jobs ADD COLUMN project_id INTEGER",
+            }
+            for column_name, ddl in import_job_missing_columns.items():
+                if column_name not in import_job_columns:
+                    connection.execute(text(ddl))
 
         if "users" in table_names:
             user_columns = {column["name"] for column in inspector.get_columns("users")}

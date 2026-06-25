@@ -122,6 +122,10 @@ def create_import_job(
     fiscal_year: int | None,
     source_type: str = "voucher_import",
     ledger_id: int | None = None,
+    audit_scope_type: str | None = None,
+    audit_period_id: int | None = None,
+    audit_account_codes: list[str] | None = None,
+    project_id: int | None = None,
 ) -> ImportJob:
     """
     创建导入任务
@@ -155,7 +159,15 @@ def create_import_job(
         organization = Organization(name=organization_name, industry=industry, fiscal_year=fiscal_year)
         db.add(organization)
         db.flush()
-    job = ImportJob(organization_id=organization.id, ledger_id=ledger_id, source_type=source_type)
+    job = ImportJob(
+        organization_id=organization.id,
+        ledger_id=ledger_id,
+        source_type=source_type,
+        audit_scope_type=audit_scope_type,
+        audit_period_id=audit_period_id,
+        audit_account_codes=audit_account_codes,
+        project_id=project_id,
+    )
     db.add(job)
     db.commit()
     db.refresh(job)
