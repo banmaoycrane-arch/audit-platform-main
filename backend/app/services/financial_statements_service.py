@@ -154,7 +154,10 @@ def _apply_counterparty_reclassification(rows: list[dict[str, Any]]) -> tuple[li
     adjustments: list[dict[str, Any]] = []
 
     for row in rows:
-        result = classify_counterparty_balance(row["account_code"], _normal_balance_amount(row))
+        try:
+            result = classify_counterparty_balance(row["account_code"], _normal_balance_amount(row))
+        except ValueError:
+            continue
         target_code = result["presentation_account_code"]
         if target_code == row["account_code"] or result["balance_direction"] == "zero":
             continue
