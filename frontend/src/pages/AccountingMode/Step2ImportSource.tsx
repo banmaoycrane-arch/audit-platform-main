@@ -111,11 +111,13 @@ const getCounterpartyHintStatus = (row: ManualEntryLine) => {
 export function Step2AccountingImportSource() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { currentLedgerId } = useAuthStore()
   const inputMode = searchParams.get('inputMode') || 'ai_generated'
   const isManualEntry = inputMode === 'manual_entry'
+  const isAiGenerated = inputMode === 'ai_generated'
   const isDayBookImport = inputMode === 'day_book_import'
+  const needsPeriodPicker = isManualEntry || isAiGenerated
   const stepPath = (step: number) => location.pathname.startsWith('/ledger/vouchers/step/') ? `/ledger/vouchers/step/${step}` : `/accounting/step/${step}`
   const currentStep = 1
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
@@ -184,54 +186,17 @@ export function Step2AccountingImportSource() {
       label: `${counterparty.name}（${counterparty.role}）`,
     }))
 
-  useEffect(() => {
-    if (!isManualEntry) return
-
-    const loadManualEntryBaseData = async () => {
-      setPeriodsLoading(true)
-      setCoaLoading(true)
-      setCounterpartiesLoading(true)
-      try {
-        const [periods, accounts, loadedCounterparties] = await Promise.all([
-          api.listAccountingPeriods(undefined, currentLedgerId || undefined),
-          api.listChartOfAccounts(),
-          api.listCounterparties(),
-        ])
-        setAccountingPeriods(periods)
-        setChartOfAccounts(accounts)
-        setCounterparties(loadedCounterparties)
-
-        const selectedPeriod = initialPeriodId
-          ? periods.find(period => period.id === initialPeriodId)
-          : periods.find(period => ['open', 'reopened'].includes(period.status))
-
-        if (selectedPeriod) {
-          applySelectedPeriod(selectedPeriod)
-          setPeriodSuggestion('')
-          return
-        }
-
-        const nextPeriod = getNextNaturalMonthPeriod(periods.filter(period => period.status === 'closed'))
-        if (nextPeriod) {
-          setPeriodId(null)
-          setPeriodCode(nextPeriod.period_code)
-          setPeriodStart(nextPeriod.start_date)
-          setPeriodEnd(nextPeriod.end_date)
-          setManualVoucherDate(nextPeriod.start_date)
-          setPeriodSuggestion(`当前没有 open/reopened 期间。系统已按上一已结账期间建议下一自然月 ${nextPeriod.period_code}，提交时会先创建该期间。`)
-        }
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        message.error(`加载人工录入基础资料失败：${detail}`)
-      } finally {
-        setPeriodsLoading(false)
-        setCoaLoading(false)
-        setCounterpartiesLoading(false)
-      }
+  const syncQueryToUrl = (updates: { jobId?: number | null; periodId?: number | null }) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('inputMode', inputMode)
+    if (updates.jobId !== undefined && updates.jobId) {
+      next.set('jobId', String(updates.jobId))
     }
-
-    void loadManualEntryBaseData()
-  }, [isManualEntry, initialPeriodId])
+    if (updates.periodId !== undefined && updates.periodId) {
+      next.set('periodId', String(updates.periodId))
+    }
+    setSearchParams(next, { replace: true })
+  }
 
   const applySelectedPeriod = (period: AccountingPeriod) => {
     setPeriodId(period.id)
@@ -240,6 +205,69 @@ export function Step2AccountingImportSource() {
     setPeriodEnd(period.end_date)
     setManualVoucherDate(prev => isDateInPeriod(prev, period.start_date, period.end_date) ? prev : period.start_date)
   }
+
+  const applyDefaultPeriodSelection = (periods: AccountingPeriod[]) => {
+    const selectedPeriod = initialPeriodId
+      ? periods.find(period => period.id === initialPeriodId)
+      : periods.find(period => ['open', 'reopened'].includes(period.status))
+
+    if (selectedPeriod) {
+      applySelectedPeriod(selectedPeriod)
+      setPeriodSuggestion('')
+      syncQueryToUrl({ periodId: selectedPeriod.id })
+      return
+    }
+
+    const nextPeriod = getNextNaturalMonthPeriod(periods.filter(period => period.status === 'closed'))
+    if (nextPeriod) {
+      setPeriodId(null)
+      setPeriodCode(nextPeriod.period_code)
+      setPeriodStart(nextPeriod.start_date)
+      setPeriodEnd(nextPeriod.end_date)
+      setManualVoucherDate(nextPeriod.start_date)
+      setPeriodSuggestion(`当前没有 open/reopened 期间。系统已按上一已结账期间建议下一自然月 ${nextPeriod.period_code}，提交时会先创建该期间。`)
+    }
+  }
+
+  useEffect(() => {
+    if (!needsPeriodPicker) return
+
+    const loadStep2BaseData = async () => {
+      setPeriodsLoading(true)
+      if (isManualEntry) {
+        setCoaLoading(true)
+        setCounterpartiesLoading(true)
+      }
+      try {
+        if (isManualEntry) {
+          const [periods, accounts, loadedCounterparties] = await Promise.all([
+            api.listAccountingPeriods(undefined, currentLedgerId || undefined),
+            api.listChartOfAccounts(),
+            api.listCounterparties(),
+          ])
+          setAccountingPeriods(periods)
+          setChartOfAccounts(accounts)
+          setCounterparties(loadedCounterparties)
+          applyDefaultPeriodSelection(periods)
+        } else {
+          const periods = await api.listAccountingPeriods(undefined, currentLedgerId || undefined)
+          setAccountingPeriods(periods)
+          applyDefaultPeriodSelection(periods)
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        message.error(`加载会计期间失败：${detail}`)
+      } finally {
+        setPeriodsLoading(false)
+        if (isManualEntry) {
+          setCoaLoading(false)
+          setCounterpartiesLoading(false)
+        }
+      }
+    }
+
+    void loadStep2BaseData()
+  }, [needsPeriodPicker, isManualEntry, initialPeriodId, currentLedgerId])
 
   useEffect(() => {
     if (!isDayBookImport || !currentJobId) return
@@ -335,6 +363,7 @@ export function Step2AccountingImportSource() {
         jobId = job.id
         setCurrentJobId(jobId)
         setCurrentOrgId(job.organization_id)
+        syncQueryToUrl({ jobId })
       }
 
       // 调用 API 上传文件
@@ -505,7 +534,7 @@ export function Step2AccountingImportSource() {
     let usePeriodId = periodId
     if (!usePeriodId) {
       if (!currentOrgId || !periodCode || !periodStart || !periodEnd) {
-        message.warning('请先选择/创建会计期间（输入期间编码与起止日期）')
+        message.warning('请从下拉列表选择 open/reopened 会计期间，或填写期间编码与起止日期后创建')
         return
       }
       try {
@@ -528,6 +557,7 @@ export function Step2AccountingImportSource() {
     nextParams.set('inputMode', inputMode)
     nextParams.set('jobId', String(currentJobId))
     nextParams.set('periodId', String(usePeriodId))
+    syncQueryToUrl({ jobId: currentJobId, periodId: usePeriodId })
     navigate(`${stepPath(3)}?${nextParams.toString()}`)
   }
 
@@ -570,6 +600,7 @@ export function Step2AccountingImportSource() {
     if (!selectedPeriod) return
     applySelectedPeriod(selectedPeriod)
     setPeriodSuggestion('')
+    syncQueryToUrl({ periodId: selectedPeriod.id, jobId: currentJobId })
   }
 
   const handleVoucherDateChange = (date: Dayjs | null) => {
@@ -799,6 +830,54 @@ export function Step2AccountingImportSource() {
     },
   ]
 
+  const renderPeriodSelectionCard = (sectionTitle: string) => (
+    <Card style={{ marginTop: '16px' }}>
+      <Title level={5}>{sectionTitle}</Title>
+      <Space direction="vertical" style={{ width: '100%' }}>
+        <Select
+          allowClear
+          showSearch
+          placeholder="优先选择 open/reopened 会计期间"
+          loading={periodsLoading}
+          value={periodId || undefined}
+          options={accountingPeriods.map(period => ({
+            value: period.id,
+            label: `${period.period_code}（${period.start_date} 至 ${period.end_date}，${period.status}）`,
+          }))}
+          optionFilterProp="label"
+          onChange={(value) => (value ? handleSelectPeriod(value) : setPeriodId(null))}
+          style={{ maxWidth: 520, width: '100%' }}
+        />
+        {periodSuggestion && <Alert title={periodSuggestion} type="info" showIcon />}
+        <Alert
+          title="期间选择说明"
+          description="系统会优先使用 open/reopened 期间；如果只有已结账期间，会按上一已结账期间建议下一自然月。下方手工创建入口仅作为没有可用期间时的补充路径。"
+          type="info"
+          showIcon
+        />
+        <Space wrap>
+          <Input
+            placeholder="期间编码，如 2026-01"
+            value={periodCode}
+            onChange={(e) => setPeriodCode(e.target.value)}
+            style={{ width: 180 }}
+          />
+          <DatePicker
+            value={periodStart ? dayjs(periodStart) : null}
+            placeholder="期间开始"
+            onChange={(date) => setPeriodStart(date ? date.format('YYYY-MM-DD') : '')}
+          />
+          <DatePicker
+            value={periodEnd ? dayjs(periodEnd) : null}
+            placeholder="期间结束"
+            onChange={(date) => setPeriodEnd(date ? date.format('YYYY-MM-DD') : '')}
+          />
+        </Space>
+        <Text type="secondary">会计期间用于限定凭证日期范围，也是后续复核、报表和导出的基础核算范围。</Text>
+      </Space>
+    </Card>
+  )
+
   if (isManualEntry) {
     return (
       <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
@@ -861,51 +940,7 @@ export function Step2AccountingImportSource() {
           </Space>
         </Card>
 
-        <Card style={{ marginTop: '16px' }}>
-          <Title level={5}>2. 选择会计期间</Title>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Select
-              allowClear
-              showSearch
-              placeholder="优先选择 open/reopened 会计期间"
-              loading={periodsLoading}
-              value={periodId || undefined}
-              options={accountingPeriods.map(period => ({
-                value: period.id,
-                label: `${period.period_code}（${period.start_date} 至 ${period.end_date}，${period.status}）`,
-              }))}
-              optionFilterProp="label"
-              onChange={(value) => value ? handleSelectPeriod(value) : setPeriodId(null)}
-              style={{ maxWidth: 520, width: '100%' }}
-            />
-            {periodSuggestion && <Alert title={periodSuggestion} type="info" showIcon />}
-            <Alert
-              title="期间选择说明"
-              description="系统会优先使用 open/reopened 期间；如果只有已结账期间，会按上一已结账期间建议下一自然月。下方手工创建入口仅作为没有可用期间时的补充路径。"
-              type="info"
-              showIcon
-            />
-            <Space wrap>
-              <Input
-                placeholder="期间编码，如 2026-01"
-                value={periodCode}
-                onChange={(e) => setPeriodCode(e.target.value)}
-                style={{ width: 180 }}
-              />
-              <DatePicker
-                value={periodStart ? dayjs(periodStart) : null}
-                placeholder="期间开始"
-                onChange={(date) => setPeriodStart(date ? date.format('YYYY-MM-DD') : '')}
-              />
-              <DatePicker
-                value={periodEnd ? dayjs(periodEnd) : null}
-                placeholder="期间结束"
-                onChange={(date) => setPeriodEnd(date ? date.format('YYYY-MM-DD') : '')}
-              />
-            </Space>
-            <Text type="secondary">会计期间用于限定凭证日期范围，也是后续复核、报表和导出的基础核算范围。</Text>
-          </Space>
-        </Card>
+        {renderPeriodSelectionCard('2. 选择会计期间')}
 
         <Card style={{ marginTop: '16px' }}>
           <Space style={{ marginBottom: '16px', width: '100%', justifyContent: 'space-between' }}>
@@ -1122,7 +1157,7 @@ export function Step2AccountingImportSource() {
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev={stepPath(1)} onNext={handleNext} nextDisabled={uploadedFiles.length === 0 || !currentJobId} style={{ marginBottom: '16px' }} />
+      <FlowNav prev={stepPath(1)} onNext={handleNext} nextDisabled={uploadedFiles.length === 0 || !currentJobId || !periodId} style={{ marginBottom: '16px' }} />
 
       <Title level={4}>导入原始资料</Title>
         <Text type="secondary">
@@ -1262,30 +1297,7 @@ export function Step2AccountingImportSource() {
         )}
       </Card>
 
-      <Card style={{ marginTop: '16px' }}>
-        <Title level={5}>3. 选择会计期间</Title>
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Input
-            placeholder="期间编码，如 2026-01"
-            value={periodCode}
-            onChange={(e) => setPeriodCode(e.target.value)}
-            style={{ maxWidth: 240 }}
-          />
-          <Space>
-            <DatePicker
-              placeholder="期间开始"
-              onChange={(_, dateString) => setPeriodStart(typeof dateString === 'string' ? dateString : '')}
-            />
-            <DatePicker
-              placeholder="期间结束"
-              onChange={(_, dateString) => setPeriodEnd(typeof dateString === 'string' ? dateString : '')}
-            />
-          </Space>
-          <Typography.Text type="secondary">
-            会计期间是凭证生成和后续复核的基础；未选择期间无法进入下一步。
-          </Typography.Text>
-        </Space>
-      </Card>
+      {renderPeriodSelectionCard('3. 选择会计期间')}
 
       <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
         <Button onClick={() => navigate(`${stepPath(1)}?inputMode=${inputMode}`)}>
@@ -1294,7 +1306,7 @@ export function Step2AccountingImportSource() {
         <Button
           type="primary"
           onClick={handleNext}
-          disabled={uploadedFiles.length === 0}
+          disabled={uploadedFiles.length === 0 || !periodId}
         >
           下一步 {uploadedFiles.length > 0 ? `(${uploadedFiles.length} 个文件)` : ''}
         </Button>
