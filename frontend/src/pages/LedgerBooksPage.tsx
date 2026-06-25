@@ -27,6 +27,8 @@ import {
 } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
 
+type ChronologicalFilterState = Omit<ChronologicalEntryFilters, 'ledger_id'>
+
 const { Title, Paragraph, Text } = Typography
 const { RangePicker } = DatePicker
 
@@ -68,7 +70,7 @@ function DayBookTab() {
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
-  const [filters, setFilters] = useState<ChronologicalEntryFilters>({})
+  const [filters, setFilters] = useState<ChronologicalFilterState>({})
 
   useEffect(() => {
     if (!currentLedgerId) {
@@ -109,7 +111,7 @@ function DayBookTab() {
 
   const handleSearch = async () => {
     const values = await form.validateFields()
-    const next: ChronologicalEntryFilters = {}
+    const next: ChronologicalFilterState = {}
     if (values.period_id) next.period_id = values.period_id
     if (values.date_range?.[0]) next.date_from = values.date_range[0].format('YYYY-MM-DD')
     if (values.date_range?.[1]) next.date_to = values.date_range[1].format('YYYY-MM-DD')

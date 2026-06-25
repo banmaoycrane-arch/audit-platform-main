@@ -30,6 +30,8 @@ import {
 } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
 
+type VoucherQueryFilterState = Omit<VoucherQueryFilters, 'ledger_id'>
+
 const { Title, Paragraph, Text } = Typography
 const { RangePicker } = DatePicker
 
@@ -133,7 +135,7 @@ export function VoucherQueryPage() {
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(6)
-  const [filters, setFilters] = useState<VoucherQueryFilters>({ filter_mode: 'line' })
+  const [filters, setFilters] = useState<VoucherQueryFilterState>({ filter_mode: 'line' })
 
   useEffect(() => {
     if (!currentLedgerId) {
@@ -174,7 +176,7 @@ export function VoucherQueryPage() {
 
   const handleSearch = async () => {
     const values = await form.validateFields()
-    const next: VoucherQueryFilters = {
+    const next: VoucherQueryFilterState = {
       filter_mode: values.filter_mode || 'line',
     }
     if (values.period_id) next.period_id = values.period_id
