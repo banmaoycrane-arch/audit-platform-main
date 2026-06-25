@@ -68,6 +68,16 @@ export type DayBookReport = {
   }>
 }
 
+export type ParseDiagnostics = {
+  template_name?: string | null
+  matched_fields?: Record<string, string>
+  unmatched_headers?: string[]
+  total_rows?: number
+  success_rows?: number
+  expected_columns?: string[]
+  guidance?: string
+}
+
 export type AuditFinding = {
   id: string
   db_id?: number

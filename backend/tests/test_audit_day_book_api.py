@@ -226,8 +226,13 @@ def test_ai_generated_structured_file_does_not_create_entries(client):
     process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
     assert process_response.status_code == 200
     payload = process_response.json()
-    assert payload["report"]["output_path"] == "register_ledger"
+    assert payload["report"]["output_path"] == "structured_preview"
     assert payload["report"]["total_entries"] == 0
+    file_summary = payload["report"]["file_summary"][0]
+    assert file_summary["type"] == "structured_preview"
+    assert file_summary["recommended_mode"] == "day_book_import"
+    assert file_summary.get("entries", 0) == 2
+    assert file_summary.get("parse_diagnostics")
 
     db = TestingSessionLocal()
     try:

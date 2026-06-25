@@ -4,7 +4,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { DeleteOutlined, InboxOutlined, PlusOutlined, RobotOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
-import { api, type AccountingPeriod, type ChartOfAccount, type Counterparty, type DayBookReport, type EntryDraft, type ImportPeriodSuggestion } from '../../api/client'
+import { api, type AccountingPeriod, type ChartOfAccount, type Counterparty, type DayBookReport, type EntryDraft, type ImportPeriodSuggestion, type ParseDiagnostics } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -108,6 +108,45 @@ const getCounterpartyHintStatus = (row: ManualEntryLine) => {
   return row.counterparty.trim() ? 'provided' : 'required_missing'
 }
 
+const renderParseGuidance = (
+  diagnostics: ParseDiagnostics | null,
+  options?: { onSwitchDayBook?: () => void },
+) => {
+  if (!diagnostics) return null
+  return (
+    <Alert
+      title="未能识别有效分录列，请检查表头分列"
+      description={(
+        <Space direction="vertical" style={{ width: '100%' }}>
+          {diagnostics.guidance && <Text>{diagnostics.guidance}</Text>}
+          {diagnostics.template_name && (
+            <Text type="secondary">识别模板：{diagnostics.template_name}</Text>
+          )}
+          {diagnostics.matched_fields && Object.keys(diagnostics.matched_fields).length > 0 && (
+            <Text type="secondary">
+              已匹配列：{Object.entries(diagnostics.matched_fields).map(([field, header]) => `${field}→${header}`).join('；')}
+            </Text>
+          )}
+          {diagnostics.unmatched_headers && diagnostics.unmatched_headers.length > 0 && (
+            <Text type="warning">未识别表头：{diagnostics.unmatched_headers.join('、')}</Text>
+          )}
+          {diagnostics.expected_columns && (
+            <Text type="secondary">建议表头包含：{diagnostics.expected_columns.join('、')}</Text>
+          )}
+          {options?.onSwitchDayBook && (
+            <Button type="primary" onClick={options.onSwitchDayBook}>
+              切换到「序时簿导入」模式
+            </Button>
+          )}
+        </Space>
+      )}
+      type="error"
+      showIcon
+      style={{ marginTop: '16px' }}
+    />
+  )
+}
+
 export function Step2AccountingImportSource() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -156,6 +195,8 @@ export function Step2AccountingImportSource() {
   const [outputPath, setOutputPath] = useState<string>('')
   const [processingUpload, setProcessingUpload] = useState(false)
   const [entryCount, setEntryCount] = useState(0)
+  const [parseGuidance, setParseGuidance] = useState<ParseDiagnostics | null>(null)
+  const [structuredPreviewCount, setStructuredPreviewCount] = useState(0)
 
   const manualVoucherNo = `${manualVoucherType}-${manualVoucherNumber}`
   const debitTotal = roundAmount(manualRows.reduce((sum, row) => sum + Number(row.debit_amount || 0), 0))
@@ -306,6 +347,7 @@ export function Step2AccountingImportSource() {
 
   const handleDayBookUpload = async (file: File) => {
     setProcessingUpload(true)
+    setParseGuidance(null)
     try {
       let jobId = currentJobId
       if (!jobId) {
@@ -320,15 +362,37 @@ export function Step2AccountingImportSource() {
 
       message.loading({ content: '正在解析序时簿并生成会计凭证...', key: 'daybook-parse' })
       const result = await api.processImportJobSync(jobId)
+      const jobStatus = result.job?.status
       const reportSummary = result.report as {
         output_path?: string
         total_entries?: number
+        failed_files?: number
+        error_message?: string
+        parse_diagnostics?: ParseDiagnostics
         period_suggestion?: ImportPeriodSuggestion
         day_book_report?: DayBookReport
+        file_summary?: Array<{ parse_diagnostics?: ParseDiagnostics; error?: string }>
       }
 
+      const diagnostics = reportSummary.parse_diagnostics
+        || reportSummary.file_summary?.find((item) => item.parse_diagnostics)?.parse_diagnostics
+        || null
+      const totalEntries = reportSummary.total_entries || 0
+      const failed = (reportSummary.failed_files ?? 0) > 0 || jobStatus === 'failed' || totalEntries === 0
+
       setOutputPath(reportSummary.output_path || 'direct_entries')
-      setEntryCount(reportSummary.total_entries || 0)
+      setEntryCount(totalEntries)
+
+      if (failed) {
+        setParseGuidance(diagnostics)
+        setDayBookReport(null)
+        const detail = reportSummary.error_message
+          || reportSummary.file_summary?.find((item) => item.error)?.error
+          || '未解析到有效分录，请检查表头列名'
+        message.error({ content: `序时簿解析失败：${detail}`, key: 'daybook-parse' })
+        return
+      }
+
       if (reportSummary.period_suggestion) {
         setImportPeriodSuggestion(reportSummary.period_suggestion)
         applyPeriodSuggestion(reportSummary.period_suggestion)
@@ -341,7 +405,7 @@ export function Step2AccountingImportSource() {
       }
 
       message.success({
-        content: `序时簿解析完成，已生成 ${reportSummary.total_entries || 0} 条分录`,
+        content: `序时簿解析完成，已生成 ${totalEntries} 条分录`,
         key: 'daybook-parse',
       })
     } catch (error) {
@@ -385,6 +449,20 @@ export function Step2AccountingImportSource() {
         const reportSummary = syncResult.report as {
           output_path?: string
           total_entries?: number
+          error_message?: string
+          parse_diagnostics?: ParseDiagnostics
+          file_summary?: Array<{
+            filename: string
+            type?: string
+            success?: boolean
+            error?: string
+            recommended_mode?: string
+            parse_diagnostics?: ParseDiagnostics
+            entries?: number
+            register_summary?: string
+            module_registrations?: UploadedFile['moduleRegistrations']
+            module_label?: string
+          }>
           register_summary?: Array<{
             filename: string
             register_summary?: string
@@ -392,6 +470,31 @@ export function Step2AccountingImportSource() {
             module_label?: string
           }>
         }
+        const fileSummary = reportSummary.file_summary?.find((item) => item.filename === file.name)
+        const isStructuredPreview = fileSummary?.type === 'structured_preview' || fileSummary?.recommended_mode === 'day_book_import'
+
+        if (isStructuredPreview) {
+          const previewCount = fileSummary?.entries || 0
+          setStructuredPreviewCount(previewCount)
+          setParseGuidance(fileSummary?.parse_diagnostics || reportSummary.parse_diagnostics || null)
+          setOutputPath('structured_preview')
+          setEntryCount(0)
+          if (previewCount > 0) {
+            message.warning({
+              content: `识别到 ${previewCount} 条结构化分录。Excel/CSV 序时簿请切换到「序时簿导入」模式生成正式凭证。`,
+              key: 'parsing',
+            })
+          } else {
+            message.error({
+              content: fileSummary?.error || reportSummary.error_message || '表格未识别到有效分录列',
+              key: 'parsing',
+            })
+          }
+          return
+        }
+
+        setStructuredPreviewCount(0)
+        setParseGuidance(null)
         setOutputPath(reportSummary.output_path || 'register_ledger')
         setEntryCount(reportSummary.total_entries || 0)
 
@@ -1017,7 +1120,12 @@ export function Step2AccountingImportSource() {
           style={{ marginBottom: '32px' }}
         />
 
-        <FlowNav prev={stepPath(1)} next={stepPath(4)} style={{ marginBottom: '16px' }} />
+        <FlowNav
+          prev={stepPath(1)}
+          onNext={handleNext}
+          nextDisabled={entryCount === 0 || !currentJobId}
+          style={{ marginBottom: '16px' }}
+        />
 
         <Title level={4}>序时簿导入生成会计凭证</Title>
         <Text type="secondary">
@@ -1065,6 +1173,9 @@ export function Step2AccountingImportSource() {
               style={{ marginTop: '16px' }}
             />
           )}
+          {renderParseGuidance(parseGuidance, {
+            onSwitchDayBook: () => navigate(`${stepPath(1)}?inputMode=day_book_import`),
+          })}
         </Card>
 
         {dayBookReport && (
@@ -1167,14 +1278,22 @@ export function Step2AccountingImportSource() {
       {outputPath && (
         <Alert
           title={`当前输出路径：${outputPath}`}
-          description={outputPath === 'register_ledger'
-            ? '原始资料识别后登记到功能模块台账（非会计分录），下一步结合台账证据生成凭证草稿。'
-            : '结构化文件已解析为分录预览，请改用序时簿导入模式生成正式凭证。'}
-          type="info"
+          description={
+            outputPath === 'register_ledger'
+              ? '原始资料（PDF/图片等）识别后登记到功能模块台账（非会计分录），下一步结合台账证据生成凭证草稿。'
+              : outputPath === 'structured_preview'
+                ? `已识别结构化表格 ${structuredPreviewCount > 0 ? `（${structuredPreviewCount} 条分录预览）` : ''}。Excel/CSV 序时簿请切换到「序时簿导入」模式生成正式会计凭证。`
+                : '结构化文件已解析为分录预览，请改用序时簿导入模式生成正式凭证。'
+          }
+          type={outputPath === 'structured_preview' ? 'warning' : 'info'}
           showIcon
           style={{ marginTop: '12px' }}
         />
       )}
+
+      {renderParseGuidance(parseGuidance, {
+        onSwitchDayBook: () => navigate(`${stepPath(1)}?inputMode=day_book_import`),
+      })}
 
       <Card style={{ marginTop: '16px' }}>
         <Title level={5}>1. 提供原始资料类型辅助信息</Title>
@@ -1234,7 +1353,8 @@ export function Step2AccountingImportSource() {
           </p>
           <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
           <p className="ant-upload-hint">
-            支持 PDF/图片/Excel/CSV 等。资料将保存为底稿、AI 解析登记到功能模块台账，并自动归档到项目目录；不直接生成会计分录。
+            支持 PDF/图片（原始资料 AI 识别）或 Excel/CSV（结构化序时簿预览）。
+            PDF/图片将登记模块台账；Excel/CSV 会检测列映射并引导切换到序时簿导入模式。
           </p>
         </Dragger>
 
