@@ -11,7 +11,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.accounting_entry import AccountingEntryRead, TagUpdate
 from app.services import ledger_management_service
-from app.services.entry_query_service import query_chronological_entries
+from app.services.entry_query_service import query_chronological_entries, query_vouchers
 from app.services.vector_store_service import safe_vector_store
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
@@ -41,6 +41,28 @@ class EntryBatchReviewUpdate(BaseModel):
 
 class ChronologicalEntryListResponse(BaseModel):
     items: list[AccountingEntryRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class VoucherLineRead(AccountingEntryRead):
+    pass
+
+
+class VoucherCardRead(BaseModel):
+    voucher_no: str | None
+    voucher_date: str | None
+    voucher_word: str | None = None
+    line_count: int
+    debit_total: float
+    credit_total: float
+    summary_preview: str | None = None
+    lines: list[VoucherLineRead]
+
+
+class VoucherQueryResponse(BaseModel):
+    items: list[VoucherCardRead]
     total: int
     limit: int
     offset: int
@@ -120,6 +142,93 @@ def list_chronological_entries(
     )
     return ChronologicalEntryListResponse(
         items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def _parse_voucher_word(voucher_no: str | None) -> str | None:
+    if not voucher_no:
+        return None
+    dash = voucher_no.find("-")
+    if dash > 0:
+        return voucher_no[:dash]
+    prefix = ""
+    for char in voucher_no:
+        if char.isdigit():
+            break
+        prefix += char
+    return prefix or voucher_no
+
+
+def _voucher_card_from_group(group) -> VoucherCardRead:
+    return VoucherCardRead(
+        voucher_no=group.voucher_no,
+        voucher_date=group.voucher_date.isoformat() if group.voucher_date else None,
+        voucher_word=_parse_voucher_word(group.voucher_no),
+        line_count=len(group.lines),
+        debit_total=group.debit_total,
+        credit_total=group.credit_total,
+        summary_preview=group.summary_preview or None,
+        lines=group.lines,
+    )
+
+
+@router.get("/vouchers", response_model=VoucherQueryResponse)
+def list_voucher_cards(
+    ledger_id: int = Query(..., description="账套 ID"),
+    period_id: int | None = Query(None, description="会计期间 ID"),
+    date_from: date | None = Query(None, description="凭证日期起（按天）"),
+    date_to: date | None = Query(None, description="凭证日期止（按天）"),
+    month: str | None = Query(None, description="凭证月份 YYYY-MM"),
+    filter_mode: str = Query("line", description="line=按行筛选, voucher=按凭证整体筛选"),
+    account_code: str | None = Query(None, description="科目代码（模糊）"),
+    account_name: str | None = Query(None, description="科目名称（模糊）"),
+    summary: str | None = Query(None, description="分录摘要（模糊）"),
+    voucher_word: str | None = Query(None, description="记字号/凭证字"),
+    voucher_no: str | None = Query(None, description="凭证号（模糊）"),
+    debit_min: Decimal | None = Query(None, description="借方金额下限"),
+    debit_max: Decimal | None = Query(None, description="借方金额上限"),
+    credit_min: Decimal | None = Query(None, description="贷方金额下限"),
+    credit_max: Decimal | None = Query(None, description="贷方金额上限"),
+    total_min: Decimal | None = Query(None, description="凭证合计金额下限"),
+    total_max: Decimal | None = Query(None, description="凭证合计金额上限"),
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> VoucherQueryResponse:
+    """凭证查询：按凭证聚合展示，支持按行或整体筛选。"""
+    if filter_mode not in {"line", "voucher"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="filter_mode 必须为 line 或 voucher")
+    if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+
+    groups, total = query_vouchers(
+        db,
+        ledger_id=ledger_id,
+        period_id=period_id,
+        date_from=date_from,
+        date_to=date_to,
+        month=month,
+        filter_mode=filter_mode,
+        account_code=account_code,
+        account_name=account_name,
+        summary=summary,
+        voucher_word=voucher_word,
+        voucher_no=voucher_no,
+        debit_min=debit_min,
+        debit_max=debit_max,
+        credit_min=credit_min,
+        credit_max=credit_max,
+        total_min=total_min,
+        total_max=total_max,
+        limit=limit,
+        offset=offset,
+    )
+    return VoucherQueryResponse(
+        items=[_voucher_card_from_group(group) for group in groups],
         total=total,
         limit=limit,
         offset=offset,
