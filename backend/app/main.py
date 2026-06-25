@@ -97,6 +97,11 @@ def _ensure_local_sqlite_schema() -> None:
                 if column_name not in user_columns:
                     connection.execute(text(ddl))
 
+        if "ledgers" in table_names:
+            ledger_columns = {column["name"] for column in inspector.get_columns("ledgers")}
+            if "accounting_start_date" not in ledger_columns:
+                connection.execute(text("ALTER TABLE ledgers ADD COLUMN accounting_start_date DATE"))
+
         if "accounting_periods" in table_names:
             period_columns = {column["name"] for column in inspector.get_columns("accounting_periods")}
             period_missing_columns = {

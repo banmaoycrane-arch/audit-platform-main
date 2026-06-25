@@ -742,6 +742,7 @@ export type Ledger = {
   role?: string
   status: string
   created_at?: string
+  accounting_start_date?: string | null
   activated_at?: string | null
   suspended_at?: string | null
   archived_at?: string | null
@@ -761,6 +762,7 @@ export type LedgerAuth = {
 export type CreateLedgerPayload = {
   name: string
   team_id: number
+  accounting_start_date?: string
 }
 
 export type AgentTaskPlan = {

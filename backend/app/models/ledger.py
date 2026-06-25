@@ -9,8 +9,8 @@
 更新记录：
     2026-06-18  初始创建 Ledger 模型
 """
-from datetime import datetime
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from datetime import date, datetime
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -48,6 +48,10 @@ class Ledger(Base):
     )
     database_url: Mapped[str | None] = mapped_column(
         String(500), nullable=True
+    )
+    accounting_start_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True,
+        comment="账套会计时间线起点；创建时默认当天，可自定义对齐历史建账",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
