@@ -30,6 +30,7 @@ from app.api.routes_risks import router as risks_router
 from app.api.routes_transactions import router as transactions_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_bank import router as bank_router
+from app.api.routes_binding_requests import router as binding_requests_router
 from app.api.routes_confirmations import router as confirmations_router
 from app.api.routes_purchase_match import router as purchase_match_router
 from app.api.routes_workpapers import router as workpapers_router
@@ -261,6 +262,7 @@ app.include_router(module_registers_router)
 app.include_router(project_router)
 app.include_router(lifecycle_router)
 app.include_router(team_router)
+app.include_router(binding_requests_router)
 app.include_router(bank_router)
 app.include_router(confirmations_router)
 app.include_router(purchase_match_router)
