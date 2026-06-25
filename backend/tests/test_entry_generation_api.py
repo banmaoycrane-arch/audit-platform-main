@@ -211,31 +211,98 @@ def test_invoice_only_generates_staging_draft_with_accounts_receivable(client):
 
     assert resp.status_code == 200
     drafts = resp.json()
-    assert len(drafts) == 2
+    assert len(drafts) == 3
     metadata = drafts[0]["metadata"]
     assert metadata["evidence_status"] == "partial"
     assert metadata["is_blocked"] is False
     assert metadata["accounting_flow"] == "accrual_only"
+    assert metadata["accounting_judgment_policy"] == "compliant_default"
     assert "银行流水" in metadata["missing_evidence"]
-    assert "应收" in metadata["missing_reason"]
+    assert "销项税" in metadata["missing_reason"] or "应收" in metadata["missing_reason"]
     account_codes = {draft["account_code"] for draft in drafts}
     assert "1122" in account_codes
     assert "6001" in account_codes
+    assert "22210107" in account_codes
     assert "1002" not in account_codes
-    assert all(draft["metadata"].get("posting_phase") == "accrual" for draft in drafts)
+    assert all(draft["metadata"].get("posting_phase") in {"accrual", "tax_invoice"} for draft in drafts)
 
     commit = test_client.post(
         f"/api/import-jobs/{job_id}/commit-entries",
         json={"period_id": period_id, "drafts": drafts},
     )
     assert commit.status_code == 200
-    assert commit.json()["count"] == 2
+    assert commit.json()["count"] == 3
 
     db = TestingSessionLocal()
     try:
-        assert db.query(AccountingEntry).filter(AccountingEntry.import_job_id == job_id).count() == 2
+        assert db.query(AccountingEntry).filter(AccountingEntry.import_job_id == job_id).count() == 3
     finally:
         db.close()
+
+
+def test_invoice_with_prepaid_signal_uses_prepaid_account(client):
+    test_client, TestingSessionLocal = client
+    job_id, period_id = _seed_source_files(
+        TestingSessionLocal,
+        [{"filename": "预收款销项发票.pdf", "file_type": "invoice"}],
+    )
+
+    resp = test_client.post(
+        f"/api/import-jobs/{job_id}/generate-entries",
+        json={"period_id": period_id, "accounting_judgment_policy": "compliant_default"},
+    )
+
+    assert resp.status_code == 200
+    drafts = resp.json()
+    assert any(draft["account_code"] == "2203" for draft in drafts)
+
+
+def test_invoice_with_outbound_compliant_generates_vat_only_invoice(client):
+    test_client, TestingSessionLocal = client
+    job_id, period_id = _seed_source_files(
+        TestingSessionLocal,
+        [
+            {"filename": "销项发票.pdf", "file_type": "invoice"},
+            {"filename": "销售出库单.pdf", "file_type": "inventory_out"},
+        ],
+    )
+
+    resp = test_client.post(
+        f"/api/import-jobs/{job_id}/generate-entries",
+        json={"period_id": period_id, "accounting_judgment_policy": "compliant_default"},
+    )
+
+    assert resp.status_code == 200
+    drafts = resp.json()
+    invoice_drafts = [d for d in drafts if d["metadata"].get("source_evidence_type") == "invoice"]
+    outbound_drafts = [d for d in drafts if d["metadata"].get("source_evidence_type") == "inventory_out"]
+    assert len(invoice_drafts) == 2
+    assert len(outbound_drafts) >= 2
+    assert {d["account_code"] for d in invoice_drafts} == {"1122", "22210107"}
+    assert "6001" not in {d["account_code"] for d in invoice_drafts}
+    assert any(d["metadata"].get("invoice_role") == "vat_only_after_outbound" for d in invoice_drafts)
+
+
+def test_counterparty_first_with_outbound_still_confirms_revenue_on_invoice(client):
+    test_client, TestingSessionLocal = client
+    job_id, period_id = _seed_source_files(
+        TestingSessionLocal,
+        [
+            {"filename": "销项发票.pdf", "file_type": "invoice"},
+            {"filename": "销售出库单.pdf", "file_type": "inventory_out"},
+        ],
+    )
+
+    resp = test_client.post(
+        f"/api/import-jobs/{job_id}/generate-entries",
+        json={"period_id": period_id, "accounting_judgment_policy": "counterparty_first"},
+    )
+
+    assert resp.status_code == 200
+    drafts = resp.json()
+    invoice_drafts = [d for d in drafts if d["metadata"].get("source_evidence_type") == "invoice"]
+    assert "6001" in {d["account_code"] for d in invoice_drafts}
+    assert not any(d["metadata"].get("source_evidence_type") == "inventory_out" for d in drafts)
 
 
 def test_invoice_with_matching_bank_statement_uses_accrual_then_collection(client):
@@ -255,16 +322,16 @@ def test_invoice_with_matching_bank_statement_uses_accrual_then_collection(clien
 
     assert resp.status_code == 200
     drafts = resp.json()
-    assert len(drafts) == 4
+    assert len(drafts) == 5
     assert all(draft["metadata"]["evidence_status"] == "sufficient" for draft in drafts)
     assert all(draft["metadata"]["is_blocked"] is False for draft in drafts)
     assert all(draft["metadata"]["accounting_flow"] == "accrual_then_collection" for draft in drafts)
 
-    accrual_drafts = [d for d in drafts if d["metadata"].get("posting_phase") == "accrual"]
+    accrual_drafts = [d for d in drafts if d["metadata"].get("posting_phase") in {"accrual", "tax_invoice"}]
     collection_drafts = [d for d in drafts if d["metadata"].get("posting_phase") == "collection"]
-    assert len(accrual_drafts) == 2
+    assert len(accrual_drafts) == 3
     assert len(collection_drafts) == 2
-    assert {d["account_code"] for d in accrual_drafts} == {"1122", "6001"}
+    assert {d["account_code"] for d in accrual_drafts} == {"1122", "6001", "22210107"}
     assert {d["account_code"] for d in collection_drafts} == {"1002", "1122"}
     assert not any(d["account_code"] == "1002" and d["metadata"].get("posting_phase") == "accrual" for d in drafts)
 

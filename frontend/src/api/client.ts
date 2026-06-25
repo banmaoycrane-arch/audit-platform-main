@@ -1140,11 +1140,18 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     }),
-  generateEntries: (jobId: number, periodId: number) =>
+  generateEntries: (
+    jobId: number,
+    periodId: number,
+    accountingJudgmentPolicy: 'compliant_default' | 'revenue_first' | 'counterparty_first' = 'compliant_default',
+  ) =>
     request<EntryDraft[]>(`/api/import-jobs/${jobId}/generate-entries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ period_id: periodId })
+      body: JSON.stringify({
+        period_id: periodId,
+        accounting_judgment_policy: accountingJudgmentPolicy,
+      }),
     }),
   commitEntries: (jobId: number, periodId: number, drafts: EntryDraft[]) =>
     request<{ count: number; entry_ids: number[]; job_id: number }>(`/api/import-jobs/${jobId}/commit-entries`, {
