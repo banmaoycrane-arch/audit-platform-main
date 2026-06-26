@@ -1,9 +1,29 @@
-import { Card, Table, Button, Steps, Typography, Tag, Space, message, Alert } from 'antd'
+import { Card, Table, Button, Steps, Typography, Tag, Space, message, Alert, Radio } from 'antd'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import type { ColumnsType } from 'antd/es/table'
 import { api, type EntryDraft } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+
+const ACCOUNTING_JUDGMENT_OPTIONS = [
+  {
+    value: 'compliant_default',
+    label: '默认合规（谨慎）',
+    hint: '有出库单时先确认收入，发票主要补销项税；无出库则发票确认收入+销项税+应收。',
+  },
+  {
+    value: 'revenue_first',
+    label: '收入确认优先',
+    hint: '出库/履约时点优先确认收入，发票主要用于补齐税额。',
+  },
+  {
+    value: 'counterparty_first',
+    label: '往来确认优先',
+    hint: '发票优先挂应收或冲减预收，再匹配收款与出库资料。',
+  },
+] as const
+
+type AccountingJudgmentPolicy = (typeof ACCOUNTING_JUDGMENT_OPTIONS)[number]['value']
 
 const { Title } = Typography
 
@@ -24,6 +44,11 @@ const metadata = draft.metadata || {}
 return metadata.is_blocked === true || metadata.evidence_status === 'insufficient'
 }
 
+const isPartialEvidenceDraft = (draft: EntryDraft) => {
+const metadata = draft.metadata || {}
+return metadata.evidence_status === 'partial'
+}
+
 export function Step3GenerateEntries() {
 const navigate = useNavigate()
 const location = useLocation()
@@ -38,20 +63,23 @@ const currentStep = 2
 const [drafts, setDrafts] = useState<EntryDraft[]>([])
 const [loading, setLoading] = useState(false)
 const [committing, setCommitting] = useState(false)
+const [accountingJudgmentPolicy, setAccountingJudgmentPolicy] = useState<AccountingJudgmentPolicy>('compliant_default')
 const blockedDrafts = drafts.filter(isDraftBlocked)
+const partialDrafts = drafts.filter(isPartialEvidenceDraft)
 const hasBlockedDraft = blockedDrafts.length > 0
+const hasPartialDraft = partialDrafts.length > 0
 
 useEffect(() => {
 if (!jobId || !periodId) return
 setLoading(true)
-api.generateEntries(jobId, periodId)
+api.generateEntries(jobId, periodId, accountingJudgmentPolicy)
 .then(setDrafts)
 .catch((error) => {
 const detail = error instanceof Error ? error.message : String(error)
   message.error(`生成草稿失败：${detail}`)
       })
       .finally(() => setLoading(false))
-  }, [jobId, periodId])
+  }, [jobId, periodId, accountingJudgmentPolicy])
 
   const handleCommit = async () => {
     if (!jobId || !periodId || hasBlockedDraft) return
@@ -133,6 +161,7 @@ const detail = error instanceof Error ? error.message : String(error)
       render: (_, record) => {
         const metadata = record.metadata || {}
         if (isDraftBlocked(record)) return <Tag color="red">资料不足</Tag>
+        if (metadata.evidence_status === 'partial') return <Tag color="orange">暂存-待收款确认</Tag>
         if (metadata.evidence_status === 'sufficient') return <Tag color="green">资料充分</Tag>
         return <Tag>未判断</Tag>
       }
@@ -179,6 +208,24 @@ const detail = error instanceof Error ? error.message : String(error)
         <Tag color="blue">共 {drafts.length} 条</Tag>
       </Space>
 
+      <Card size="small" style={{ marginBottom: '16px' }} title="会计判断原则（请确认后生成）">
+        <Radio.Group
+          value={accountingJudgmentPolicy}
+          onChange={(event) => setAccountingJudgmentPolicy(event.target.value)}
+        >
+          <Space direction="vertical">
+            {ACCOUNTING_JUDGMENT_OPTIONS.map((option) => (
+              <Radio key={option.value} value={option.value}>
+                <Space direction="vertical" size={0}>
+                  <span>{option.label}</span>
+                  <span style={{ color: '#666', fontSize: 12 }}>{option.hint}</span>
+                </Space>
+              </Radio>
+            ))}
+          </Space>
+        </Radio.Group>
+      </Card>
+
       {(sourceTypes.length > 0 || parseSummary) && (
         <Alert
           title="Step2 原始资料解析上下文"
@@ -186,6 +233,21 @@ const detail = error instanceof Error ? error.message : String(error)
             <Space direction="vertical" size={4}>
               {sourceTypes.length > 0 && <div><strong>用户选择资料类型：</strong>{sourceTypes.join('、')}</div>}
               {parseSummary && <div><strong>解析摘要：</strong>{parseSummary}</div>}
+            </Space>
+          }
+          type="info"
+          showIcon
+          style={{ marginBottom: '16px' }}
+        />
+      )}
+
+      {hasPartialDraft && !hasBlockedDraft && (
+        <Alert
+          title="发票已按权责发生制暂存，收款尚未确认"
+          description={
+            <Space direction="vertical" size="small">
+              <div>系统已生成应收与收入草案；补充银行流水后可再生成收款核销分录，现金流量表按收款环节归集。</div>
+              <Button size="small" onClick={continueSupplementEvidence}>补充银行流水/回单</Button>
             </Space>
           }
           type="info"
