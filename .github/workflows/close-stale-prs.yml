@@ -46,7 +46,7 @@ jobs:
                   | select(
                       (.title | test("CI|binding-requests"))
                       or (.headRefName | startswith("cursor/autobc-"))
-                      or (.changedFiles == 0)
+                      or ((.changedFiles == 0) and (.headRefName | startswith("cursor/autobc-")))
                     )
                   | .number
                 '
