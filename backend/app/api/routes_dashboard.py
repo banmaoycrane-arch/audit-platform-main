@@ -98,7 +98,13 @@ def get_dashboard_summary(
         "username": current_user.username or "",
         "team": None,
     }
-    if current_user and current_user.team:
+    teams = ledger_management_service.get_teams_by_user(db, current_user.id)
+    if teams:
+        user_info["team"] = {
+            "id": teams[0].id,
+            "name": teams[0].name,
+        }
+    elif current_user.team:
         user_info["team"] = {
             "id": current_user.team.id,
             "name": current_user.team.name,

@@ -11,6 +11,7 @@ from app.db.models import (
     AccountingPeriod,
     AuditFinding,
     AuditRisk,
+    Entity,
     ImportJob,
     Organization,
 )
@@ -189,3 +190,53 @@ def test_dashboard_summary_with_data_returns_counts(client):
     assert data["pending_risks"] == 2
     assert data["module_status"]["ledger"]["pending_vouchers"] == 3
     assert data["module_status"]["audit"]["active_projects"] == 1
+
+
+def test_dashboard_summary_returns_team_after_onboarding(client):
+    headers = _get_auth_headers(client)
+    team_response = client.post(
+        "/api/teams",
+        json={"name": "仪表盘团队", "type": "firm"},
+        headers=headers,
+    )
+    assert team_response.status_code == 200
+    team_id = team_response.json()["id"]
+
+    ledger_response = client.post(
+        "/api/ledgers",
+        json={"team_id": team_id, "name": "仪表盘账套"},
+        headers=headers,
+    )
+    assert ledger_response.status_code == 200
+    ledger_id = ledger_response.json()["id"]
+
+    client.post(f"/api/ledgers/{ledger_id}/switch", headers=headers)
+    client.post(
+        "/api/projects",
+        json={"team_id": team_id, "name": "仪表盘项目"},
+        headers=headers,
+    )
+
+    SessionLocal = client._SessionLocal  # type: ignore[attr-defined]
+    db = SessionLocal()
+    try:
+        db.add(
+            Entity(
+                entity_name="仪表盘会计主体",
+                entity_type="company",
+                entity_category="parent",
+                is_accounting_entity=True,
+                ledger_id=ledger_id,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get(
+        "/api/dashboard/summary",
+        headers={**headers, "X-Ledger-Id": str(ledger_id)},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user"]["team"] == {"id": team_id, "name": "仪表盘团队"}

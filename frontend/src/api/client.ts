@@ -1138,6 +1138,14 @@ async function getApiErrorMessage(response: Response): Promise<string> {
     if (typeof data.message === 'string') {
       return data.message
     }
+    if (data && typeof data === 'object' && 'error' in data) {
+      const gatewayError = (data as { error?: { message?: string; request_id?: string } }).error
+      if (gatewayError?.message) {
+        return gatewayError.request_id
+          ? `${gatewayError.message}（请求编号：${gatewayError.request_id}）`
+          : gatewayError.message
+      }
+    }
     return text
   } catch {
     return text
@@ -1635,7 +1643,10 @@ export const api = {
       { method: 'POST' }
     ),
   getDashboardSummary: (ledgerId?: number) => {
-    const headers = ledgerId ? { 'X-Ledger-Id': String(ledgerId) } : undefined
+    const normalizedLedgerId = typeof ledgerId === 'number' && Number.isInteger(ledgerId) && ledgerId > 0
+      ? ledgerId
+      : undefined
+    const headers = normalizedLedgerId ? { 'X-Ledger-Id': String(normalizedLedgerId) } : undefined
     return request<{
       user: {
         id: number

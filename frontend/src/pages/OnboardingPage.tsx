@@ -46,7 +46,7 @@ const bindingLabels: Record<BindingKey, string> = {
 
 export function OnboardingPage() {
   const navigate = useNavigate()
-  const { setCurrentLedger, setUserLedgers } = useAuthStore()
+  const { setCurrentLedger, refreshAuthContext } = useAuthStore()
   const [context, setContext] = useState<AuthContext | null>(null)
   const [currentStep, setCurrentStep] = useState(0)
   const [teams, setTeams] = useState<Team[]>([])
@@ -66,8 +66,7 @@ export function OnboardingPage() {
     setTeams(nextContext.teams)
     setLedgers(nextContext.ledgers)
     setProjects(nextContext.projects)
-    setUserLedgers(nextContext.ledgers)
-    setCurrentLedger(nextContext.current_ledger_id)
+    await refreshAuthContext()
 
     if (nextContext.teams.length > 0 && !selectedTeamId) {
       setSelectedTeamId(nextContext.teams[0].id)
