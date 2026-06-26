@@ -1,0 +1,26 @@
+name: Reopen PR 87
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/reopen-pr-87.yml']
+
+permissions:
+  pull-requests: write
+
+jobs:
+  reopen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reopen scope-config feature PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=$(gh pr view 87 --repo "${{ github.repository }}" --json state -q .state)
+          if [ "$state" = "CLOSED" ]; then
+            gh pr reopen 87 --repo "${{ github.repository }}"
+            echo "Reopened #87"
+          else
+            echo "PR #87 state is ${state}, no action needed"
+          fi
