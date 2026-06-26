@@ -832,6 +832,182 @@ export type ProjectSettingsData = {
   require_manager_on_create: boolean
 }
 
+export type AuditTask = {
+  id: number
+  project_id: number
+  ledger_id?: number | null
+  task_no: string
+  title: string
+  description?: string | null
+  task_type: string
+  audit_area?: string | null
+  status: string
+  priority: string
+  created_by: number
+  assignee_id?: number | null
+  reviewer_ids?: number[] | null
+  related_finding_id?: number | null
+  related_procedure_key?: string | null
+  parent_task_id?: number | null
+  labels?: string[] | null
+  due_date?: string | null
+  created_at: string
+  updated_at: string
+  closed_at?: string | null
+}
+
+export type AuditTaskCreate = {
+  project_id: number
+  ledger_id?: number | null
+  title: string
+  description?: string | null
+  task_type?: string
+  audit_area?: string | null
+  priority?: string
+  assignee_id?: number | null
+  due_date?: string | null
+  related_finding_id?: number | null
+  related_procedure_key?: string | null
+}
+
+export type AuditTaskUpdate = {
+  title?: string
+  description?: string | null
+  task_type?: string
+  audit_area?: string | null
+  priority?: string
+  status?: string
+  assignee_id?: number | null
+  due_date?: string | null
+}
+
+export type AuditTaskListResponse = {
+  items: AuditTask[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type AuditWorkBranch = {
+  id: number
+  project_id: number
+  ledger_id?: number | null
+  task_id: number
+  branch_name: string
+  base_branch?: string | null
+  status: string
+  created_by: number
+  assignee_id?: number | null
+  workpaper_index_id?: number | null
+  procedure_run_id?: number | null
+  latest_version_id?: number | null
+  created_at: string
+  updated_at: string
+  merged_at?: string | null
+}
+
+export type AuditWorkBranchCreate = {
+  task_id: number
+  project_id: number
+  ledger_id?: number | null
+  branch_name: string
+  base_branch?: string
+  assignee_id?: number | null
+  workpaper_index_id?: number | null
+  procedure_run_id?: number | null
+}
+
+export type AuditReviewRequest = {
+  id: number
+  project_id: number
+  ledger_id?: number | null
+  task_id: number
+  branch_id: number
+  pr_no: string
+  title: string
+  description?: string | null
+  target_branch: string
+  status: string
+  current_review_level: number
+  created_by: number
+  reviewer_level_1_id?: number | null
+  reviewer_level_2_id?: number | null
+  reviewer_level_3_id?: number | null
+  merged_by?: number | null
+  created_at: string
+  submitted_at?: string | null
+  approved_at?: string | null
+  merged_at?: string | null
+  closed_at?: string | null
+}
+
+export type AuditReviewRequestCreate = {
+  task_id: number
+  branch_id: number
+  project_id: number
+  ledger_id?: number | null
+  title: string
+  description?: string | null
+  target_branch?: string
+  reviewer_level_1_id?: number | null
+  reviewer_level_2_id?: number | null
+  reviewer_level_3_id?: number | null
+}
+
+export type AuditReviewAction = {
+  id: number
+  review_request_id: number
+  review_level: number
+  action: string
+  comment?: string | null
+  reviewer_id: number
+  created_at: string
+}
+
+export type AuditReviewActionCreate = {
+  action: string
+  comment?: string | null
+  review_level?: number
+}
+
+export type AuditReviewSubmit = {
+  reviewer_level_1_id?: number | null
+}
+
+export type AuditReviewListResponse = {
+  items: AuditReviewRequest[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type AuditComment = {
+  id: number
+  target_type: string
+  target_id: number
+  content: string
+  mention_user_ids?: number[] | null
+  created_by: number
+  created_at: string
+  updated_at: string
+}
+
+export type AuditCommentCreate = {
+  target_type: string
+  target_id: number
+  content: string
+  mention_user_ids?: number[] | null
+}
+
+export type AuditDashboardStats = {
+  todo_tasks_count: number
+  in_progress_tasks_count: number
+  review_tasks_count: number
+  pending_my_review_count: number
+  submitted_by_me_count: number
+  closed_today_count: number
+}
+
 export type EntityScopeSettingsData = {
   allow_virtual_entity: boolean
   require_tax_registration: boolean
@@ -1726,4 +1902,187 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
+
+  listAuditTasks: (projectId: number, filters?: {
+    status?: string
+    assignee_id?: number
+    task_type?: string
+    page?: number
+    page_size?: number
+  }) => {
+    const params = new URLSearchParams({ project_id: String(projectId) })
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.assignee_id != null) params.set('assignee_id', String(filters.assignee_id))
+    if (filters?.task_type) params.set('task_type', filters.task_type)
+    if (filters?.page != null) params.set('page', String(filters.page))
+    if (filters?.page_size != null) params.set('page_size', String(filters.page_size))
+    return request<AuditTaskListResponse>(`/api/audit/tasks?${params.toString()}`)
+  },
+  getAuditTask: (taskId: number) => request<AuditTask>(`/api/audit/tasks/${taskId}`),
+  createAuditTask: (payload: AuditTaskCreate) =>
+    request<AuditTask>('/api/audit/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  updateAuditTask: (taskId: number, payload: AuditTaskUpdate) =>
+    request<AuditTask>(`/api/audit/tasks/${taskId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  assignAuditTask: (taskId: number, assigneeId: number) =>
+    request<AuditTask>(`/api/audit/tasks/${taskId}/assign`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignee_id: assigneeId }),
+    }),
+  updateAuditTaskStatus: (taskId: number, status: string, comment?: string | null) =>
+    request<AuditTask>(`/api/audit/tasks/${taskId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, comment: comment || undefined }),
+    }),
+  deleteAuditTask: (taskId: number) =>
+    request<{ deleted: boolean }>(`/api/audit/tasks/${taskId}`, { method: 'DELETE' }),
+
+  listAuditBranches: (filters?: {
+    project_id?: number
+    task_id?: number
+    status?: string
+    page?: number
+    page_size?: number
+  }) => {
+    const params = new URLSearchParams()
+    if (filters?.project_id != null) params.set('project_id', String(filters.project_id))
+    if (filters?.task_id != null) params.set('task_id', String(filters.task_id))
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.page != null) params.set('page', String(filters.page))
+    if (filters?.page_size != null) params.set('page_size', String(filters.page_size))
+    const query = params.toString()
+    return request<{ items: AuditWorkBranch[]; total: number; page: number; page_size: number }>(
+      `/api/audit/branches${query ? `?${query}` : ''}`
+    )
+  },
+  getAuditBranch: (branchId: number) =>
+    request<AuditWorkBranch>(`/api/audit/branches/${branchId}`),
+  createAuditBranch: (payload: AuditWorkBranchCreate) =>
+    request<AuditWorkBranch>('/api/audit/branches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  updateAuditBranchStatus: (branchId: number, status: string) =>
+    request<AuditWorkBranch>(`/api/audit/branches/${branchId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }),
+  getBranchesByTask: (taskId: number) =>
+    request<AuditWorkBranch[]>(`/api/audit/branches/task/${taskId}`),
+
+  listAuditReviewRequests: (filters?: {
+    project_id?: number
+    status?: string
+    created_by?: number
+    reviewer_id?: number
+    page?: number
+    page_size?: number
+  }) => {
+    const params = new URLSearchParams()
+    if (filters?.project_id != null) params.set('project_id', String(filters.project_id))
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.created_by != null) params.set('created_by', String(filters.created_by))
+    if (filters?.reviewer_id != null) params.set('reviewer_id', String(filters.reviewer_id))
+    if (filters?.page != null) params.set('page', String(filters.page))
+    if (filters?.page_size != null) params.set('page_size', String(filters.page_size))
+    const query = params.toString()
+    return request<AuditReviewListResponse>(
+      `/api/audit/review-requests${query ? `?${query}` : ''}`
+    )
+  },
+  getAuditReviewRequest: (reviewId: number) =>
+    request<AuditReviewRequest>(`/api/audit/review-requests/${reviewId}`),
+  createAuditReviewRequest: (payload: AuditReviewRequestCreate) =>
+    request<AuditReviewRequest>('/api/audit/review-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  submitAuditReview: (reviewId: number, reviewerLevel1Id?: number | null) =>
+    request<AuditReviewRequest>(`/api/audit/review-requests/${reviewId}/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewer_level_1_id: reviewerLevel1Id || undefined }),
+    }),
+  performAuditReview: (reviewId: number, payload: AuditReviewActionCreate) =>
+    request<AuditReviewRequest>(`/api/audit/review-requests/${reviewId}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  mergeAuditReview: (reviewId: number) =>
+    request<AuditReviewRequest>(`/api/audit/review-requests/${reviewId}/merge`, {
+      method: 'POST',
+    }),
+  getAuditReviewActions: (reviewId: number) =>
+    request<AuditReviewAction[]>(`/api/audit/review-requests/${reviewId}/actions`),
+  getMyPendingReviews: (projectId?: number) => {
+    const params = new URLSearchParams()
+    if (projectId != null) params.set('project_id', String(projectId))
+    const query = params.toString()
+    return request<AuditReviewRequest[]>(
+      `/api/audit/review-requests/pending/mine${query ? `?${query}` : ''}`
+    )
+  },
+  getMySubmittedReviews: (projectId?: number) => {
+    const params = new URLSearchParams()
+    if (projectId != null) params.set('project_id', String(projectId))
+    const query = params.toString()
+    return request<AuditReviewRequest[]>(
+      `/api/audit/review-requests/submitted/mine${query ? `?${query}` : ''}`
+    )
+  },
+
+  listAuditComments: (targetType: string, targetId: number) =>
+    request<AuditComment[]>(`/api/audit/comments?target_type=${targetType}&target_id=${targetId}`),
+  createAuditComment: (payload: AuditCommentCreate) =>
+    request<AuditComment>('/api/audit/comments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  deleteAuditComment: (commentId: number) =>
+    request<{ deleted: boolean }>(`/api/audit/comments/${commentId}`, { method: 'DELETE' }),
+
+  getAuditDashboardStats: (projectId?: number) => {
+    const params = new URLSearchParams()
+    if (projectId != null) params.set('project_id', String(projectId))
+    const query = params.toString()
+    return request<AuditDashboardStats>(
+      `/api/audit/dashboard/stats${query ? `?${query}` : ''}`
+    )
+  },
+  getMyTodoTasks: (projectId?: number) => {
+    const params = new URLSearchParams()
+    if (projectId != null) params.set('project_id', String(projectId))
+    const query = params.toString()
+    return request<AuditTask[]>(`/api/audit/dashboard/todo-tasks${query ? `?${query}` : ''}`)
+  },
+  getMyPendingReviewList: (projectId?: number) => {
+    const params = new URLSearchParams()
+    if (projectId != null) params.set('project_id', String(projectId))
+    const query = params.toString()
+    return request<AuditReviewRequest[]>(
+      `/api/audit/dashboard/pending-review${query ? `?${query}` : ''}`
+    )
+  },
+  getMySubmittedList: (projectId?: number) => {
+    const params = new URLSearchParams()
+    if (projectId != null) params.set('project_id', String(projectId))
+    const query = params.toString()
+    return request<AuditReviewRequest[]>(
+      `/api/audit/dashboard/submitted${query ? `?${query}` : ''}`
+    )
+  },
 }

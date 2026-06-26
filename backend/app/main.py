@@ -35,6 +35,11 @@ from app.api.routes_confirmations import router as confirmations_router
 from app.api.routes_purchase_match import router as purchase_match_router
 from app.api.routes_workpapers import router as workpapers_router
 from app.api.routes_audit_workflow import router as audit_workflow_router
+from app.api.routes_audit_branches import router as audit_branches_router
+from app.api.routes_audit_tasks import router as audit_tasks_router
+from app.api.routes_audit_review import router as audit_review_router
+from app.api.routes_audit_comments import router as audit_comments_router
+from app.api.routes_audit_dashboard import router as audit_dashboard_router
 from app.api.routes_project import router as project_router
 from app.api.routes_lifecycle import router as lifecycle_router
 from app.api.routes_team import router as team_router
@@ -333,6 +338,11 @@ app.include_router(confirmations_router)
 app.include_router(purchase_match_router)
 app.include_router(workpapers_router)
 app.include_router(audit_workflow_router)
+app.include_router(audit_branches_router)
+app.include_router(audit_tasks_router)
+app.include_router(audit_review_router)
+app.include_router(audit_comments_router)
+app.include_router(audit_dashboard_router)
 
 
 @app.get("/")

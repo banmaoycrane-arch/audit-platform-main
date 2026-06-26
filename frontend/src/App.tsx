@@ -53,6 +53,11 @@ import { ConfirmationsPage } from './pages/Audit/ConfirmationsPage'
 import { PurchaseMatchPage } from './pages/Audit/PurchaseMatchPage'
 import { WorkpapersPage } from './pages/Audit/WorkpapersPage'
 import { AuditWorkflowPage } from './pages/Audit/AuditWorkflowPage'
+import { AuditTasksPage } from './pages/Audit/AuditTasksPage'
+import { AuditTaskDetailPage } from './pages/Audit/AuditTaskDetailPage'
+import { ReviewRequestsPage } from './pages/Audit/ReviewRequestsPage'
+import { ReviewDetailPage } from './pages/Audit/ReviewDetailPage'
+import { AuditDashboardPage } from './pages/Audit/AuditDashboardPage'
 import { LedgerBooksPage } from './pages/LedgerBooksPage'
 import { ScopeSettingsPage } from './pages/ScopeSettingsPage'
 
@@ -151,6 +156,11 @@ function AppRoutes() {
         <Route path="/audit/bank-reconciliation" element={<LedgerDataGuard><BankReconciliationPage /></LedgerDataGuard>} />
         <Route path="/audit/workpapers" element={<LedgerDataGuard><WorkpapersPage /></LedgerDataGuard>} />
         <Route path="/audit/workflow" element={<LedgerDataGuard><AuditWorkflowPage /></LedgerDataGuard>} />
+        <Route path="/audit/dashboard" element={<LedgerDataGuard><AuditDashboardPage /></LedgerDataGuard>} />
+        <Route path="/audit/tasks" element={<LedgerDataGuard><AuditTasksPage /></LedgerDataGuard>} />
+        <Route path="/audit/tasks/:taskId" element={<LedgerDataGuard><AuditTaskDetailPage /></LedgerDataGuard>} />
+        <Route path="/audit/review-requests" element={<LedgerDataGuard><ReviewRequestsPage /></LedgerDataGuard>} />
+        <Route path="/audit/review-requests/:reviewId" element={<LedgerDataGuard><ReviewDetailPage /></LedgerDataGuard>} />
         <Route path="/basic/receivable-payable" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="counterparty_ledger" /></LedgerDataGuard>} />
         <Route path="/bank/cash-flow-ledger" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="bank_cash_flow" /></LedgerDataGuard>} />
         <Route path="/registers/:moduleKey" element={<LedgerDataGuard><ModuleRegisterPage /></LedgerDataGuard>} />

@@ -21,6 +21,8 @@ import {
   SettingOutlined,
   ReconciliationOutlined,
   CarOutlined,
+  DashboardOutlined,
+  CheckSquareOutlined,
 } from '@ant-design/icons'
 import { LedgerSelector } from '../components/LedgerSelector'
 
@@ -63,12 +65,17 @@ const navItems = [
     label: '审计系统',
     children: [
       { key: '/audit/workspace', icon: <HomeOutlined />, label: <Link to="/audit/workspace">工作台</Link> },
+      { key: '/audit/dashboard', icon: <DashboardOutlined />, label: <Link to="/audit/dashboard">审计协作台</Link> },
+      { key: '/audit/tasks', icon: <CheckSquareOutlined />, label: <Link to="/audit/tasks">任务管理</Link> },
+      { key: '/audit/review-requests', icon: <AuditOutlined />, label: <Link to="/audit/review-requests">复核请求</Link> },
       { key: '/audit/step/1', label: <Link to="/audit/step/1">Step 1 选择范围</Link> },
       { key: '/audit/step/2', label: <Link to="/audit/step/2">Step 2 导入证据</Link> },
       { key: '/audit/step/3', label: <Link to="/audit/step/3">Step 3 导入序时簿</Link> },
       { key: '/audit/step/4', label: <Link to="/audit/step/4">Step 4 执行测试</Link> },
       { key: '/audit/bank-reconciliation', icon: <ReconciliationOutlined />, label: <Link to="/audit/bank-reconciliation">银行调节表草稿</Link> },
       { key: '/audit/confirmations', label: <Link to="/audit/confirmations">往来函证控制表</Link> },
+      { key: '/audit/workpapers', label: <Link to="/audit/workpapers">审计工作底稿</Link> },
+      { key: '/audit/workflow', label: <Link to="/audit/workflow">审计工作流</Link> },
       { key: '/audit/step/5', label: <Link to="/audit/step/5">Step 5 复核发现</Link> },
       { key: '/audit/step/6', label: <Link to="/audit/step/6">Step 6 导出报告</Link> },
     ],

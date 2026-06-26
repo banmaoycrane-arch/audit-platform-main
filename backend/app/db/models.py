@@ -1781,3 +1781,184 @@ class AuditProcedureRun(Base):
     concluded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ==================== 审计协作工作流（类 GitHub 工作流）====================
+
+
+class AuditTask(Base):
+    """审计任务 — 对应 GitHub Issue。"""
+    __tablename__ = "audit_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+
+    # 任务基本信息
+    task_no: Mapped[str] = mapped_column(String(50), index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    task_type: Mapped[str] = mapped_column(String(50))
+    audit_area: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # 状态 — 对应 Issue 状态
+    status: Mapped[str] = mapped_column(String(30), default="open")
+    priority: Mapped[str] = mapped_column(String(20), default="normal")
+
+    # 人员
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewer_ids: Mapped[list | None] = mapped_column(JSON, default=list)
+
+    # 关联
+    related_finding_id: Mapped[int | None] = mapped_column(ForeignKey("audit_findings.id"), nullable=True)
+    related_procedure_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    parent_task_id: Mapped[int | None] = mapped_column(ForeignKey("audit_tasks.id"), nullable=True)
+
+    # 时间
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # 标签（对应 GitHub Label）
+    labels: Mapped[list | None] = mapped_column(JSON, default=list)
+
+
+class AuditWorkBranch(Base):
+    """审计工作分支 — 对应 GitHub Branch。"""
+    __tablename__ = "audit_work_branches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("audit_tasks.id"), index=True)
+
+    # 分支信息
+    branch_name: Mapped[str] = mapped_column(String(200))
+    base_branch: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="active")
+
+    # 人员
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+    # 关联的工作底稿和程序
+    workpaper_index_id: Mapped[int | None] = mapped_column(ForeignKey("workpaper_indexes.id"), nullable=True)
+    procedure_run_id: Mapped[int | None] = mapped_column(ForeignKey("audit_procedure_runs.id"), nullable=True)
+
+    # 版本快照
+    latest_version_id: Mapped[int | None] = mapped_column(ForeignKey("workpaper_versions.id"), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AuditReviewRequest(Base):
+    """复核请求 — 对应 GitHub Pull Request。"""
+    __tablename__ = "audit_review_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("audit_tasks.id"), index=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("audit_work_branches.id"), index=True)
+
+    # PR 基本信息
+    pr_no: Mapped[str] = mapped_column(String(50), index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # 目标分支（要合并到哪里）
+    target_branch: Mapped[str] = mapped_column(String(200), default="main")
+
+    # 状态
+    status: Mapped[str] = mapped_column(String(30), default="draft")
+    current_review_level: Mapped[int] = mapped_column(Integer, default=1)
+
+    # 人员
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    reviewer_level_1_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewer_level_2_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewer_level_3_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    merged_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+    # 时间
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AuditReviewAction(Base):
+    """复核动作 — 对应 GitHub Review。"""
+    __tablename__ = "audit_review_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    review_request_id: Mapped[int] = mapped_column(ForeignKey("audit_review_requests.id"), index=True)
+
+    # 复核级别
+    review_level: Mapped[int] = mapped_column(Integer)
+
+    # 复核结果
+    action: Mapped[str] = mapped_column(String(40))
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # 复核人
+    reviewer_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
+    # 签名（电子签名哈希）
+    signature_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuditComment(Base):
+    """审计评论 — 对应 GitHub Comment。"""
+    __tablename__ = "audit_comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # 评论对象类型（任务 / 分支 / 复核请求 / 底稿版本）
+    target_type: Mapped[str] = mapped_column(String(50), index=True)
+    target_id: Mapped[int] = mapped_column(Integer, index=True)
+
+    # 评论内容
+    content: Mapped[str] = mapped_column(Text)
+    mention_user_ids: Mapped[list | None] = mapped_column(JSON, default=list)
+
+    # 评论人
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuditMilestone(Base):
+    """审计里程碑 — 对应 GitHub Tag/Release。"""
+    __tablename__ = "audit_milestones"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+
+    # 里程碑信息
+    milestone_no: Mapped[str] = mapped_column(String(50), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    milestone_type: Mapped[str] = mapped_column(String(50))
+
+    # 状态
+    status: Mapped[str] = mapped_column(String(30), default="planned")
+
+    # 人员
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+    # 快照信息（归档时的版本快照）
+    snapshot_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
