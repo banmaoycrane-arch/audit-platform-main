@@ -4,9 +4,17 @@
 
 ## [Unreleased]
 
+## [2026-06-26]
+
+### Added / 新增
+
+- **AI 发票权责发生制暂存**：仅上传发票时，系统按所选会计判断原则生成应收、收入与销项税草案，标记为「暂存-待收款确认」并允许落库，不直接确认银行存款。（PR [#85](https://github.com/banmaoycrane-arch/audit-platform-main/pull/85)）
+- **会计判断原则**：凭证生成 API 新增 `accounting_judgment_policy` 参数，支持「默认合规」「收入确认优先」「往来确认优先」三种口径，影响发票借方科目（应收/冲预收）与收入确认时点。（PR [#85](https://github.com/banmaoycrane-arch/audit-platform-main/pull/85)）
+- **发票+流水两阶段分录**：同时有发票与银行流水时，先生成开票挂应收（权责发生），再生成收款核销应收，避免发票直连银行存款，便于现金流量表归集。（PR [#85](https://github.com/banmaoycrane-arch/audit-platform-main/pull/85)）
+
 ### Changed / 变更
 
-- **AI 凭证证据暂存（权责发生制）**：单发票可暂存落库（应收+收入），不确认银行存款；发票+流水走「开票挂应收 → 收款核销应收」两笔分录，避免发票直连银行存款，便于现金流量表归集。（分支 `cursor/auto-ai-evidence-staging-70f0`）
+- **AI 凭证 Step3 界面**：新增会计判断原则单选与「暂存-待收款确认」状态提示，部分证据不足时允许继续暂存而非一律阻断。（PR [#85](https://github.com/banmaoycrane-arch/audit-platform-main/pull/85)）
 
 ## [2026-06-25]
 
