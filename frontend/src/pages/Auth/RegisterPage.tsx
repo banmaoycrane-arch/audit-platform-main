@@ -39,7 +39,7 @@ export function RegisterPage() {
       return '用户名已存在，请更换用户名或直接登录'
     }
     if (rawMessage.includes('Phone already exists')) {
-      return '手机号已注册，可直接登录或使用其他手机号注册'
+      return '该手机号已绑定完整账号，请直接登录'
     }
     if (rawMessage.includes('Must agree to terms and privacy policy')) {
       return '请先同意用户协议和隐私政策'
@@ -52,7 +52,7 @@ export function RegisterPage() {
 
   const handleRegister = async (values: {
     username: string
-    phone: string
+    phone?: string
     password: string
     confirmPassword: string
   }) => {
@@ -66,11 +66,12 @@ export function RegisterPage() {
       return
     }
 
-    let res: { access_token: string }
+    let res: { access_token: string; account_upgraded?: boolean }
     try {
+      const phone = values.phone?.trim() || undefined
       res = await api.registerUser({
         username: values.username,
-        phone: values.phone,
+        ...(phone ? { phone } : {}),
         password: values.password,
         agreed_terms: agreedTerms,
         agreed_privacy: agreedPrivacy,
@@ -87,7 +88,7 @@ export function RegisterPage() {
     }
 
     localStorage.setItem('token', res.access_token)
-    message.success('注册成功')
+    message.success(res.account_upgraded ? '账号已完善，注册成功' : '注册成功')
 
     try {
       const context = await api.getAuthContext()
@@ -132,8 +133,8 @@ export function RegisterPage() {
           <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
             <Input prefix={<UserOutlined />} placeholder="用户名" size="large" />
           </Form.Item>
-          <Form.Item name="phone" rules={[{ required: true, message: '请输入手机号' }]}>
-            <Input prefix={<MobileOutlined />} placeholder="手机号" size="large" />
+          <Form.Item name="phone">
+            <Input prefix={<MobileOutlined />} placeholder="手机号（选填，用于找回账号）" size="large" />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
             <Input.Password prefix={<LockOutlined />} placeholder="密码" size="large" />

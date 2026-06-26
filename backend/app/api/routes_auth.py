@@ -46,6 +46,7 @@ class SmsCodeResponse(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    account_upgraded: bool = False
 
 
 class UserResponse(BaseModel):
@@ -80,17 +81,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     if not username and not phone:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username or phone required")
 
-    if username:
-        existing = auth_service.get_user_by_username(db, username)
-        if existing:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already exists")
-    if phone:
-        existing = auth_service.get_user_by_phone(db, phone)
-        if existing:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone already exists")
-
     try:
-        user = auth_service.register_user(
+        user, upgraded = auth_service.register_or_upgrade_user(
             db,
             username=username,
             phone=phone,
@@ -98,6 +90,11 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
             agreed_terms=payload.agreed_terms,
             agreed_privacy=payload.agreed_privacy,
         )
+    except auth_service.RegisterConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.message,
+        ) from None
     except IntegrityError:
         db.rollback()
         raise HTTPException(
@@ -106,7 +103,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         ) from None
 
     token = create_access_token({"sub": str(user.id)})
-    return TokenResponse(access_token=token)
+    return TokenResponse(access_token=token, account_upgraded=upgraded)
 
 
 @router.post("/login/password", response_model=TokenResponse)

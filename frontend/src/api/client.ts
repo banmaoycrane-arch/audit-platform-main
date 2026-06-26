@@ -1201,7 +1201,7 @@ export const api = {
     agreed_terms: boolean
     agreed_privacy: boolean
   }) =>
-    request<{ access_token: string; token_type: string }>('/api/auth/register', {
+    request<{ access_token: string; token_type: string; account_upgraded?: boolean }>('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)

@@ -142,6 +142,65 @@ def test_register_rejects_duplicate_phone() -> None:
     assert duplicate_response.json()["detail"] == "Phone already exists"
 
 
+def test_register_upgrades_sms_only_account_with_same_phone() -> None:
+    phone = "13800138030"
+    code_response = client.post("/api/auth/sms/code", json={"phone": phone})
+    assert code_response.status_code == 200
+    sms_login = client.post("/api/auth/login/sms", json={
+        "phone": phone,
+        "code": code_response.json()["sms_code"],
+    })
+    assert sms_login.status_code == 200
+    sms_user_id = decode_token(sms_login.json()["access_token"])["sub"]
+
+    register_response = client.post("/api/auth/register", json={
+        "username": "sms_upgrade_user",
+        "phone": phone,
+        "password": "password123",
+        "agreed_terms": True,
+        "agreed_privacy": True,
+    })
+    assert register_response.status_code == 200
+    data = register_response.json()
+    assert data["account_upgraded"] is True
+    assert decode_token(data["access_token"])["sub"] == sms_user_id
+
+    me_response = client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {data['access_token']}"},
+    )
+    assert me_response.status_code == 200
+    me_data = me_response.json()
+    assert me_data["username"] == "sms_upgrade_user"
+    assert me_data["phone"] == phone
+
+    password_login = client.post("/api/auth/login/password", json={
+        "username": "sms_upgrade_user",
+        "password": "password123",
+    })
+    assert password_login.status_code == 200
+
+
+def test_register_username_only_without_phone() -> None:
+    response = client.post("/api/auth/register", json={
+        "username": "username_only_user",
+        "password": "password123",
+        "agreed_terms": True,
+        "agreed_privacy": True,
+    })
+    assert response.status_code == 200
+    assert response.json()["account_upgraded"] is False
+
+    me_response = client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {response.json()['access_token']}"},
+    )
+    assert me_response.status_code == 200
+    me_data = me_response.json()
+    assert me_data["username"] == "username_only_user"
+    assert me_data["phone"] is None
+
+
 def test_login_password_success() -> None:
     # register first
     client.post("/api/auth/register", json={

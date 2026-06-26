@@ -9,6 +9,19 @@ from app.db.models import Entity, SmsVerificationCode
 from app.services import ledger_management_service, project_service
 
 
+class RegisterConflictError(Exception):
+    """注册时用户名或手机号与已完成的账号冲突。"""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+def is_incomplete_sms_account(user: User) -> bool:
+    """验证码登录自动创建的占位账号：有手机号、尚未设置用户名。"""
+    return user.phone is not None and user.username is None
+
+
 def get_user_by_id(db: Session, user_id: int) -> User | None:
     return db.query(User).filter(User.id == user_id).first()
 
@@ -41,6 +54,57 @@ def register_user(
     db.commit()
     db.refresh(user)
     return user
+
+
+def register_or_upgrade_user(
+    db: Session,
+    username: str | None,
+    phone: str | None,
+    password: str,
+    agreed_terms: bool,
+    agreed_privacy: bool,
+) -> tuple[User, bool]:
+    """
+    注册新用户，或将验证码占位账号补全为密码账号。
+
+    验证码登录会先创建「仅有手机号、无用户名」的占位用户；此时用同一手机号注册
+    应升级该账号而非报冲突。仅当手机号已绑定完整账号（已设用户名）时才拒绝注册。
+
+    Returns:
+        (user, upgraded): upgraded 为 True 表示完成了占位账号升级。
+    """
+    if phone:
+        phone_user = get_user_by_phone(db, phone)
+        if phone_user:
+            if is_incomplete_sms_account(phone_user):
+                if username:
+                    existing_username = get_user_by_username(db, username)
+                    if existing_username and existing_username.id != phone_user.id:
+                        raise RegisterConflictError("Username already exists")
+                    phone_user.username = username
+                phone_user.hashed_password = get_password_hash(password)
+                phone_user.agreed_terms = agreed_terms
+                phone_user.agreed_privacy = agreed_privacy
+                db.add(phone_user)
+                db.commit()
+                db.refresh(phone_user)
+                return phone_user, True
+            raise RegisterConflictError("Phone already exists")
+
+    if username:
+        existing = get_user_by_username(db, username)
+        if existing:
+            raise RegisterConflictError("Username already exists")
+
+    user = register_user(
+        db,
+        username=username,
+        phone=phone,
+        password=password,
+        agreed_terms=agreed_terms,
+        agreed_privacy=agreed_privacy,
+    )
+    return user, False
 
 
 def get_password_login_user(db: Session, username: str) -> User | None:
