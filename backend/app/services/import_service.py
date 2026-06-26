@@ -1038,16 +1038,44 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
             report_output_path = "structured_preview"
             failed_structured = [r for r in structured_previews if not r.success]
             if failed_structured:
-                job.status = "failed"
+                # 解析失败时保存草稿数据，进入 draft 状态供用户重试
+                job.status = "draft"
                 report_error_message = failed_structured[0].error_message
                 report_parse_diagnostics = failed_structured[0].parse_diagnostics
                 job.error_message = report_error_message
+                job.draft_data = {
+                    "stage": "structured_preview_failed",
+                    "file_results": [{
+                        "filename": r.filename,
+                        "success": r.success,
+                        "error_message": r.error_message,
+                        "parse_diagnostics": r.parse_diagnostics,
+                        "entries_created": r.entries_created,
+                    } for r in file_results],
+                    "total_entries": total_entries,
+                    "failed_at": datetime.utcnow().isoformat(),
+                    "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
+                }
             else:
                 job.status = "completed"
         elif failed_files > 0 and total_entries == 0:
-            job.status = "failed"
+            # 所有文件解析失败，保存草稿数据进入 draft 状态
+            job.status = "draft"
             report_error_message = next((r.error_message for r in file_results if r.error_message), "导入处理失败")
             job.error_message = report_error_message
+            job.draft_data = {
+                "stage": "all_files_failed",
+                "file_results": [{
+                    "filename": r.filename,
+                    "success": r.success,
+                    "error_message": r.error_message,
+                    "parse_diagnostics": r.parse_diagnostics,
+                    "entries_created": r.entries_created,
+                } for r in file_results],
+                "total_entries": total_entries,
+                "failed_at": datetime.utcnow().isoformat(),
+                "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
+            }
         else:
             job.status = "completed"
 

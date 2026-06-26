@@ -512,7 +512,17 @@ export function Step2AccountingImportSource() {
         message.success({ content: `文件已登记为模块台账底稿：${file.name}`, key: 'parsing' })
         console.debug('Parse report:', syncResult)
       } catch (err) {
-        message.warning({ content: `${file.name} 上传成功，但解析失败：${err instanceof Error ? err.message : String(err)}`, key: 'parsing' })
+        // 解析失败时，跳转到草稿页面让用户处理
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        message.warning({
+          content: `${file.name} 上传成功，但解析失败：${errorMessage}。正在跳转到草稿页面...`,
+          key: 'parsing',
+          duration: 3,
+        })
+        // 延迟跳转，让用户看到提示
+        setTimeout(() => {
+          navigate(`/ledger/vouchers/draft/${jobId}`)
+        }, 1500)
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)

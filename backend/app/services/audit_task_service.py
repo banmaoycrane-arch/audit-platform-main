@@ -17,6 +17,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db.models import AuditTask
+from app.models.project_ledger import ProjectLedger
 from app.schemas.audit_workflow import AuditTaskCreate, AuditTaskUpdate
 
 
@@ -91,6 +92,7 @@ def _serialize_task(task: AuditTask) -> dict[str, Any]:
         "id": task.id,
         "project_id": task.project_id,
         "ledger_id": task.ledger_id,
+        "import_job_id": task.import_job_id,
         "task_no": task.task_no,
         "title": task.title,
         "description": task.description,
@@ -188,6 +190,7 @@ def create_task(
     """创建审计任务。
 
     自动生成项目内唯一的任务编号，初始状态为 open。
+    校验账套归属：任务绑定的账套必须属于该项目。
 
     Args:
         db: 数据库会话
@@ -196,7 +199,21 @@ def create_task(
 
     Returns:
         创建后的任务详情字典
+
+    Raises:
+        ValueError: 账套不属于该项目
     """
+    ledger_in_project = (
+        db.query(ProjectLedger)
+        .filter(
+            ProjectLedger.project_id == task_data.project_id,
+            ProjectLedger.ledger_id == task_data.ledger_id,
+        )
+        .first()
+    )
+    if not ledger_in_project:
+        raise ValueError("账套不属于该项目，请选择项目关联的账套")
+
     task_no = _generate_task_no(db, task_data.project_id)
 
     task = AuditTask(
@@ -410,3 +427,40 @@ def get_user_todo_tasks(
 
     rows = query.order_by(AuditTask.created_at.desc()).all()
     return [_serialize_task(row) for row in rows]
+
+
+def link_import_job_to_task(
+    db: Session,
+    task_id: int,
+    import_job_id: int,
+) -> dict[str, Any]:
+    """关联导入任务到审计任务。
+
+    将导入的数据与审计任务关联，便于后续执行审计测试。
+
+    Args:
+        db: 数据库会话
+        task_id: 任务ID
+        import_job_id: 导入任务ID
+
+    Returns:
+        更新后的任务详情字典
+
+    Raises:
+        ValueError: 任务不存在或导入任务不存在
+    """
+    from app.db.models import ImportJob
+
+    task = db.query(AuditTask).filter(AuditTask.id == task_id).first()
+    if task is None:
+        raise ValueError("任务不存在")
+
+    import_job = db.query(ImportJob).filter(ImportJob.id == import_job_id).first()
+    if import_job is None:
+        raise ValueError("导入任务不存在")
+
+    task.import_job_id = import_job_id
+    task.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(task)
+    return _serialize_task(task)

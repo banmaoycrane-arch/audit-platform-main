@@ -1323,6 +1323,22 @@ export const api = {
       `/api/import-jobs/${jobId}/process/sync`,
       { method: 'POST' }
     ),
+  getImportJobDraft: (jobId: number) =>
+    request<{
+      job_id: number
+      status: string
+      error_message: string | null
+      draft_data: Record<string, unknown> | null
+      source_type: string
+      entry_count: number
+      file_count: number
+      created_at: string | null
+    }>(`/api/import-jobs/${jobId}/draft`),
+  retryImportJob: (jobId: number) =>
+    request<{ job_id: number; status: string; message: string }>(
+      `/api/import-jobs/${jobId}/retry`,
+      { method: 'POST' }
+    ),
   getImportReport: (jobId: number) => request<any>(`/api/import-jobs/${jobId}/report`),
   getDayBookReport: (jobId: number) => request<DayBookReport>(`/api/import-jobs/${jobId}/day-book-report`),
   getImportPeriodSuggestion: (jobId: number) => request<ImportPeriodSuggestion>(`/api/import-jobs/${jobId}/period-suggestion`),
@@ -1659,6 +1675,7 @@ export const api = {
     }>('/api/dashboard/summary', { headers })
   },
   listProjects: () => request<Project[]>('/api/projects'),
+  listProjectLedgers: (projectId: number) => request<{ id: number; name: string }[]>(`/api/projects/${projectId}/ledgers`),
   createProject: (payload: {
     team_id: number
     name: string

@@ -26,6 +26,8 @@ class ImportJob(Base):
     file_count: Mapped[int] = mapped_column(Integer, default=0)
     entry_count: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # draft_data: 保存解析失败时的原始数据，供草稿页面展示和重试
+    draft_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     audit_scope_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
     audit_period_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_periods.id"), nullable=True)
     audit_account_codes: Mapped[list | None] = mapped_column(JSON, nullable=True)
@@ -1792,7 +1794,10 @@ class AuditTask(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
-    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
+
+    # 关联的导入任务 — 用于执行审计测试
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True, index=True)
 
     # 任务基本信息
     task_no: Mapped[str] = mapped_column(String(50), index=True)
@@ -1833,6 +1838,9 @@ class AuditWorkBranch(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("audit_tasks.id"), index=True)
+
+    # 关联的导入任务 — 用于执行审计测试
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True, index=True)
 
     # 分支信息
     branch_name: Mapped[str] = mapped_column(String(200))

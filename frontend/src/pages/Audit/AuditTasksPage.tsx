@@ -85,6 +85,7 @@ export function AuditTasksPage() {
   const { currentLedgerId } = useAuthStore()
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState<number | null>(null)
+  const [projectLedgers, setProjectLedgers] = useState<{ id: number; name: string }[]>([])
   const [tasks, setTasks] = useState<AuditTask[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -102,6 +103,13 @@ export function AuditTasksPage() {
     api.listProjects().then((rows) => {
       setProjects(rows)
       if (!projectId && rows.length > 0) setProjectId(rows[0].id)
+    })
+  }
+
+  const loadProjectLedgers = () => {
+    if (!projectId) return
+    api.listProjectLedgers(projectId).then((rows) => {
+      setProjectLedgers(rows)
     })
   }
 
@@ -129,6 +137,7 @@ export function AuditTasksPage() {
 
   useEffect(() => {
     setPage(1)
+    loadProjectLedgers()
   }, [statusFilter, priorityFilter, taskTypeFilter, projectId])
 
   useEffect(() => {
@@ -141,7 +150,7 @@ export function AuditTasksPage() {
       const values = await createForm.validateFields()
       const payload: any = {
         project_id: projectId,
-        ledger_id: currentLedgerId || undefined,
+        ledger_id: values.ledger_id,
         title: values.title,
         description: values.description,
         task_type: values.task_type,
@@ -335,6 +344,17 @@ export function AuditTasksPage() {
             rules={[{ required: true, message: '请输入任务标题' }]}
           >
             <Input placeholder="请输入任务标题" maxLength={200} />
+          </Form.Item>
+          <Form.Item
+            name="ledger_id"
+            label="关联账套"
+            rules={[{ required: true, message: '请选择关联账套' }]}
+          >
+            <Select
+              options={projectLedgers.map((item) => ({ value: item.id, label: item.name }))}
+              placeholder="请选择账套"
+              style={{ width: '100%' }}
+            />
           </Form.Item>
           <Form.Item name="description" label="任务描述">
             <TextArea rows={3} placeholder="请输入任务描述" maxLength={1000} />
