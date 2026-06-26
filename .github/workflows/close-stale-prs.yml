@@ -1,0 +1,41 @@
+name: Close stale PRs
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_prs:
+        description: Comma-separated PR numbers to keep open
+        required: false
+        default: '87'
+        type: string
+
+permissions:
+  pull-requests: write
+
+jobs:
+  close-stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close stale open PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_PRS: ${{ inputs.keep_prs }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra KEEP <<< "${KEEP_PRS}"
+          keep_json=$(printf '%s\n' "${KEEP[@]}" | jq -R 'tonumber' | jq -s '.')
+          gh pr list --state open --limit 200 --json number,title,headRefName,changedFiles \
+            | jq --argjson keep "$keep_json" '
+                .[]
+                | select(.number as $n | $keep | index($n) | not)
+                | select(
+                    (.title | test("CI|binding-requests"))
+                    or (.headRefName | startswith("cursor/autobc-"))
+                    or (.changedFiles == 0)
+                  )
+                | .number
+              ' -r \
+            | while read -r pr; do
+                echo "Closing #$pr"
+                gh pr close "$pr" --delete-branch=false || true
+              done
