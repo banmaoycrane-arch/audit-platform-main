@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button, Card, Descriptions, Empty, List, message, Result, Spin, Tag, Table } from 'antd'
 import { ReloadOutlined, FileTextOutlined, ArrowRightOutlined, ExclamationCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
@@ -12,6 +12,7 @@ import { api } from '../../api/client'
  *   1. 加载任务草稿数据（draft_data、error_message、file_results 等）
  *   2. 展示失败原因、原始数据预览、重试/手动编辑入口
  *   3. 提供进入下一任务分支的导航
+ *   4. 轮询任务状态，最大轮询 20 次（约 1 分钟），超时后停止轮询
  *
  * 会计口径：
  *   - 草稿状态 = 上传成功但解析未完成，用户可重试或手动录入
@@ -24,6 +25,12 @@ export function DraftPage() {
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState(false)
   const [polling, setPolling] = useState(false)
+  const [pollCount, setPollCount] = useState(0)
+  const [pollTimeout, setPollTimeout] = useState(false)
+  const maxPollCount = 20 // 最大轮询 20 次，约 1 分钟
+  const pollInterval = 3000 // 轮询间隔 3 秒
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const [draftData, setDraftData] = useState<{
     job_id: number
     status: string
@@ -51,6 +58,13 @@ export function DraftPage() {
       return
     }
     loadDraftData()
+
+    // 清理定时器
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+      }
+    }
   }, [jobId])
 
   const loadDraftData = async () => {
@@ -64,10 +78,19 @@ export function DraftPage() {
 
       // 如果任务还在处理中，轮询检查状态
       if (data.status === 'processing') {
+        // 检查是否超过最大轮询次数
+        if (pollCount >= maxPollCount) {
+          setPollTimeout(true)
+          setPolling(false)
+          message.warning('解析超时，请尝试重新上传或手工录入')
+          return
+        }
+
         setPolling(true)
-        setTimeout(() => {
+        setPollCount(prev => prev + 1)
+        timerRef.current = setTimeout(() => {
           loadDraftData()
-        }, 3000)
+        }, pollInterval)
         return
       }
 
@@ -88,7 +111,9 @@ export function DraftPage() {
       message.error(`加载草稿数据失败：${detail}`)
     } finally {
       setLoading(false)
-      setPolling(false)
+      if (!draftData || draftData.status !== 'processing') {
+        setPolling(false)
+      }
     }
   }
 
@@ -108,6 +133,9 @@ export function DraftPage() {
   const handleRetry = async () => {
     try {
       setRetrying(true)
+      // 重置轮询计数
+      setPollCount(0)
+      setPollTimeout(false)
       const result = await api.retryImportJob(Number(jobId))
       message.success(result.message)
       // 重试后跳转到 Step 2 重新上传
@@ -130,7 +158,17 @@ export function DraftPage() {
     navigate(`/ledger/vouchers/step/3?jobId=${jobId}`)
   }
 
-  if (loading) {
+  const handleForceStop = () => {
+    // 强制停止轮询，显示超时状态
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+    }
+    setPolling(false)
+    setPollTimeout(true)
+    message.info('已停止轮询，可以手动操作')
+  }
+
+  if (loading && !polling) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
         <Spin size="large" tip="正在加载草稿数据..." />
@@ -190,6 +228,11 @@ export function DraftPage() {
           subTitle={
             <div>
               <p>{draftData.error_message || (isProcessing ? '系统正在处理文件，请稍候...' : '系统处理异常，请检查文件格式后重试')}</p>
+              {pollTimeout && (
+                <p style={{ color: '#f5222d', fontWeight: 'bold' }}>
+                  解析超时：已达到最大等待时间（{maxPollCount * pollInterval / 1000} 秒），请尝试重新上传或手工录入
+                </p>
+              )}
               <p style={{ fontSize: 12, color: '#999' }}>
                 请求编号：{requestId}
               </p>
@@ -202,7 +245,7 @@ export function DraftPage() {
               icon={<ReloadOutlined />}
               loading={retrying}
               onClick={handleRetry}
-              disabled={isProcessing}
+              disabled={isProcessing && !pollTimeout}
             >
               重新上传并解析
             </Button>,
@@ -210,7 +253,7 @@ export function DraftPage() {
               key="manual"
               icon={<FileTextOutlined />}
               onClick={handleManualEntry}
-              disabled={isProcessing}
+              disabled={isProcessing && !pollTimeout}
             >
               手工录入凭证
             </Button>,
@@ -218,13 +261,40 @@ export function DraftPage() {
               key="step3"
               icon={<ArrowRightOutlined />}
               onClick={handleGoToStep3}
-              disabled={isProcessing}
+              disabled={isProcessing && !pollTimeout}
             >
               尝试生成草稿
             </Button>,
-          ]}
+            isProcessing && !pollTimeout && (
+              <Button
+                key="stop"
+                danger
+                onClick={handleForceStop}
+              >
+                停止轮询
+              </Button>
+            ),
+          ].filter(Boolean)}
         />
       </Card>
+
+      {/* 轮询状态提示 */}
+      {isProcessing && (
+        <Card style={{ marginTop: 16, background: '#f6ffed' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <p style={{ margin: 0 }}>
+                <ClockCircleOutlined spin style={{ marginRight: 8, color: '#52c41a' }} />
+                正在轮询任务状态...（第 {pollCount} / {maxPollCount} 次）
+              </p>
+              <p style={{ margin: '8px 0 0 0', fontSize: 12, color: '#999' }}>
+                预计剩余时间：约 {Math.max(0, (maxPollCount - pollCount) * pollInterval / 1000)} 秒
+              </p>
+            </div>
+            <Spin size="small" />
+          </div>
+        </Card>
+      )}
 
       <Card title="任务信息" style={{ marginTop: 16 }}>
         <Descriptions bordered column={2}>

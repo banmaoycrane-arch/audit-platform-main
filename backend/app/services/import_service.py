@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 import json
 from pathlib import Path
+import threading
 from typing import Any
 from uuid import uuid4
 
@@ -63,7 +64,7 @@ from app.storage.local_storage import save_upload
 ACCOUNTING_FILE_TYPES = {".xlsx", ".xls", ".csv"}
 
 # 原始文件类型
-SOURCE_FILE_TYPES = {".pdf", ".txt", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
+SOURCE_FILE_TYPES = {".pdf", ".txt", ".md", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
 
 DOCUMENT_TYPE_LABELS = {
     "invoice": "发票",
@@ -785,17 +786,94 @@ def _process_structured_preview(db: Session, job: ImportJob, source_file: Source
         )
 
 
+def _extract_text_with_ocr(path: str) -> str:
+    """
+    功能描述：增强版文本提取，支持 PDF OCR 及多种文档格式
+    业务逻辑：
+        1. 对 PDF 文件，先尝试常规提取；若内容为空或极少，则使用 OCR
+        2. 对 .md 文件，直接读取文本
+        3. 对 .doc/.docx 文件，尝试使用 python-docx 提取
+    会计口径：文本提取仅用于审计底稿归档和 AI 识别，不影响金额精度
+    """
+    file_path = Path(path)
+    suffix = file_path.suffix.lower()
+
+    # Markdown 文件直接读取
+    if suffix == ".md":
+        return file_path.read_text(encoding="utf-8", errors="ignore")
+
+    # Word 文档处理
+    if suffix in {".doc", ".docx"}:
+        try:
+            import docx
+            doc = docx.Document(file_path)
+            return "\n".join(p.text for p in doc.paragraphs if p.text)
+        except Exception:
+            return ""
+
+    # PDF 处理：先常规提取，再 OCR 兜底
+    if suffix == ".pdf":
+        try:
+            import pdfplumber
+
+            with pdfplumber.open(file_path) as pdf:
+                text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+                # 如果提取到的文本极少（少于 50 个字符），认为是纯图片型 PDF，尝试 OCR
+                if len(text.strip()) < 50:
+                    try:
+                        from pdf2image import convert_from_path
+                        import pytesseract
+
+                        images = convert_from_path(file_path, dpi=200)
+                        ocr_texts = []
+                        for img in images:
+                            page_text = pytesseract.image_to_string(img, lang="chi_sim+eng")
+                            ocr_texts.append(page_text)
+                        text = "\n".join(ocr_texts)
+                    except Exception:
+                        pass
+                return text
+        except Exception:
+            return ""
+
+    # 图片 OCR（复用已有服务）
+    if suffix in {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}:
+        from app.services.ocr_service import extract_text_from_image
+        return extract_text_from_image(path)
+
+    # 纯文本
+    if suffix in {".txt", ".csv"}:
+        return file_path.read_text(encoding="utf-8", errors="ignore")
+
+    return ""
+
+
+def _is_image_only_pdf(path: str) -> bool:
+    """
+    功能描述：判断 PDF 是否为纯图片型（无文字层）
+    业务逻辑：提取文本后若内容极少，则判定为纯图片型
+    """
+    try:
+        import pdfplumber
+
+        with pdfplumber.open(path) as pdf:
+            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+            return len(text.strip()) < 50
+    except Exception:
+        return False
+
+
 def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -> ProcessingResult:
     """
     处理原始文件
 
     流程：
-    1. 提取文本（PDF/TXT/图片OCR）
+    1. 提取文本（PDF/TXT/图片OCR/Word/Markdown）
     2. 向量索引
     """
     try:
-        # 提取文本
-        text = extract_text(source_file.storage_path)
+        # 提取文本（使用增强版提取器）
+        text = _extract_text_with_ocr(source_file.storage_path)
 
         if not text:
             source_file.text_extract_status = "unsupported"
@@ -883,7 +961,7 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
 
     支持两种文件类型分别处理：
     - 会计凭证文件 (.xlsx, .xls, .csv) → 解析分录
-    - 原始文件 (.pdf, .txt, 图片) → 提取文本
+    - 原始文件 (.pdf, .txt, .md, .doc, .docx, 图片) → 提取文本
 
     支持两种数据来源模式：
     - voucher_import（默认）：标准凭证导入模式
@@ -893,6 +971,8 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
     - 多维度 tags 语义标签
     - 逻辑校验（摘要-科目匹配）
     - 风险案例匹配
+    - 解析超时保护（30 秒）
+    - PDF OCR 支持（纯图片型 PDF 自动识别）
     """
     job.status = "processing"
     job.error_message = None
@@ -900,151 +980,209 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
 
     output_path = get_import_output_path(job.source_type)
 
-    # 序时簿模式（审计 / 记账）：调用专用处理逻辑
-    if is_day_book_source_type(job.source_type):
-        day_book_result = process_day_book_import(db, job)
-        if not day_book_result.success:
-            job.status = "failed"
-            job.error_message = day_book_result.error_message
+    # 超时保护：30 秒超时后自动设置为 draft
+    timeout_occurred = False
+    timeout_error = ""
+
+    def _on_timeout():
+        nonlocal timeout_occurred, timeout_error
+        timeout_occurred = True
+        timeout_error = "解析超时：文件处理时间超过 30 秒，已保存为草稿供后续重试"
+        try:
+            job.status = "draft"
+            job.error_message = timeout_error
+            job.draft_data = {
+                "stage": "parse_timeout",
+                "error_message": timeout_error,
+                "failed_at": datetime.utcnow().isoformat(),
+                "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
+            }
             db.commit()
+        except Exception:
+            pass
+
+    timer = threading.Timer(30.0, _on_timeout)
+    timer.start()
+
+    try:
+        # 序时簿模式（审计 / 记账）：调用专用处理逻辑
+        if is_day_book_source_type(job.source_type):
+            day_book_result = process_day_book_import(db, job)
+            if not day_book_result.success:
+                job.status = "failed"
+                job.error_message = day_book_result.error_message
+                db.commit()
+                timer.cancel()
+                return ImportReport(
+                    job_id=job.id,
+                    total_files=0,
+                    success_files=0,
+                    failed_files=1,
+                    total_entries=0,
+                    output_path=output_path,
+                    error_message=day_book_result.error_message,
+                    parse_diagnostics=day_book_result.parse_diagnostics,
+                    file_results=[
+                        ProcessingResult(
+                            file_type="accounting_entry",
+                            filename=job.source_type,
+                            success=False,
+                            error_message=day_book_result.error_message or "序时簿处理失败",
+                            parse_diagnostics=day_book_result.parse_diagnostics,
+                            recommended_mode="day_book_import",
+                        )
+                    ],
+                )
+
+            job.entry_count = day_book_result.entries_created
+            job.status = "completed"
+            db.commit()
+            timer.cancel()
+
+            period_suggestion = None
+            if day_book_result.entries_created > 0:
+                generate_risks(db, job.id)
+                period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
+
             return ImportReport(
                 job_id=job.id,
-                total_files=0,
-                success_files=0,
-                failed_files=1,
-                total_entries=0,
+                total_files=1,
+                success_files=1,
+                failed_files=0,
+                total_entries=day_book_result.entries_created,
                 output_path=output_path,
-                error_message=day_book_result.error_message,
-                parse_diagnostics=day_book_result.parse_diagnostics,
+                period_suggestion=period_suggestion,
+                day_book_report=day_book_result.report,
                 file_results=[
                     ProcessingResult(
                         file_type="accounting_entry",
                         filename=job.source_type,
-                        success=False,
-                        error_message=day_book_result.error_message or "序时簿处理失败",
-                        parse_diagnostics=day_book_result.parse_diagnostics,
-                        recommended_mode="day_book_import",
+                        success=True,
+                        entries_created=day_book_result.entries_created,
                     )
                 ],
             )
 
-        job.entry_count = day_book_result.entries_created
-        job.status = "completed"
-        db.commit()
+        file_results: list[ProcessingResult] = []
+        total_entries = 0
+        all_entries: list[dict[str, Any]] = []
+        all_tags: list[str] = []
+        logic_reports: list[BatchCheckReport] = []
 
-        period_suggestion = None
-        if day_book_result.entries_created > 0:
-            generate_risks(db, job.id)
-            period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
+        try:
+            files = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
 
-        return ImportReport(
-            job_id=job.id,
-            total_files=1,
-            success_files=1,
-            failed_files=0,
-            total_entries=day_book_result.entries_created,
-            output_path=output_path,
-            period_suggestion=period_suggestion,
-            day_book_report=day_book_result.report,
-            file_results=[
-                ProcessingResult(
-                    file_type="accounting_entry",
-                    filename=job.source_type,
-                    success=True,
-                    entries_created=day_book_result.entries_created,
-                )
-            ],
-        )
+            for source_file in files:
+                file_type = source_file.file_type.lower()
 
-    file_results: list[ProcessingResult] = []
-    total_entries = 0
-    all_entries: list[dict[str, Any]] = []
-    all_tags: list[str] = []
-    logic_reports: list[BatchCheckReport] = []
+                # 根据文件类型选择处理方式
+                if _is_accounting_file(file_type):
+                    if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
+                        result = _process_structured_preview(db, job, source_file)
+                        file_results.append(result)
+                        continue
 
-    try:
-        files = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
+                    if not should_persist_structured_entries(job.source_type):
+                        result = _process_structured_preview(db, job, source_file)
+                        file_results.append(result)
+                        continue
 
-        for source_file in files:
-            file_type = source_file.file_type.lower()
-
-            # 根据文件类型选择处理方式
-            if _is_accounting_file(file_type):
-                if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
-                    result = _process_structured_preview(db, job, source_file)
+                    result, tags, logic_report, parsed_entries = _process_accounting_file(db, job, source_file)
+                    total_entries += result.entries_created
                     file_results.append(result)
-                    continue
+                    all_tags.extend(tags)
+                    if logic_report:
+                        logic_reports.append(logic_report)
 
-                if not should_persist_structured_entries(job.source_type):
-                    result = _process_structured_preview(db, job, source_file)
+                    # 复用解析的分录，避免重复解析
+                    if parsed_entries:
+                        all_entries.extend(parsed_entries)
+
+                elif _is_source_file(file_type):
+                    if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
+                        result = _process_ai_register_file(db, job, source_file)
+                    else:
+                        result = _process_source_file(db, job, source_file)
                     file_results.append(result)
-                    continue
 
-                result, tags, logic_report, parsed_entries = _process_accounting_file(db, job, source_file)
-                total_entries += result.entries_created
-                file_results.append(result)
-                all_tags.extend(tags)
-                if logic_report:
-                    logic_reports.append(logic_report)
-
-                # 复用解析的分录，避免重复解析
-                if parsed_entries:
-                    all_entries.extend(parsed_entries)
-
-            elif _is_source_file(file_type):
-                if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
-                    result = _process_ai_register_file(db, job, source_file)
                 else:
-                    result = _process_source_file(db, job, source_file)
-                file_results.append(result)
+                    # 不支持的文件格式，返回友好错误信息
+                    supported_formats = ", ".join(
+                        sorted(
+                            ACCOUNTING_FILE_TYPES | SOURCE_FILE_TYPES
+                        )
+                    )
+                    friendly_error = (
+                        f"不支持的文件类型: {file_type}。"
+                        f"当前支持的格式包括：{supported_formats}。"
+                        f"请转换格式后重新上传，或联系管理员处理。"
+                    )
+                    result = ProcessingResult(
+                        file_type="unknown",
+                        filename=source_file.filename,
+                        success=False,
+                        error_message=friendly_error,
+                    )
+                    file_results.append(result)
 
-            else:
-                result = ProcessingResult(
-                    file_type="unknown",
-                    filename=source_file.filename,
-                    success=False,
-                    error_message=f"不支持的文件类型: {file_type}",
-                )
-                file_results.append(result)
+            # 生成质量报告（仅针对会计分录）
+            quality_report = None
+            if all_entries:
+                quality_report = generate_quality_report(all_entries)
 
-        # 生成质量报告（仅针对会计分录）
-        quality_report = None
-        if all_entries:
-            quality_report = generate_quality_report(all_entries)
+            # 合并逻辑校验报告
+            combined_logic_report = None
+            if logic_reports:
+                total_errors = sum(r.error_count for r in logic_reports)
+                total_warnings = sum(r.warning_count for r in logic_reports)
+                total_inconsistent = sum(r.inconsistent_entries for r in logic_reports)
+                combined_logic_report = {
+                    "total_errors": total_errors,
+                    "total_warnings": total_warnings,
+                    "total_inconsistent": total_inconsistent,
+                    "consistency_rate": (len(all_entries) - total_inconsistent) / max(len(all_entries), 1) * 100 if all_entries else 0,
+                }
 
-        # 合并逻辑校验报告
-        combined_logic_report = None
-        if logic_reports:
-            total_errors = sum(r.error_count for r in logic_reports)
-            total_warnings = sum(r.warning_count for r in logic_reports)
-            total_inconsistent = sum(r.inconsistent_entries for r in logic_reports)
-            combined_logic_report = {
-                "total_errors": total_errors,
-                "total_warnings": total_warnings,
-                "total_inconsistent": total_inconsistent,
-                "consistency_rate": (len(all_entries) - total_inconsistent) / max(len(all_entries), 1) * 100 if all_entries else 0,
-            }
+            # 更新任务状态
+            job.entry_count = total_entries
+            success_files = sum(1 for r in file_results if r.success)
+            failed_files = len(file_results) - success_files
+            report_error_message: str | None = None
+            report_parse_diagnostics: dict[str, Any] | None = None
+            report_output_path = output_path
 
-        # 更新任务状态
-        job.entry_count = total_entries
-        success_files = sum(1 for r in file_results if r.success)
-        failed_files = len(file_results) - success_files
-        report_error_message: str | None = None
-        report_parse_diagnostics: dict[str, Any] | None = None
-        report_output_path = output_path
-
-        structured_previews = [r for r in file_results if r.file_type == "structured_preview"]
-        if structured_previews:
-            report_output_path = "structured_preview"
-            failed_structured = [r for r in structured_previews if not r.success]
-            if failed_structured:
-                # 解析失败时保存草稿数据，进入 draft 状态供用户重试
+            structured_previews = [r for r in file_results if r.file_type == "structured_preview"]
+            if structured_previews:
+                report_output_path = "structured_preview"
+                failed_structured = [r for r in structured_previews if not r.success]
+                if failed_structured:
+                    # 解析失败时保存草稿数据，进入 draft 状态供用户重试
+                    job.status = "draft"
+                    report_error_message = failed_structured[0].error_message
+                    report_parse_diagnostics = failed_structured[0].parse_diagnostics
+                    job.error_message = report_error_message
+                    job.draft_data = {
+                        "stage": "structured_preview_failed",
+                        "file_results": [{
+                            "filename": r.filename,
+                            "success": r.success,
+                            "error_message": r.error_message,
+                            "parse_diagnostics": r.parse_diagnostics,
+                            "entries_created": r.entries_created,
+                        } for r in file_results],
+                        "total_entries": total_entries,
+                        "failed_at": datetime.utcnow().isoformat(),
+                        "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
+                    }
+                else:
+                    job.status = "completed"
+            elif failed_files > 0 and total_entries == 0:
+                # 所有文件解析失败，保存草稿数据进入 draft 状态
                 job.status = "draft"
-                report_error_message = failed_structured[0].error_message
-                report_parse_diagnostics = failed_structured[0].parse_diagnostics
+                report_error_message = next((r.error_message for r in file_results if r.error_message), "导入处理失败")
                 job.error_message = report_error_message
                 job.draft_data = {
-                    "stage": "structured_preview_failed",
+                    "stage": "all_files_failed",
                     "file_results": [{
                         "filename": r.filename,
                         "success": r.success,
@@ -1058,86 +1196,106 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
                 }
             else:
                 job.status = "completed"
-        elif failed_files > 0 and total_entries == 0:
-            # 所有文件解析失败，保存草稿数据进入 draft 状态
+
+            # 生成风险
+            if total_entries > 0:
+                generate_risks(db, job.id)
+
+            db.commit()
+
+            period_suggestion = None
+            if total_entries > 0 and is_day_book_source_type(job.source_type):
+                period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
+
+            register_summary = [
+                {
+                    "filename": item.filename,
+                    "register_type": item.register_type,
+                    "register_count": item.register_count,
+                    "register_ids": item.register_ids,
+                    "module_label": item.module_label,
+                    "module_path": item.module_path,
+                    "module_registrations": item.module_registrations,
+                    "semantic_decomposition": item.semantic_decomposition,
+                    "semantic_tags": item.semantic_tags,
+                    "risk_hints": item.risk_hints,
+                    "draft_only": item.draft_only,
+                    "success": item.success,
+                    "archive_path": item.archive_path,
+                    "archive_context": item.archive_context,
+                }
+                for item in file_results
+                if item.file_type == "register_ledger"
+            ] or None
+
+            timer.cancel()
+            return ImportReport(
+                job_id=job.id,
+                total_files=len(file_results),
+                success_files=success_files,
+                failed_files=failed_files,
+                total_entries=total_entries,
+                output_path=report_output_path,
+                period_suggestion=period_suggestion,
+                quality_report=quality_report,
+                register_summary=register_summary,
+                file_results=file_results,
+                error_message=report_error_message,
+                parse_diagnostics=report_parse_diagnostics,
+            )
+
+        except Exception as exc:
+            # 如果超时已经发生，使用超时错误信息
+            if timeout_occurred:
+                job.status = "draft"
+                job.error_message = timeout_error
+                job.draft_data = {
+                    "stage": "parse_timeout",
+                    "error_message": timeout_error,
+                    "failed_at": datetime.utcnow().isoformat(),
+                    "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
+                }
+            else:
+                job.status = "failed"
+                job.error_message = str(exc)
+            db.commit()
+            timer.cancel()
+
+            return ImportReport(
+                job_id=job.id,
+                total_files=len(file_results),
+                success_files=0,
+                failed_files=len(file_results),
+                total_entries=total_entries,
+                output_path=output_path,
+                file_results=file_results,
+            )
+
+    except Exception as exc:
+        # 外层异常处理
+        if timeout_occurred:
             job.status = "draft"
-            report_error_message = next((r.error_message for r in file_results if r.error_message), "导入处理失败")
-            job.error_message = report_error_message
+            job.error_message = timeout_error
             job.draft_data = {
-                "stage": "all_files_failed",
-                "file_results": [{
-                    "filename": r.filename,
-                    "success": r.success,
-                    "error_message": r.error_message,
-                    "parse_diagnostics": r.parse_diagnostics,
-                    "entries_created": r.entries_created,
-                } for r in file_results],
-                "total_entries": total_entries,
+                "stage": "parse_timeout",
+                "error_message": timeout_error,
                 "failed_at": datetime.utcnow().isoformat(),
                 "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
             }
         else:
-            job.status = "completed"
-
-        # 生成风险
-        if total_entries > 0:
-            generate_risks(db, job.id)
-
+            job.status = "failed"
+            job.error_message = str(exc)
         db.commit()
-
-        period_suggestion = None
-        if total_entries > 0 and is_day_book_source_type(job.source_type):
-            period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
-
-        register_summary = [
-            {
-                "filename": item.filename,
-                "register_type": item.register_type,
-                "register_count": item.register_count,
-                "register_ids": item.register_ids,
-                "module_label": item.module_label,
-                "module_path": item.module_path,
-                "module_registrations": item.module_registrations,
-                "semantic_decomposition": item.semantic_decomposition,
-                "semantic_tags": item.semantic_tags,
-                "risk_hints": item.risk_hints,
-                "draft_only": item.draft_only,
-                "success": item.success,
-                "archive_path": item.archive_path,
-                "archive_context": item.archive_context,
-            }
-            for item in file_results
-            if item.file_type == "register_ledger"
-        ] or None
+        timer.cancel()
 
         return ImportReport(
             job_id=job.id,
-            total_files=len(file_results),
-            success_files=success_files,
-            failed_files=failed_files,
-            total_entries=total_entries,
-            output_path=report_output_path,
-            period_suggestion=period_suggestion,
-            quality_report=quality_report,
-            register_summary=register_summary,
-            file_results=file_results,
-            error_message=report_error_message,
-            parse_diagnostics=report_parse_diagnostics,
-        )
-
-    except Exception as exc:
-        job.status = "failed"
-        job.error_message = str(exc)
-        db.commit()
-
-        return ImportReport(
-            job_id=job.id,
-            total_files=len(file_results),
+            total_files=0,
             success_files=0,
-            failed_files=len(file_results),
-            total_entries=total_entries,
+            failed_files=0,
+            total_entries=0,
             output_path=output_path,
-            file_results=file_results,
+            file_results=[],
         )
 
 
