@@ -10,6 +10,7 @@
 """
 
 from dataclasses import dataclass, field
+from datetime import date, datetime
 import json
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,7 @@ from app.services.import_routing_service import (
 from app.services.period_detection_service import suggest_period_for_job
 from app.services.data_validator import EntryQuality, ImportQualityReport, generate_quality_report
 from app.services.entry_tags_service import build_semantic_text, generate_entry_tags
-from app.services.file_parser_service import ParseResult, extract_text, parse_entries
+from app.services.file_parser_service import ParseResult, build_parse_diagnostics, extract_text, parse_entries
 from app.services.source_document_service import SourceDocumentResult, classify_document
 from app.services.logic_check_service import (
     BatchCheckReport,
@@ -96,6 +97,8 @@ class ProcessingResult:
     draft_only: bool = False
     archive_path: str | None = None
     archive_context: dict[str, Any] = field(default_factory=dict)
+    parse_diagnostics: dict[str, Any] | None = None
+    recommended_mode: str | None = None
 
 
 @dataclass
@@ -113,6 +116,8 @@ class ImportReport:
     quality_report: ImportQualityReport | None = None
     file_results: list[ProcessingResult] = field(default_factory=list)
     logic_report: BatchCheckReport | None = None  # 合并的逻辑校验报告
+    error_message: str | None = None
+    parse_diagnostics: dict[str, Any] | None = None
 
 
 def create_import_job(
@@ -287,6 +292,12 @@ def _extract_source_summary(result: SourceDocumentResult) -> dict[str, Any]:
     }
 
 
+def _json_default(value: Any) -> str:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def _save_parse_feedback(source_file: SourceFile, feedback: dict[str, Any], raw_text: str | None) -> None:
     source_file.extracted_text = json.dumps(
         {
@@ -294,6 +305,7 @@ def _save_parse_feedback(source_file: SourceFile, feedback: dict[str, Any], raw_
             "raw_text_preview": (raw_text or "")[:1000],
         },
         ensure_ascii=False,
+        default=_json_default,
     )
 
 
@@ -702,11 +714,15 @@ def _process_structured_preview(db: Session, job: ImportJob, source_file: Source
                 None,
             )
             source_file.text_extract_status = "structured_preview"
+            diagnostics = build_parse_diagnostics(parse_result)
             return ProcessingResult(
                 file_type="structured_preview",
                 filename=source_file.filename,
                 success=False,
                 error_message="未解析到有效分录数据",
+                parse_diagnostics=diagnostics,
+                recommended_mode="day_book_import",
+                template_name=parse_result.template_name,
             )
 
         sample_dates = [entry.get("voucher_date") for entry in parse_result.entries if entry.get("voucher_date")]
@@ -735,11 +751,13 @@ def _process_structured_preview(db: Session, job: ImportJob, source_file: Source
             file_type="structured_preview",
             filename=source_file.filename,
             success=True,
-            entries_created=0,
+            entries_created=entry_count,
             template_name=parse_result.template_name,
             quality_score=parse_result.quality_score,
             archive_path=archive.get("archive_path"),
             archive_context=archive,
+            recommended_mode="day_book_import",
+            parse_diagnostics=build_parse_diagnostics(parse_result),
         )
     except Exception as exc:
         _save_parse_feedback(
@@ -763,6 +781,7 @@ def _process_structured_preview(db: Session, job: ImportJob, source_file: Source
             filename=source_file.filename,
             success=False,
             error_message=str(exc),
+            recommended_mode="day_book_import",
         )
 
 
@@ -892,15 +911,19 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
                 job_id=job.id,
                 total_files=0,
                 success_files=0,
-                failed_files=0,
+                failed_files=1,
                 total_entries=0,
                 output_path=output_path,
+                error_message=day_book_result.error_message,
+                parse_diagnostics=day_book_result.parse_diagnostics,
                 file_results=[
                     ProcessingResult(
                         file_type="accounting_entry",
                         filename=job.source_type,
                         success=False,
                         error_message=day_book_result.error_message or "序时簿处理失败",
+                        parse_diagnostics=day_book_result.parse_diagnostics,
+                        recommended_mode="day_book_import",
                     )
                 ],
             )
@@ -948,7 +971,7 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
             # 根据文件类型选择处理方式
             if _is_accounting_file(file_type):
                 if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
-                    result = _process_ai_register_file(db, job, source_file)
+                    result = _process_structured_preview(db, job, source_file)
                     file_results.append(result)
                     continue
 
@@ -1004,17 +1027,35 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
 
         # 更新任务状态
         job.entry_count = total_entries
-        job.status = "completed"
+        success_files = sum(1 for r in file_results if r.success)
+        failed_files = len(file_results) - success_files
+        report_error_message: str | None = None
+        report_parse_diagnostics: dict[str, Any] | None = None
+        report_output_path = output_path
+
+        structured_previews = [r for r in file_results if r.file_type == "structured_preview"]
+        if structured_previews:
+            report_output_path = "structured_preview"
+            failed_structured = [r for r in structured_previews if not r.success]
+            if failed_structured:
+                job.status = "failed"
+                report_error_message = failed_structured[0].error_message
+                report_parse_diagnostics = failed_structured[0].parse_diagnostics
+                job.error_message = report_error_message
+            else:
+                job.status = "completed"
+        elif failed_files > 0 and total_entries == 0:
+            job.status = "failed"
+            report_error_message = next((r.error_message for r in file_results if r.error_message), "导入处理失败")
+            job.error_message = report_error_message
+        else:
+            job.status = "completed"
 
         # 生成风险
         if total_entries > 0:
             generate_risks(db, job.id)
 
         db.commit()
-
-        # 构建报告
-        success_files = sum(1 for r in file_results if r.success)
-        failed_files = len(file_results) - success_files
 
         period_suggestion = None
         if total_entries > 0 and is_day_book_source_type(job.source_type):
@@ -1047,11 +1088,13 @@ def process_import_job(db: Session, job: ImportJob) -> ImportReport:
             success_files=success_files,
             failed_files=failed_files,
             total_entries=total_entries,
-            output_path=output_path,
+            output_path=report_output_path,
             period_suggestion=period_suggestion,
             quality_report=quality_report,
             register_summary=register_summary,
             file_results=file_results,
+            error_message=report_error_message,
+            parse_diagnostics=report_parse_diagnostics,
         )
 
     except Exception as exc:
@@ -1081,6 +1124,11 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
         "output_path": report.output_path,
         "file_summary": [],
     }
+
+    if report.error_message:
+        summary["error_message"] = report.error_message
+    if report.parse_diagnostics is not None:
+        summary["parse_diagnostics"] = report.parse_diagnostics
 
     if report.period_suggestion is not None:
         summary["period_suggestion"] = report.period_suggestion
@@ -1119,6 +1167,10 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
             file_info["entries"] = result.entries_created
             file_info["template"] = result.template_name
             file_info["quality_score"] = result.quality_score
+        if result.file_type == "structured_preview":
+            file_info["entries"] = result.entries_created
+            file_info["template"] = result.template_name
+            file_info["quality_score"] = result.quality_score
         if result.file_type == "register_ledger":
             file_info["register_type"] = result.register_type
             file_info["register_count"] = result.register_count
@@ -1129,6 +1181,10 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
             file_info["draft_only"] = result.draft_only
         if result.error_message:
             file_info["error"] = result.error_message
+        if result.recommended_mode:
+            file_info["recommended_mode"] = result.recommended_mode
+        if result.parse_diagnostics:
+            file_info["parse_diagnostics"] = result.parse_diagnostics
 
         summary["file_summary"].append(file_info)
 

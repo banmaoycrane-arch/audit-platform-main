@@ -61,7 +61,7 @@ export function Step1AccountingSelectType() {
             <Card size="small" style={{ marginLeft: '8px' }}>
               <strong>传统人工录入凭证</strong>
               <br />
-              <Text type="secondary">按传统方式人工录入标准会计凭证。</Text>
+              <Text type="secondary">纸质记账凭证样式：摘要、科目、借方/贷方面额分列，支持快速录入与保存并新增。</Text>
             </Card>
           </Radio>
         </Radio.Group>
