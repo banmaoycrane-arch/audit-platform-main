@@ -6,6 +6,10 @@
 
 ## [2026-06-26]
 
+### Changed / 变更
+
+- **管理配置权限与导航**：项目作用域配置更新改为需项目负责人权限（`PUT /api/scope-settings/project/{project_id}`）；侧栏「管理」分组新增「管理配置」入口；项目配置表单仅在开启「允许虚拟项目」时显示展示名称字段。（PR [#87](https://github.com/banmaoycrane-arch/audit-platform-main/pull/87)）
+
 ### Added / 新增
 
 - **账套会计时间线起点**：创建账套时可指定 `accounting_start_date`，作为该账套会计期间与报表的时间基准；未指定时默认创建当天。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
