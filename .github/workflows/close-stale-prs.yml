@@ -8,6 +8,11 @@ on:
         required: false
         default: '87'
         type: string
+      close_superseded:
+        description: Comma-separated PR numbers to close as superseded (optional)
+        required: false
+        default: ''
+        type: string
   push:
     branches: [main]
     paths: ['.github/workflows/close-stale-prs.yml']
@@ -23,9 +28,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           KEEP_PRS: ${{ inputs.keep_prs || '87' }}
+          CLOSE_SUPERSEDED: ${{ inputs.close_superseded || '' }}
         run: |
           set -eo pipefail
           KEEP_PRS="${KEEP_PRS:-87}"
+          CLOSE_SUPERSEDED="${CLOSE_SUPERSEDED:-}"
           echo "Keeping PRs: ${KEEP_PRS}"
 
           IFS=',' read -ra KEEP <<< "${KEEP_PRS}"
@@ -61,4 +68,45 @@ jobs:
           for pr in "${to_close[@]}"; do
             echo "Closing #${pr}"
             gh pr close "$pr" --repo "${{ github.repository }}" --delete-branch=false || true
+          done
+
+          if [ -n "${CLOSE_SUPERSEDED}" ]; then
+            IFS=',' read -ra SUPER <<< "${CLOSE_SUPERSEDED}"
+            for pr in "${SUPER[@]}"; do
+              pr="${pr// /}"
+              [ -n "$pr" ] || continue
+              if [[ " ${KEEP_PRS} " == *" ${pr} "* ]]; then
+                echo "Skipping superseded close for kept PR #${pr}"
+                continue
+              fi
+              state=$(gh pr view "$pr" --repo "${{ github.repository }}" --json state -q .state 2>/dev/null || echo "MISSING")
+              if [ "$state" = "OPEN" ]; then
+                echo "Closing superseded #${pr}"
+                gh pr close "$pr" --repo "${{ github.repository }}" \
+                  --comment "Auto-closed as superseded — changes are already on \`main\`." \
+                  --delete-branch=false || true
+              fi
+            done
+          fi
+
+          mapfile -t orphan_prs < <(
+            gh pr list --repo "${{ github.repository }}" --state open --limit 200 \
+              --json number,headRefName \
+              | jq --argjson keep "$keep_json" -r '
+                  .[]
+                  | select(.number as $n | $keep | index($n) | not)
+                  | "\(.number)\t\(.headRefName)"
+                '
+          )
+
+          for entry in "${orphan_prs[@]}"; do
+            pr="${entry%%$'\t'*}"
+            branch="${entry#*$'\t'}"
+            [ -n "$pr" ] && [ -n "$branch" ] || continue
+            if ! gh api "repos/${{ github.repository }}/git/ref/heads/${branch}" >/dev/null 2>&1; then
+              echo "Closing #${pr} (head branch ${branch} deleted)"
+              gh pr close "$pr" --repo "${{ github.repository }}" \
+                --comment "Auto-closed: head branch \`${branch}\` was deleted and changes are already on \`main\`." \
+                --delete-branch=false || true
+            fi
           done
