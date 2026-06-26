@@ -292,15 +292,30 @@ def retry_job(job_id: int, db: Session = Depends(get_db)) -> dict:
 
 @router.get("/{job_id}/report")
 def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
-    """获取导入任务的质量报告"""
+    """获取导入任务的质量报告和原始文件列表"""
     # 优先从内存获取
     if job_id in _import_reports:
-        return _import_reports[job_id]
+        report = _import_reports[job_id].copy()
+    else:
+        report = {}
 
-    # 否则从数据库查询并重新生成
+    # 获取任务信息
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
+
+    # 获取原始文件列表
+    source_files = db.query(SourceFile).filter(SourceFile.import_job_id == job_id).all()
+    source_file_list = [
+        {
+            "id": sf.id,
+            "filename": sf.filename,
+            "file_type": sf.file_type,
+            "file_size": sf.file_size,
+            "created_at": sf.created_at.isoformat() if sf.created_at else None,
+        }
+        for sf in source_files
+    ]
 
     # 获取所有分录并生成报告
     from app.services.data_validator import generate_quality_report
@@ -326,6 +341,7 @@ def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
         return {
             "job_id": job_id,
             "total_entries": len(entry_dicts),
+            "source_files": source_file_list,
             "quality": {
                 "overall_score": quality_report.overall_score,
                 "valid_entries": quality_report.valid_entries,
@@ -335,7 +351,12 @@ def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
             },
         }
 
-    return {"job_id": job_id, "total_entries": 0, "quality": None}
+    return {
+        "job_id": job_id,
+        "total_entries": 0,
+        "source_files": source_file_list,
+        "quality": None,
+    }
 
 
 @router.get("/{job_id}/day-book-report", response_model=DayBookReportRead)

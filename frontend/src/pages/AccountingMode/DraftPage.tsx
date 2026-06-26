@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, Card, Descriptions, Empty, List, message, Result, Spin, Tag } from 'antd'
-import { ReloadOutlined, FileTextOutlined, ArrowRightOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { Button, Card, Descriptions, Empty, List, message, Result, Spin, Tag, Table } from 'antd'
+import { ReloadOutlined, FileTextOutlined, ArrowRightOutlined, ExclamationCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
 
 /**
@@ -23,6 +23,7 @@ export function DraftPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState(false)
+  const [polling, setPolling] = useState(false)
   const [draftData, setDraftData] = useState<{
     job_id: number
     status: string
@@ -33,6 +34,15 @@ export function DraftPage() {
     file_count: number
     created_at: string | null
   } | null>(null)
+
+  // 新增：原始文件列表（从 source_files 获取）
+  const [sourceFiles, setSourceFiles] = useState<Array<{
+    id: number
+    filename: string
+    file_type: string
+    file_size: number
+    created_at: string
+  }>>([])
 
   useEffect(() => {
     if (!jobId) {
@@ -49,12 +59,25 @@ export function DraftPage() {
       const data = await api.getImportJobDraft(Number(jobId))
       setDraftData(data)
 
-      // 如果任务不是 draft 状态，自动跳转到对应页面
+      // 加载原始文件列表
+      await loadSourceFiles()
+
+      // 如果任务还在处理中，轮询检查状态
+      if (data.status === 'processing') {
+        setPolling(true)
+        setTimeout(() => {
+          loadDraftData()
+        }, 3000)
+        return
+      }
+
+      // 如果任务已完成，自动跳转
       if (data.status === 'completed') {
         message.info('任务已完成，跳转到凭证生成页面')
         navigate(`/ledger/vouchers/step/3?jobId=${jobId}`)
         return
       }
+      // 如果任务待上传，跳转回上传页面
       if (data.status === 'created') {
         message.info('任务待上传，跳转到上传页面')
         navigate(`/ledger/vouchers/step/2?jobId=${jobId}`)
@@ -65,6 +88,20 @@ export function DraftPage() {
       message.error(`加载草稿数据失败：${detail}`)
     } finally {
       setLoading(false)
+      setPolling(false)
+    }
+  }
+
+  const loadSourceFiles = async () => {
+    try {
+      // 从 import job report 或专门的 API 获取原始文件列表
+      const report = await api.getImportReport(Number(jobId))
+      if (report && report.source_files) {
+        setSourceFiles(report.source_files)
+      }
+    } catch (error) {
+      // 忽略错误，source_files 是可选的
+      console.log('获取原始文件列表失败:', error)
     }
   }
 
@@ -126,25 +163,33 @@ export function DraftPage() {
 
   const requestId = (draftData.draft_data?.request_id as string) || 'unknown'
 
+  // 判断是否有解析详情
+  const hasFileResults = fileResults.length > 0
+  const isProcessing = draftData.status === 'processing'
+  const isDraft = draftData.status === 'draft'
+
   return (
     <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
       <Card
         title={
           <span>
             <ExclamationCircleOutlined style={{ color: '#faad14', marginRight: 8 }} />
-            凭证导入草稿 - 解析失败
+            凭证导入草稿 - {isProcessing ? '解析中' : '解析失败'}
           </span>
         }
         extra={
-          <Tag color="orange">状态：草稿（draft）</Tag>
+          <Tag color={isProcessing ? 'blue' : 'orange'}>
+            状态：{draftData.status}
+            {polling && <ClockCircleOutlined style={{ marginLeft: 8 }} spin />}
+          </Tag>
         }
       >
         <Result
-          status="warning"
-          title="文件上传成功，但解析失败"
+          status={isProcessing ? 'info' : 'warning'}
+          title={isProcessing ? '文件上传成功，正在解析中...' : '文件上传成功，但解析失败'}
           subTitle={
             <div>
-              <p>{draftData.error_message || '系统处理异常，请检查文件格式后重试'}</p>
+              <p>{draftData.error_message || (isProcessing ? '系统正在处理文件，请稍候...' : '系统处理异常，请检查文件格式后重试')}</p>
               <p style={{ fontSize: 12, color: '#999' }}>
                 请求编号：{requestId}
               </p>
@@ -157,6 +202,7 @@ export function DraftPage() {
               icon={<ReloadOutlined />}
               loading={retrying}
               onClick={handleRetry}
+              disabled={isProcessing}
             >
               重新上传并解析
             </Button>,
@@ -164,6 +210,7 @@ export function DraftPage() {
               key="manual"
               icon={<FileTextOutlined />}
               onClick={handleManualEntry}
+              disabled={isProcessing}
             >
               手工录入凭证
             </Button>,
@@ -171,6 +218,7 @@ export function DraftPage() {
               key="step3"
               icon={<ArrowRightOutlined />}
               onClick={handleGoToStep3}
+              disabled={isProcessing}
             >
               尝试生成草稿
             </Button>,
@@ -182,7 +230,9 @@ export function DraftPage() {
         <Descriptions bordered column={2}>
           <Descriptions.Item label="任务 ID">{draftData.job_id}</Descriptions.Item>
           <Descriptions.Item label="任务状态">
-            <Tag color="orange">{draftData.status}</Tag>
+            <Tag color={isProcessing ? 'blue' : isDraft ? 'orange' : 'default'}>
+              {draftData.status}
+            </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="来源类型">{draftData.source_type}</Descriptions.Item>
           <Descriptions.Item label="文件数量">{draftData.file_count}</Descriptions.Item>
@@ -193,10 +243,63 @@ export function DraftPage() {
         </Descriptions>
       </Card>
 
-      <Card title="文件处理详情" style={{ marginTop: 16 }}>
-        {fileResults.length === 0 ? (
-          <Empty description="暂无文件处理记录" />
+      {/* 原始文件列表 */}
+      <Card title="上传的原始文件" style={{ marginTop: 16 }}>
+        {sourceFiles.length === 0 ? (
+          <Empty description="暂无原始文件记录" />
         ) : (
+          <Table
+            dataSource={sourceFiles}
+            rowKey="id"
+            pagination={false}
+            columns={[
+              {
+                title: '文件名',
+                dataIndex: 'filename',
+                key: 'filename',
+                render: (text: string) => (
+                  <span>
+                    <FileTextOutlined style={{ marginRight: 8 }} />
+                    {text}
+                  </span>
+                ),
+              },
+              {
+                title: '文件类型',
+                dataIndex: 'file_type',
+                key: 'file_type',
+              },
+              {
+                title: '文件大小',
+                dataIndex: 'file_size',
+                key: 'file_size',
+                render: (size: number) => {
+                  if (size < 1024) return `${size} B`
+                  if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`
+                  return `${(size / (1024 * 1024)).toFixed(2)} MB`
+                },
+              },
+              {
+                title: '上传时间',
+                dataIndex: 'created_at',
+                key: 'created_at',
+                render: (date: string) => new Date(date).toLocaleString('zh-CN'),
+              },
+            ]}
+          />
+        )}
+      </Card>
+
+      {/* 文件解析详情 */}
+      <Card title="文件解析详情" style={{ marginTop: 16 }}>
+        {isProcessing ? (
+          <div style={{ textAlign: 'center', padding: 24 }}>
+            <Spin tip="正在解析文件，请稍候..." />
+            <p style={{ marginTop: 16, color: '#999' }}>
+              系统正在处理文件，预计需要几秒到几分钟...
+            </p>
+          </div>
+        ) : hasFileResults ? (
           <List
             dataSource={fileResults}
             renderItem={(item) => (
@@ -236,6 +339,15 @@ export function DraftPage() {
               </List.Item>
             )}
           />
+        ) : (
+          <Empty description="暂无文件解析记录">
+            <p style={{ color: '#999', fontSize: 12 }}>
+              可能原因：
+              <br />1. 任务还在处理中（processing）
+              <br />2. 解析失败时未保存详细记录
+              <br />3. 文件格式不支持自动解析
+            </p>
+          </Empty>
         )}
       </Card>
 
