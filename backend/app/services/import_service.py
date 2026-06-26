@@ -869,7 +869,8 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
 
     流程：
     1. 提取文本（PDF/TXT/图片OCR/Word/Markdown）
-    2. 向量索引
+    2. 合同解析（如果是PDF合同文件）
+    3. 向量索引
     """
     try:
         # 提取文本（使用增强版提取器）
@@ -898,8 +899,88 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
                 error_message="无法提取文本内容",
             )
 
+        # 合同解析：如果是PDF文件且内容像合同，进行结构化解析
+        contract_parse_result = None
+        if source_file.file_type.lower() == ".pdf" and _is_contract_text(text):
+            try:
+                from app.services.contract_parser_service import ContractParser
+                parser = ContractParser()
+                contract_parse_result = parser.parse(text)
+                # 保存合同解析结果到draft_data
+                if job.draft_data is None:
+                    job.draft_data = {}
+                job.draft_data["contract_parse_result"] = {
+                    "contract_type": contract_parse_result.contract_type,
+                    "parties": [
+                        {
+                            "name": p.name,
+                            "role": p.role,
+                            "tax_id": p.tax_id,
+                        }
+                        for p in contract_parse_result.parties
+                    ],
+                    "signing_date": contract_parse_result.signing_date,
+                    "period": {
+                        "start_date": contract_parse_result.period.start_date,
+                        "end_date": contract_parse_result.period.end_date,
+                        "duration_days": contract_parse_result.period.duration_days,
+                    },
+                    "price": {
+                        "total_amount": str(contract_parse_result.price.total_amount),
+                        "tax_rate": str(contract_parse_result.price.tax_rate),
+                        "tax_amount": str(contract_parse_result.price.tax_amount),
+                        "amount_excl_tax": str(contract_parse_result.price.amount_excl_tax),
+                        "currency": contract_parse_result.price.currency,
+                        "payment_terms": contract_parse_result.price.payment_terms,
+                    },
+                    "items": [
+                        {
+                            "item_no": i.item_no,
+                            "description": i.description,
+                            "quantity": str(i.quantity),
+                            "unit": i.unit,
+                            "unit_price": str(i.unit_price),
+                            "total_price": str(i.total_price),
+                            "revenue_recognition_method": i.revenue_recognition_method,
+                            "performance_obligations": i.performance_obligations,
+                        }
+                        for i in contract_parse_result.items
+                    ],
+                    "penalties": [
+                        {
+                            "penalty_clause": p.penalty_clause,
+                            "penalty_amount": str(p.penalty_amount),
+                            "is_probable": p.is_probable,
+                            "provision_required": p.provision_required,
+                            "provision_amount": str(p.provision_amount),
+                            "impact_on_revenue": p.impact_on_revenue,
+                        }
+                        for p in contract_parse_result.penalties
+                    ],
+                    "summary": contract_parse_result.summary,
+                    "accounting_notes": contract_parse_result.accounting_notes,
+                    "confidence_score": str(contract_parse_result.confidence_score),
+                }
+                # 进行会计校验
+                validation_errors = parser.validate_accounting(contract_parse_result)
+                if validation_errors:
+                    job.draft_data["contract_validation_errors"] = validation_errors
+            except Exception as e:
+                # 合同解析失败不影响主流程，记录错误即可
+                print(f"合同解析失败: {e}")
+
         result = classify_document(source_file.storage_path, source_file.filename)
         feedback = _extract_source_summary(result)
+
+        # 如果合同解析成功，增强反馈信息
+        if contract_parse_result and contract_parse_result.confidence_score > 0.5:
+            feedback["contract_info"] = {
+                "contract_type": contract_parse_result.contract_type,
+                "parties": [p.name for p in contract_parse_result.parties],
+                "total_amount": str(contract_parse_result.price.total_amount),
+                "signing_date": contract_parse_result.signing_date,
+                "accounting_notes": contract_parse_result.accounting_notes,
+            }
 
         archive = _archive_source_file(db, job, source_file, feedback)
         feedback["archive"] = archive
@@ -953,6 +1034,34 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
             success=False,
             error_message=str(exc),
         )
+
+
+def _is_contract_text(text: str) -> bool:
+    """
+    判断文本是否为合同内容
+
+    功能描述：通过关键词匹配判断文本是否为合同
+    业务逻辑：
+        1. 检查是否包含合同关键词（甲方、乙方、合同、协议等）
+        2. 检查是否包含合同条款（违约责任、付款方式等）
+        3. 综合判断置信度
+
+    Args:
+        text: 提取的文本内容
+
+    Returns:
+        bool: 是否为合同文本
+    """
+    contract_keywords = [
+        "甲方", "乙方", "丙方", "合同", "协议", "签约",
+        "违约", "付款", "价款", "金额", "税率", "含税",
+        "履行", "标的", "交付", "验收", "质保",
+    ]
+    text_lower = text.lower()
+    keyword_count = sum(1 for keyword in contract_keywords if keyword in text_lower)
+    # 至少匹配3个关键词才认为是合同
+    return keyword_count >= 3
+
 
 
 def process_import_job(db: Session, job: ImportJob) -> ImportReport:
