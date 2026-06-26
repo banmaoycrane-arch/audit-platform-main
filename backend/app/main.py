@@ -187,6 +187,9 @@ def _ensure_local_sqlite_schema() -> None:
                 "counterparty_id": "ALTER TABLE accounting_entries ADD COLUMN counterparty_id INTEGER",
                 "entry_line_no": "ALTER TABLE accounting_entries ADD COLUMN entry_line_no INTEGER DEFAULT 1 NOT NULL",
                 "review_status": "ALTER TABLE accounting_entries ADD COLUMN review_status VARCHAR(20) DEFAULT 'draft' NOT NULL",
+                "post_status": "ALTER TABLE accounting_entries ADD COLUMN post_status VARCHAR(20) DEFAULT 'draft' NOT NULL",
+                "posted_at": "ALTER TABLE accounting_entries ADD COLUMN posted_at DATETIME",
+                "posted_by": "ALTER TABLE accounting_entries ADD COLUMN posted_by INTEGER",
             }
             for column_name, ddl in entry_missing_columns.items():
                 if column_name not in entry_columns:
