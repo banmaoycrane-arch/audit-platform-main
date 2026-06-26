@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Button, Card, Col, Form, Input, message, Modal, Row, Select, Space, Table, Tag, Typography, Empty, Dropdown, Badge } from 'antd'
+import { Button, Card, Col, DatePicker, Form, Input, message, Modal, Row, Select, Space, Table, Tag, Typography, Empty, Dropdown, Badge } from 'antd'
+import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { BookOutlined, PlusOutlined, SafetyOutlined, MoreOutlined, FolderOpenOutlined, EditOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
@@ -161,7 +162,13 @@ export function LedgerManagementPage() {
     const values = await createForm.validateFields()
     const selectedEntity = accountingEntities.find((entity) => entity.id === values.existing_entity_id)
     try {
-      const ledger = await api.createLedger({ team_id: values.team_id, name: values.name })
+      const ledger = await api.createLedger({
+        team_id: values.team_id,
+        name: values.name,
+        accounting_start_date: values.accounting_start_date
+          ? dayjs(values.accounting_start_date).format('YYYY-MM-DD')
+          : undefined,
+      })
       if (values.project_id) {
         await requestWithToken(`/api/projects/${values.project_id}/ledgers`, {
           method: 'POST',
@@ -491,6 +498,15 @@ export function LedgerManagementPage() {
           </Form.Item>
           <Form.Item name="name" label="账套名称" rules={[{ required: true, message: '请输入账套名称' }]}>
             <Input placeholder="例如：XX公司2026账套" />
+          </Form.Item>
+          <Form.Item
+            name="accounting_start_date"
+            label="会计时间线起点"
+            initialValue={dayjs()}
+            tooltip="默认使用创建当天；补建历史账套时可调整为实际开账月份中的任意日期"
+            rules={[{ required: true, message: '请选择会计时间线起点' }]}
+          >
+            <DatePicker style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="existing_entity_id" label="已有会计主体（可选）">
             <Select

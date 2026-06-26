@@ -10,7 +10,8 @@
     2026-06-18  初始创建账套管理路由
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from datetime import date
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -27,6 +28,10 @@ class CreateLedgerRequest(BaseModel):
     """创建账套请求体"""
     team_id: int
     name: str
+    accounting_start_date: date | None = Field(
+        default=None,
+        description="会计时间线起点，默认创建当天",
+    )
 
 
 class AuthUserRequest(BaseModel):
@@ -46,6 +51,7 @@ class LedgerResponse(BaseModel):
     archived_at: str | None
     deleted_at: str | None
     lifecycle_reason: str | None
+    accounting_start_date: str | None = None
     role: str | None = None
 
     model_config = {"from_attributes": True}
@@ -79,6 +85,11 @@ def build_ledger_response(ledger: Ledger, role: str | None = None) -> LedgerResp
         archived_at=str(ledger.archived_at) if ledger.archived_at else None,
         deleted_at=str(ledger.deleted_at) if ledger.deleted_at else None,
         lifecycle_reason=ledger.lifecycle_reason,
+        accounting_start_date=(
+            ledger.accounting_start_date.isoformat()
+            if ledger.accounting_start_date
+            else None
+        ),
         role=role,
     )
 
@@ -99,14 +110,19 @@ def create_ledger(
     if not team:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="团队不存在")
 
-    ledger = ledger_management_service.create_ledger(db, payload.team_id, payload.name)
+    ledger = ledger_management_service.create_ledger(
+        db,
+        payload.team_id,
+        payload.name,
+        accounting_start_date=payload.accounting_start_date,
+    )
 
     # 自动给创建者授权 admin
     ledger_management_service.authorize_user_to_ledger(
         db, ledger.id, current_user.id, "admin", granted_by=current_user.id
     )
 
-    return ledger
+    return build_ledger_response(ledger, role="admin")
 
 
 @router.get("", response_model=list[LedgerResponse])
