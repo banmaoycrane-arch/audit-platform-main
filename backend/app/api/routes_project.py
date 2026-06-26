@@ -164,6 +164,26 @@ def list_projects(
     ]
 
 
+@router.get("/{project_id}/ledgers", response_model=list[dict])
+def list_project_ledgers(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
+    """
+    查询项目关联的账套列表。
+    """
+    project = project_service.get_project_by_id(db, project_id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+
+    ledgers = project_service.get_project_ledgers(db, project_id)
+    return [
+        {"id": l.id, "name": l.name}
+        for l in ledgers
+    ]
+
+
 @router.post("/{project_id}/ledgers", response_model=ProjectLedgerResponse)
 def associate_ledger(
     project_id: int,

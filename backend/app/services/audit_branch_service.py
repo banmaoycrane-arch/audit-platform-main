@@ -49,6 +49,7 @@ def _serialize_branch(branch: AuditWorkBranch) -> dict[str, Any]:
         "project_id": branch.project_id,
         "ledger_id": branch.ledger_id,
         "task_id": branch.task_id,
+        "import_job_id": branch.import_job_id,
         "branch_name": branch.branch_name,
         "base_branch": branch.base_branch,
         "status": branch.status,
@@ -357,6 +358,45 @@ def link_procedure_run(
         raise ValueError("分支不存在")
 
     branch.procedure_run_id = procedure_run_id
+    branch.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(branch)
+    return _serialize_branch(branch)
+
+
+def link_import_job_to_branch(
+    db: Session,
+    branch_id: int,
+    import_job_id: int,
+) -> dict[str, Any]:
+    """关联导入任务到工作分支。
+
+    将导入的数据与审计工作分支关联，便于后续执行审计测试。
+
+    Args:
+        db: 数据库会话
+        branch_id: 分支ID
+        import_job_id: 导入任务ID
+
+    Returns:
+        dict[str, Any]: 更新后的分支数据
+
+    Raises:
+        ValueError: 分支不存在或导入任务不存在
+    """
+    from app.db.models import ImportJob
+
+    branch = (
+        db.query(AuditWorkBranch).filter(AuditWorkBranch.id == branch_id).first()
+    )
+    if branch is None:
+        raise ValueError("分支不存在")
+
+    import_job = db.query(ImportJob).filter(ImportJob.id == import_job_id).first()
+    if import_job is None:
+        raise ValueError("导入任务不存在")
+
+    branch.import_job_id = import_job_id
     branch.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(branch)

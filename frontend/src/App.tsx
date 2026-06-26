@@ -32,6 +32,7 @@ import { Step2AccountingImportSource } from './pages/AccountingMode/Step2ImportS
 import { Step3GenerateEntries } from './pages/AccountingMode/Step3GenerateEntries'
 import { Step4ReviewEntries } from './pages/AccountingMode/Step4ReviewEntries'
 import { Step5Export } from './pages/AccountingMode/Step5Export'
+import { DraftPage } from './pages/AccountingMode/DraftPage'
 import { FixedAssetsWorkspace } from './pages/Workspaces/FixedAssetsWorkspace'
 import { InventoryWorkspace } from './pages/Workspaces/InventoryWorkspace'
 import { LedgerLifecyclePage } from './pages/LedgerLifecyclePage'
@@ -144,6 +145,7 @@ function AppRoutes() {
         <Route path="/ledger/vouchers/step/3" element={<LedgerDataGuard><Step3GenerateEntries /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/step/4" element={<LedgerDataGuard><Step4ReviewEntries /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/step/5" element={<LedgerDataGuard><Step5Export /></LedgerDataGuard>} />
+        <Route path="/ledger/vouchers/draft/:jobId" element={<LedgerDataGuard><DraftPage /></LedgerDataGuard>} />
         <Route path="/audit/step/1" element={<LedgerDataGuard><Step1SelectScope /></LedgerDataGuard>} />
         <Route path="/audit/step/2" element={<LedgerDataGuard><Step2AuditImportSource /></LedgerDataGuard>} />
         <Route path="/audit/step/3" element={<LedgerDataGuard><Step3ImportEntries /></LedgerDataGuard>} />

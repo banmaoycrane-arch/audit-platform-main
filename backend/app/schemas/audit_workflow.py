@@ -37,11 +37,11 @@ class AuditTaskCreate(BaseModel):
 
     功能描述：创建新的审计任务
     业务逻辑：从审计风险点或审计程序出发，创建可分配的任务
-    会计口径：任务类型对应审计程序分类
+    会计口径：任务类型对应审计程序分类，必须绑定账套以确保数据边界
 
     Args:
         project_id: 所属项目ID
-        ledger_id: 关联账套ID（可选）
+        ledger_id: 关联账套ID（必填，确保审计测试有明确的数据边界）
         title: 任务标题
         description: 任务描述
         task_type: 任务类型
@@ -53,7 +53,7 @@ class AuditTaskCreate(BaseModel):
         related_procedure_key: 关联的审计程序键
     """
     project_id: int
-    ledger_id: int | None = None
+    ledger_id: int
     title: str
     description: str | None = None
     task_type: AuditTaskType = "substantive"

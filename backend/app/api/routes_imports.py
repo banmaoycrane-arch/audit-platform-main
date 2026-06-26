@@ -222,6 +222,74 @@ def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict:
     }
 
 
+@router.get("/{job_id}/draft")
+def get_job_draft(job_id: int, db: Session = Depends(get_db)) -> dict:
+    """
+    获取导入任务的草稿数据
+
+    功能描述：当任务解析失败进入 draft 状态时，返回草稿数据供前端展示
+    业务逻辑：
+        1. 检查任务是否存在
+        2. 返回 draft_data、error_message、status 等字段
+        3. 如果任务不是 draft 状态，返回当前状态
+
+    Args:
+        job_id: 导入任务 ID
+
+    Returns:
+        dict: 包含草稿数据或当前状态
+    """
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "error_message": job.error_message,
+        "draft_data": job.draft_data,
+        "source_type": job.source_type,
+        "entry_count": job.entry_count,
+        "file_count": job.file_count,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+    }
+
+
+@router.post("/{job_id}/retry")
+def retry_job(job_id: int, db: Session = Depends(get_db)) -> dict:
+    """
+    重试导入任务
+
+    功能描述：将 draft 状态的任务重置为 created，允许用户重新上传或解析
+    业务逻辑：
+        1. 检查任务是否存在且为 draft 状态
+        2. 重置状态为 created，清空错误信息
+        3. 保留 source_files 供用户选择重试
+
+    Args:
+        job_id: 导入任务 ID
+
+    Returns:
+        dict: 重试后的任务状态
+    """
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    if job.status != "draft":
+        raise HTTPException(status_code=400, detail="只有 draft 状态的任务可以重试")
+
+    job.status = "created"
+    job.error_message = None
+    job.draft_data = None
+    db.commit()
+
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "message": "任务已重置，可以重新上传文件",
+    }
+
+
 @router.get("/{job_id}/report")
 def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
     """获取导入任务的质量报告"""
