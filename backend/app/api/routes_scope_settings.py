@@ -91,6 +91,28 @@ def _require_project_access(db: Session, user_id: int, project_id: int) -> Proje
     return project
 
 
+def _require_project_manager(db: Session, user_id: int, project_id: int) -> Project:
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+    if project.manager_id == user_id:
+        return project
+    from app.models.project_member import ProjectMember
+
+    member = (
+        db.query(ProjectMember)
+        .filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user_id,
+            ProjectMember.role == "manager",
+        )
+        .first()
+    )
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要项目负责人权限")
+    return project
+
+
 @router.get("/catalog")
 def get_catalog() -> dict[str, Any]:
     """返回各作用域配置项说明，供前端渲染表单。"""
@@ -165,7 +187,7 @@ def update_project_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    _require_project_access(db, current_user.id, project_id)
+    _require_project_manager(db, current_user.id, project_id)
     return scope_settings_service.upsert_project_settings(
         db, project_id, _patch_from_model(payload)
     )
