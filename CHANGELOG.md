@@ -12,10 +12,16 @@
 - **审计范围持久化（Step1）**：导入任务支持保存审计范围（全量 / 按科目 / 按期间），新增 `PUT /api/import-jobs/{job_id}/audit-scope`；审计测试报告按已保存范围生成 scope 与 `audit_scope` 元数据。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 - **凭证入账与导出门禁**：分录新增 `post_status` 字段；Step5 通过 `POST /api/import-jobs/{job_id}/post` 将已复核分录入账，导出接口仅包含 `posted` 状态分录。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 - **会计判断策略**：AI 凭证生成 API 支持 `accounting_judgment_policy`（`compliant_default` / `revenue_first` / `counterparty_first`），按单据类型与策略生成差异化草稿分录。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
+- **凭证查询页**：卡片分页与多维筛选（按日/月、期间、科目、摘要、金额区间、分录级/凭证级筛选模式），新增 `GET /api/entries/vouchers` 聚合凭证卡片。（PR [#100](https://github.com/banmaoycrane-arch/audit-platform-main/pull/100)）
+- **账簿序时簿**：账套账簿页提供序时簿视图，支持按科目、摘要、金额区间、日期区间、凭证字号与期间筛选，新增 `GET /api/entries/chronological`。（PR [#100](https://github.com/banmaoycrane-arch/audit-platform-main/pull/100)）
 
 ### Changed / 变更
 
 - **AI 凭证证据暂存（权责发生制）**：单发票可暂存落库（应收+收入），不确认银行存款；发票+流水走「开票挂应收 → 收款核销应收」两笔分录，避免发票直连银行存款，便于现金流量表归集。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
+
+### Fixed / 修复
+
+- **凭证查询/序时簿页 TypeScript 构建**：筛选状态使用 `Omit<..., 'ledger_id'>`，与 API 调用时注入 `ledger_id` 分离，修复 `pnpm build:frontend`（tsc -b）失败。（PR [#100](https://github.com/banmaoycrane-arch/audit-platform-main/pull/100)）
 
 ## [2026-06-25]
 
