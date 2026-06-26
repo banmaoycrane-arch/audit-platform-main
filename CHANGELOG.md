@@ -8,13 +8,20 @@
 
 ### Added / 新增
 
+- **导入任务草稿页**：新增 `/ledger/vouchers/draft/:jobId` 草稿页面；`GET /api/import-jobs/{job_id}/draft` 获取草稿数据，`POST /api/import-jobs/{job_id}/retry` 重置并重试。（PR [#110](https://github.com/banmaoycrane-arch/audit-platform-main/pull/110)）
+- **项目账套列表 API**：`GET /api/projects/{project_id}/ledgers` 查询项目关联账套，供审计任务创建时选择。（PR [#110](https://github.com/banmaoycrane-arch/audit-platform-main/pull/110)）
 - **账套会计时间线起点**：创建账套时可指定 `accounting_start_date`，作为该账套会计期间与报表的时间基准；未指定时默认创建当天。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 - **审计范围持久化（Step1）**：导入任务支持保存审计范围（全量 / 按科目 / 按期间），新增 `PUT /api/import-jobs/{job_id}/audit-scope`；审计测试报告按已保存范围生成 scope 与 `audit_scope` 元数据。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 - **凭证入账与导出门禁**：分录新增 `post_status` 字段；Step5 通过 `POST /api/import-jobs/{job_id}/post` 将已复核分录入账，导出接口仅包含 `posted` 状态分录。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 - **会计判断策略**：AI 凭证生成 API 支持 `accounting_judgment_policy`（`compliant_default` / `revenue_first` / `counterparty_first`），按单据类型与策略生成差异化草稿分录。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 
+### Fixed / 修复
+
+- **AI 生成凭证 Step2 解析失败**：上传成功但解析失败时，任务进入 `draft` 状态并保存 `draft_data`，自动跳转草稿页面展示失败原因，支持重试或手动录入。（PR [#110](https://github.com/banmaoycrane-arch/audit-platform-main/pull/110)）
+
 ### Changed / 变更
 
+- **审计任务账套绑定**：创建审计任务时 `ledger_id` 改为必填，并校验账套归属项目；前端创建任务表单新增账套下拉选择。（PR [#110](https://github.com/banmaoycrane-arch/audit-platform-main/pull/110)）
 - **AI 凭证证据暂存（权责发生制）**：单发票可暂存落库（应收+收入），不确认银行存款；发票+流水走「开票挂应收 → 收款核销应收」两笔分录，避免发票直连银行存款，便于现金流量表归集。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 
 ## [2026-06-25]
