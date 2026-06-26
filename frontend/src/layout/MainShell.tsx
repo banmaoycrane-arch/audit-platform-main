@@ -47,7 +47,7 @@ const navItems = [
           { key: '/ledger/vouchers/step/3', label: <Link to="/ledger/vouchers/step/3">Step 3 AI 生成会计分录</Link> },
           { key: '/ledger/vouchers/step/4', label: <Link to="/ledger/vouchers/step/4">Step 4 复核会计分录</Link> },
           { key: '/ledger/vouchers/step/5', label: <Link to="/ledger/vouchers/step/5">Step 5 确认导出</Link> },
-          { key: '/ledger/entries', label: <Link to="/ledger/entries">凭证列表</Link> },
+          { key: '/ledger/entries', label: <Link to="/ledger/entries">凭证查询</Link> },
         ],
       },
       { key: '/ledger/books', label: <Link to="/ledger/books">账簿管理</Link> },
@@ -148,7 +148,7 @@ const navItems = [
     icon: <AppstoreOutlined />,
     label: '自定义模块（客户可扩展）',
     children: [
-      { key: 'custom-ledger-entries', icon: <FileTextOutlined />, label: <Link to="/ledger/entries">专项凭证列表入口</Link> },
+      { key: 'custom-ledger-entries', icon: <FileTextOutlined />, label: <Link to="/ledger/entries">凭证查询</Link> },
       { key: '/risks', icon: <WarningOutlined />, label: <Link to="/risks">专项风险列表入口</Link> },
       { key: 'custom-workspace', icon: <HomeOutlined />, label: <Link to="/workspace">客户自定义工作台入口</Link> },
     ],

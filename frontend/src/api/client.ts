@@ -40,6 +40,69 @@ export type AccountingEntry = {
   created_at: string
 }
 
+export type ChronologicalEntryFilters = {
+  ledger_id: number
+  period_id?: number
+  date_from?: string
+  date_to?: string
+  account_code?: string
+  account_name?: string
+  summary?: string
+  voucher_word?: string
+  voucher_no?: string
+  amount_min?: number
+  amount_max?: number
+  limit?: number
+  offset?: number
+}
+
+export type ChronologicalEntryListResponse = {
+  items: AccountingEntry[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export type VoucherCard = {
+  voucher_no: string | null
+  voucher_date: string | null
+  voucher_word: string | null
+  line_count: number
+  debit_total: number
+  credit_total: number
+  summary_preview: string | null
+  lines: AccountingEntry[]
+}
+
+export type VoucherQueryFilters = {
+  ledger_id: number
+  period_id?: number
+  date_from?: string
+  date_to?: string
+  month?: string
+  filter_mode?: 'line' | 'voucher'
+  account_code?: string
+  account_name?: string
+  summary?: string
+  voucher_word?: string
+  voucher_no?: string
+  debit_min?: number
+  debit_max?: number
+  credit_min?: number
+  credit_max?: number
+  total_min?: number
+  total_max?: number
+  limit?: number
+  offset?: number
+}
+
+export type VoucherQueryResponse = {
+  items: VoucherCard[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export type AuditRisk = {
   id: number
   import_job_id: number
@@ -1027,6 +1090,46 @@ export const api = {
     if (!jobId && ledgerId) params.set('ledger_id', String(ledgerId))
     const query = params.toString()
     return request<AccountingEntry[]>(`/api/entries${query ? `?${query}` : ''}`)
+  },
+  listChronologicalEntries: (filters: ChronologicalEntryFilters) => {
+    const params = new URLSearchParams()
+    params.set('ledger_id', String(filters.ledger_id))
+    if (filters.period_id != null) params.set('period_id', String(filters.period_id))
+    if (filters.date_from) params.set('date_from', filters.date_from)
+    if (filters.date_to) params.set('date_to', filters.date_to)
+    if (filters.account_code) params.set('account_code', filters.account_code)
+    if (filters.account_name) params.set('account_name', filters.account_name)
+    if (filters.summary) params.set('summary', filters.summary)
+    if (filters.voucher_word) params.set('voucher_word', filters.voucher_word)
+    if (filters.voucher_no) params.set('voucher_no', filters.voucher_no)
+    if (filters.amount_min != null) params.set('amount_min', String(filters.amount_min))
+    if (filters.amount_max != null) params.set('amount_max', String(filters.amount_max))
+    if (filters.limit != null) params.set('limit', String(filters.limit))
+    if (filters.offset != null) params.set('offset', String(filters.offset))
+    return request<ChronologicalEntryListResponse>(`/api/entries/chronological?${params.toString()}`)
+  },
+  queryVouchers: (filters: VoucherQueryFilters) => {
+    const params = new URLSearchParams()
+    params.set('ledger_id', String(filters.ledger_id))
+    if (filters.period_id != null) params.set('period_id', String(filters.period_id))
+    if (filters.date_from) params.set('date_from', filters.date_from)
+    if (filters.date_to) params.set('date_to', filters.date_to)
+    if (filters.month) params.set('month', filters.month)
+    if (filters.filter_mode) params.set('filter_mode', filters.filter_mode)
+    if (filters.account_code) params.set('account_code', filters.account_code)
+    if (filters.account_name) params.set('account_name', filters.account_name)
+    if (filters.summary) params.set('summary', filters.summary)
+    if (filters.voucher_word) params.set('voucher_word', filters.voucher_word)
+    if (filters.voucher_no) params.set('voucher_no', filters.voucher_no)
+    if (filters.debit_min != null) params.set('debit_min', String(filters.debit_min))
+    if (filters.debit_max != null) params.set('debit_max', String(filters.debit_max))
+    if (filters.credit_min != null) params.set('credit_min', String(filters.credit_min))
+    if (filters.credit_max != null) params.set('credit_max', String(filters.credit_max))
+    if (filters.total_min != null) params.set('total_min', String(filters.total_min))
+    if (filters.total_max != null) params.set('total_max', String(filters.total_max))
+    if (filters.limit != null) params.set('limit', String(filters.limit))
+    if (filters.offset != null) params.set('offset', String(filters.offset))
+    return request<VoucherQueryResponse>(`/api/entries/vouchers?${params.toString()}`)
   },
   reviewEntry: (entryId: number, reviewStatus: string) =>
     request<AccountingEntry>(`/api/entries/${entryId}/review`, {

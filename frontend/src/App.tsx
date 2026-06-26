@@ -53,6 +53,7 @@ import { ConfirmationsPage } from './pages/Audit/ConfirmationsPage'
 import { PurchaseMatchPage } from './pages/Audit/PurchaseMatchPage'
 import { WorkpapersPage } from './pages/Audit/WorkpapersPage'
 import { AuditWorkflowPage } from './pages/Audit/AuditWorkflowPage'
+import { LedgerBooksPage } from './pages/LedgerBooksPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -154,16 +155,7 @@ function AppRoutes() {
         <Route path="/agent" element={<AgentChatPage />} />
         <Route path="/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
         <Route path="/ledger/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
-        <Route
-          path="/ledger/books"
-          element={(
-            <PlaceholderModulePage
-              title="账簿管理"
-              description="账簿管理用于按会计期间汇总凭证，形成总账、明细账和辅助账，后续将与结账、反结账、审计抽样联动。"
-              items={['按期间生成账簿', '凭证过账与反过账', '账簿导出与审计留痕']}
-            />
-          )}
-        />
+        <Route path="/ledger/books" element={<LedgerDataGuard><LedgerBooksPage /></LedgerDataGuard>} />
         <Route
           path="/ledger/general-ledger"
           element={(
