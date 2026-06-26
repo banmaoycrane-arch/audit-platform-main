@@ -165,3 +165,58 @@ def test_entity_scope_settings_on_ledger(client: TestClient):
     assert settings["allow_virtual_entity"] is False
     assert settings["require_tax_registration"] is True
     assert settings["default_entity_category"] == "holding"
+
+
+def test_ledger_settings_update_requires_admin(client: TestClient):
+    admin_headers, _ = _register_user(client, "ledger_admin", "13800139004")
+    scope = _bootstrap_scope(client, admin_headers)
+    viewer_headers, viewer_id = _register_user(client, "ledger_viewer", "13800139005")
+
+    auth_resp = client.post(
+        f"/api/ledgers/{scope['ledger_id']}/auth",
+        headers=admin_headers,
+        json={"user_id": viewer_id, "role": "viewer"},
+    )
+    assert auth_resp.status_code == 200
+
+    forbidden = client.put(
+        f"/api/scope-settings/ledger/{scope['ledger_id']}",
+        headers=viewer_headers,
+        json={"currency_mode": "multi"},
+    )
+    assert forbidden.status_code == 403
+
+
+def test_project_settings_update_requires_manager(client: TestClient):
+    owner_headers, owner_id = _register_user(client, "project_owner", "13800139006")
+    scope = _bootstrap_scope(client, owner_headers)
+    member_headers, member_id = _register_user(client, "project_member", "13800139007")
+
+    team_join = client.post(
+        f"/api/teams/{scope['team_id']}/members",
+        headers=owner_headers,
+        json={"user_id": member_id, "role": "member"},
+    )
+    assert team_join.status_code == 200
+
+    member_join = client.post(
+        f"/api/projects/{scope['project_id']}/members",
+        headers=owner_headers,
+        json={"user_id": member_id, "role": "member"},
+    )
+    assert member_join.status_code == 200
+
+    forbidden = client.put(
+        f"/api/scope-settings/project/{scope['project_id']}",
+        headers=member_headers,
+        json={"allow_merge": True},
+    )
+    assert forbidden.status_code == 403
+
+    allowed = client.put(
+        f"/api/scope-settings/project/{scope['project_id']}",
+        headers=owner_headers,
+        json={"allow_merge": True},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["settings"]["allow_merge"] is True

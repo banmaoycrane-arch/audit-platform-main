@@ -139,6 +139,7 @@ const navItems = [
     children: [
       { key: '/team-management', icon: <TeamOutlined />, label: <Link to="/team-management">团队管理</Link> },
       { key: '/ledger-management', icon: <BookOutlined />, label: <Link to="/ledger-management">账套管理</Link> },
+      { key: '/scope-settings', icon: <SettingOutlined />, label: <Link to="/scope-settings">管理配置</Link> },
       { key: '/ledger/files', icon: <FileTextOutlined />, label: <Link to="/ledger/files">账套文件</Link> },
       { key: '/projects', icon: <AppstoreOutlined />, label: <Link to="/projects">项目管理</Link> },
     ],

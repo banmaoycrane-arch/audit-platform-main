@@ -182,6 +182,7 @@ export function ScopeSettingsPage() {
   }
 
   const ledgerCurrencyMode = Form.useWatch('currency_mode', ledgerForm)
+  const allowVirtualProject = Form.useWatch('allow_virtual_project', projectForm)
 
   return (
     <div style={{ padding: 24 }}>
@@ -338,9 +339,11 @@ export function ScopeSettingsPage() {
                       >
                         <Switch />
                       </Form.Item>
-                      <Form.Item name="virtual_project_label" label="虚拟项目展示名称">
-                        <Input />
-                      </Form.Item>
+                      {allowVirtualProject && (
+                        <Form.Item name="virtual_project_label" label="虚拟项目展示名称">
+                          <Input />
+                        </Form.Item>
+                      )}
                       <Form.Item
                         name="require_manager_on_create"
                         label="创建项目必须指定负责人"
