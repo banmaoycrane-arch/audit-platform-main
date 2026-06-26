@@ -18,6 +18,8 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.core.security import AuthConfigurationError
+
 
 class GatewayMiddleware(BaseHTTPMiddleware):
     """
@@ -130,6 +132,15 @@ def configure_gateway(app: FastAPI) -> None:
             error_code="validation_error",
             details=validation_details,
             legacy_detail=validation_details,
+        )
+
+    @app.exception_handler(AuthConfigurationError)
+    async def auth_configuration_exception_handler(request: Request, exc: AuthConfigurationError):
+        return build_error_response(
+            request=request,
+            status_code=503,
+            message=str(exc),
+            error_code="auth_not_configured",
         )
 
     @app.exception_handler(Exception)

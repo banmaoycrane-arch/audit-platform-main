@@ -19,7 +19,7 @@ Use a tmux session for each dev server so it survives across tool calls.
 - Backend dev port is `8000` (root `package.json` `dev:backend`), and the Vite proxy targets `8000` (`frontend/vite.config.ts`). Keep them aligned. The source of truth is `package.json` + `vite.config.ts` (some README snippets still show other ports like `8010`). A `git reset`/checkout that touches the tracked `backend/finance_audit.db` will roll the dev database back to the committed state and wipe locally-registered test users.
 - Default datastore is SQLite at `backend/finance_audit.db` (committed) and a local Qdrant path at `qdrant_local_storage`. PostgreSQL/Redis/Qdrant in `docker-compose.yml` are optional; nothing in the core dev/test flow requires Docker.
 - `backend/.env` only sets `SECRET_KEY`; leaving `DATABASE_URL` unset is intentional and falls back to SQLite (see `backend/app/core/config.py`).
-- `bcrypt` must stay `<4.1`: `passlib 1.7.4`'s bcrypt backend-detection probe sends a >72-byte secret, which `bcrypt>=4.1` rejects with `ValueError`, breaking all password hashing/auth. This is pinned in `backend/pyproject.toml`. If auth/register tests start failing with `ValueError`, check the installed bcrypt version.
+- Password hashing uses the `bcrypt` library directly (`backend/app/core/security.py`); keep `bcrypt>=4.0.1,<5` in `backend/pyproject.toml`. Registration requires `SECRET_KEY` in `backend/.env` — if missing, the API returns **503** with a clear message instead of 500.
 - `frontend` imports `dayjs` directly but pnpm's strict isolation hides antd's copy; `dayjs` is therefore a direct dependency in `frontend/package.json`.
 
 ### Build / test health notes

@@ -1,30 +1,41 @@
+import bcrypt
 from datetime import datetime, timedelta
 import os
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from app.core.config import get_settings
-
-os.environ["PASSLIB_BCRYPT_TRUNCATE"] = "true"
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 
+class AuthConfigurationError(RuntimeError):
+    """认证配置缺失，例如未设置 SECRET_KEY。"""
+
+
 def _get_jwt_secret_key() -> str:
     settings = get_settings()
-    if not settings.secret_key:
-        raise RuntimeError("JWT 密钥未配置：请在后端环境变量 SECRET_KEY 中设置安全随机密钥")
-    return settings.secret_key
+    secret = (settings.secret_key or "").strip()
+    if not secret:
+        raise AuthConfigurationError(
+            "JWT 密钥未配置：请在 backend/.env 或环境变量 SECRET_KEY 中设置安全随机密钥"
+        )
+    return secret
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    if not plain_password or not hashed_password:
+        return False
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+        )
+    except ValueError:
+        return False
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:

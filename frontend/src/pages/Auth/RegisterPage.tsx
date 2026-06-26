@@ -32,8 +32,8 @@ export function RegisterPage() {
 
   const getRegisterErrorMessage = (error: unknown) => {
     const rawMessage = error instanceof Error ? error.message : ''
-    if (rawMessage.includes('后端服务不可用')) {
-      return '后端服务不可用，请确认后端服务已启动后重试'
+    if rawMessage.includes('JWT 密钥未配置') || rawMessage.includes('auth_not_configured')) {
+      return '系统尚未完成安全配置，请联系管理员设置 SECRET_KEY 后重试'
     }
     if (rawMessage.includes('Username already exists')) {
       return '用户名已存在，请更换用户名或直接登录'

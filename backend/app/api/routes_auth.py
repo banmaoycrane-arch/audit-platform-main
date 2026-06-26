@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.security import create_access_token
@@ -73,25 +74,37 @@ class AuthContextResponse(BaseModel):
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     if not payload.agreed_terms or not payload.agreed_privacy:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Must agree to terms and privacy policy")
-    if not payload.username and not payload.phone:
+
+    username = payload.username.strip() if payload.username else None
+    phone = payload.phone.strip() if payload.phone else None
+    if not username and not phone:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username or phone required")
-    # 检查重复
-    if payload.username:
-        existing = auth_service.get_user_by_username(db, payload.username)
+
+    if username:
+        existing = auth_service.get_user_by_username(db, username)
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already exists")
-    if payload.phone:
-        existing = auth_service.get_user_by_phone(db, payload.phone)
+    if phone:
+        existing = auth_service.get_user_by_phone(db, phone)
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone already exists")
-    user = auth_service.register_user(
-        db,
-        username=payload.username,
-        phone=payload.phone,
-        password=payload.password,
-        agreed_terms=payload.agreed_terms,
-        agreed_privacy=payload.agreed_privacy,
-    )
+
+    try:
+        user = auth_service.register_user(
+            db,
+            username=username,
+            phone=phone,
+            password=payload.password,
+            agreed_terms=payload.agreed_terms,
+            agreed_privacy=payload.agreed_privacy,
+        )
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username or phone already exists",
+        ) from None
+
     token = create_access_token({"sub": str(user.id)})
     return TokenResponse(access_token=token)
 

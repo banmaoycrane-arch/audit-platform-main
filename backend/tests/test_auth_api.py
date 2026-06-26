@@ -16,7 +16,7 @@ from app.models.project_member import ProjectMember
 from app.db.models import Entity
 from app.core.config import get_settings
 import app.core.security as security
-from app.core.security import create_access_token, decode_token
+from app.core.security import AuthConfigurationError, create_access_token, decode_token
 
 client = TestClient(app)
 
@@ -62,7 +62,7 @@ def teardown_module() -> None:
 def test_create_access_token_fails_without_secret_key(monkeypatch) -> None:
     monkeypatch.setattr(security, "get_settings", lambda: SimpleNamespace(secret_key=None))
 
-    with pytest.raises(RuntimeError, match="JWT 密钥未配置"):
+    with pytest.raises(AuthConfigurationError, match="JWT 密钥未配置"):
         create_access_token({"sub": "1"}, expires_delta=timedelta(minutes=5))
 
 
