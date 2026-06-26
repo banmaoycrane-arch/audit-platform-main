@@ -108,7 +108,7 @@ const modules = [
 
 export function WorkspacePage() {
   const navigate = useNavigate()
-  const { user, logout, currentLedgerId, userLedgers, authContext } = useAuthStore()
+  const { user, logout, currentLedgerId, userLedgers, authContext, authContextReady, refreshAuthContext } = useAuthStore()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(false)
   const [notifyOpen, setNotifyOpen] = useState(false)
@@ -117,11 +117,33 @@ export function WorkspacePage() {
   const [dashboardNotice, setDashboardNotice] = useState<string | null>(null)
   const [passwordForm] = Form.useForm()
 
+  const resolvedLedgerId = (() => {
+    if (typeof currentLedgerId !== 'number' || !Number.isInteger(currentLedgerId) || currentLedgerId <= 0) {
+      return undefined
+    }
+    if (userLedgers.length > 0 && !userLedgers.some((ledger) => ledger.id === currentLedgerId)) {
+      return userLedgers[0]?.id
+    }
+    return currentLedgerId
+  })()
+
   useEffect(() => {
+    if (!authContextReady) {
+      return
+    }
+    void refreshAuthContext().catch(() => {
+      // 保留当前页面状态，后续统计请求会展示错误提示
+    })
+  }, [authContextReady, refreshAuthContext])
+
+  useEffect(() => {
+    if (!authContextReady) {
+      return
+    }
     setLoading(true)
     setDashboardNotice(null)
     api
-      .getDashboardSummary(currentLedgerId || undefined)
+      .getDashboardSummary(resolvedLedgerId)
       .then((res) => {
         setData(res as DashboardData)
       })
@@ -130,7 +152,9 @@ export function WorkspacePage() {
           user: {
             id: user?.id || 0,
             username: user?.username || '',
-            team: null,
+            team: authContext?.teams[0]
+              ? { id: authContext.teams[0].id, name: authContext.teams[0].name }
+              : null,
           },
           voucher_count: 0,
           unclosed_periods: 0,
@@ -148,10 +172,10 @@ export function WorkspacePage() {
         setDashboardNotice(error instanceof Error ? error.message : '暂时无法取得工作台统计数据')
       })
       .finally(() => setLoading(false))
-  }, [currentLedgerId, user])
+  }, [authContextReady, resolvedLedgerId, user?.id, user?.username, authContext?.teams])
 
   const displayName = user?.username || data?.user?.username || '用户'
-  const teamName = data?.user?.team?.name || '未加入团队'
+  const teamName = data?.user?.team?.name || authContext?.teams[0]?.name || '未加入团队'
 
   const alerts = [
     data && data.unclosed_periods > 0

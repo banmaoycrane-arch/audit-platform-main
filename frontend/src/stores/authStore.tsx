@@ -21,6 +21,7 @@ interface AuthContextState {
   missing_bindings: string[]
   temporary_status: 'onboarding_pending' | 'ready'
   next_action: string
+  teams: Array<{ id: number; name: string }>
 }
 
 interface AuthState {
@@ -83,20 +84,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshAuthContext = useCallback(async () => {
     const context = await api.getAuthContext()
+    const authorizedLedgerIds = new Set(context.ledgers.map((ledger) => ledger.id))
+    let nextLedgerId = context.current_ledger_id
+    if (nextLedgerId !== null && !authorizedLedgerIds.has(nextLedgerId)) {
+      nextLedgerId = context.ledgers[0]?.id ?? null
+    }
+
     setUserState({
       id: context.user.id,
       username: context.user.username || '',
       phone: context.user.phone || '',
     })
     setUserLedgersState(context.ledgers)
-    setCurrentLedgerIdState(context.current_ledger_id)
+    setCurrentLedgerIdState(nextLedgerId)
     setAuthContextState({
       missing_bindings: context.missing_bindings,
       temporary_status: context.temporary_status,
       next_action: context.next_action,
+      teams: context.teams.map((team) => ({ id: team.id, name: team.name })),
     })
-    if (context.current_ledger_id !== null) {
-      localStorage.setItem('current_ledger_id', String(context.current_ledger_id))
+    if (nextLedgerId !== null) {
+      localStorage.setItem('current_ledger_id', String(nextLedgerId))
     } else {
       localStorage.removeItem('current_ledger_id')
     }

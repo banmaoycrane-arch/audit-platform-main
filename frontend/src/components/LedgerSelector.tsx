@@ -23,7 +23,7 @@ const ledgerStatusLabelMap: Record<string, string> = {
 }
 
 export function LedgerSelector() {
-  const { currentLedgerId, setCurrentLedger, userLedgers, setUserLedgers } = useAuthStore()
+  const { currentLedgerId, setCurrentLedger, userLedgers, setUserLedgers, refreshAuthContext } = useAuthStore()
   const [loading, setLoading] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -94,6 +94,7 @@ export function LedgerSelector() {
       const nextLedgers = [...userLedgers.filter((item) => item.id !== ledger.id), ledger]
       setUserLedgers(nextLedgers)
       setCurrentLedger(ledger.id)
+      await refreshAuthContext()
       setCreateOpen(false)
       form.resetFields()
       message.success('账套创建成功，已切换到新账套')
