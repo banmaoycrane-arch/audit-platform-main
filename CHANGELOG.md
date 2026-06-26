@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2026-06-26]
+
+### Added
+
+- **审计 Step1 范围持久化（Phase A）**：导入任务新增 `audit_scope_type`、`audit_period_id`、`audit_account_codes`、`project_id` 字段；新增 `PUT /api/imports/{job_id}/audit-scope` 接口；审计模式 Step1 支持选择全部/按科目/按期间范围并保存到导入任务，Step2 可读取已保存范围。（PR #83）
+
 ## [2026-06-25]
 
 ### Fixed / 修复
