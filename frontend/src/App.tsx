@@ -61,6 +61,8 @@ import { ReviewDetailPage } from './pages/Audit/ReviewDetailPage'
 import { AuditDashboardPage } from './pages/Audit/AuditDashboardPage'
 import { LedgerBooksPage } from './pages/LedgerBooksPage'
 import { ScopeSettingsPage } from './pages/ScopeSettingsPage'
+import { ParserEngineManagementPage } from './pages/ParserEngineManagementPage'
+import { ParserEngineConfigPage } from './pages/ParserEngineConfigPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -134,6 +136,8 @@ function AppRoutes() {
         <Route path="/fixed-assets/workspace" element={<LedgerDataGuard><FixedAssetsWorkspace /></LedgerDataGuard>} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/scope-settings" element={<ScopeSettingsPage />} />
+<Route path="/parser-engine" element={<AuthGuard><ParserEngineManagementPage /></AuthGuard>} />
+<Route path="/parser-engine/config" element={<AuthGuard><ParserEngineConfigPage /></AuthGuard>} />
         <Route path="/ledger/lifecycle" element={<LedgerLifecyclePage />} />
         <Route path="/accounting/step/1" element={<LedgerDataGuard><Step1AccountingSelectType /></LedgerDataGuard>} />
         <Route path="/accounting/step/2" element={<LedgerDataGuard><Step2AccountingImportSource /></LedgerDataGuard>} />

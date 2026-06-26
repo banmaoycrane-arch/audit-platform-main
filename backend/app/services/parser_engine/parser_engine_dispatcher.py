@@ -1,0 +1,1420 @@
+# -*- coding: utf-8 -*-
+"""
+模块功能：解析引擎调度层
+业务场景：双引擎并行解析、多LLM引擎对比、结果融合、未识别文件处理
+政策依据：各类会计准则（CAS 1/9/14/22等）
+输入数据：文件路径、用户预选类型、配置参数
+输出结果：ParseResult 或 LLMComparisonResult
+创建日期：2026-06-26
+更新记录：
+    2026-06-26  初始创建，实现双引擎并行、多LLM对比、结果融合
+"""
+
+import asyncio
+import json
+import logging
+import time
+import zipfile
+import xml.etree.ElementTree as ET
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
+
+from app.core.config import get_settings
+from app.services.parser_engine.config_service import get_runtime_parser_engine_config
+from app.services.parser_engine.parse_result import (
+    DocumentType,
+    DocumentSubType,
+    EngineType,
+    FileFormat,
+    ParseResult,
+    LLMComparisonResult,
+    FormatRecognitionResult,
+    TypeClassificationResult,
+    UnrecognizedFile,
+)
+from app.services.parser_engine.format_recognizer import recognize_file_format
+from app.services.parser_engine.document_type_classifier import classify_document_type
+from app.services.source_document_service import classify_document
+from app.services.llm_client_service import LightweightLLMClient
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# 辅助函数：文本提取
+# =============================================================================
+
+def _extract_text_from_ofd(file_path: str) -> str:
+    """
+    从OFD文件中提取文本内容
+    
+    OFD（Open Fixed-layout Document）是中国国家标准的电子文件格式，
+    本质上是一个ZIP压缩包，包含XML文件描述文档内容。
+    
+    功能描述：解压OFD文件，提取XML内容并解析文本
+    业务逻辑：
+        1. 将OFD文件作为ZIP解压
+        2. 读取Document.xml文件获取文档结构
+        3. 读取Content.xml文件获取页面内容
+        4. 提取文本元素并合并
+    
+    Args:
+        file_path: OFD文件路径
+        
+    Returns:
+        str: 提取的文本内容
+    """
+    text_parts = []
+    
+    try:
+        with zipfile.ZipFile(file_path, 'r') as zf:
+            file_list = zf.namelist()
+            
+            for file_name in file_list:
+                if file_name.endswith('.xml'):
+                    try:
+                        with zf.open(file_name) as xml_file:
+                            content = xml_file.read().decode('utf-8', errors='ignore')
+                            text_parts.append(f"=== {file_name} ===")
+                            text_parts.append(_format_xml_text(content))
+                    except Exception as e:
+                        logger.debug(f"读取OFD中的XML文件失败 {file_name}: {e}")
+        
+        return "\n\n".join(text_parts)
+    
+    except Exception as e:
+        logger.warning(f"OFD文本提取失败 {file_path}: {e}")
+        return ""
+
+
+def _format_xml_text(xml_content: str) -> str:
+    """
+    格式化XML文本，提取标签内容
+    
+    功能描述：将XML格式的文本转换为易读的文本格式
+    业务逻辑：
+        1. 解析XML结构
+        2. 提取所有文本节点
+        3. 去除多余空白字符
+        4. 返回纯文本内容
+    
+    Args:
+        xml_content: XML格式的字符串
+        
+    Returns:
+        str: 格式化后的纯文本内容
+    """
+    try:
+        root = ET.fromstring(xml_content)
+        
+        def _get_text(element: ET.Element) -> str:
+            texts = []
+            if element.text:
+                texts.append(element.text.strip())
+            for child in element:
+                texts.append(_get_text(child))
+                if child.tail:
+                    texts.append(child.tail.strip())
+            return "\n".join(t for t in texts if t)
+        
+        return _get_text(root)
+    
+    except Exception as e:
+        logger.debug(f"XML解析失败，返回原始内容: {e}")
+        return xml_content
+
+
+def extract_text_from_file(file_path: str, file_format: FileFormat, sheet_name: str | None = None) -> str:
+    """
+    从文件中提取文本内容
+    
+    功能描述：根据文件格式选择合适的提取方法
+    业务逻辑：
+        - PDF文字型：使用 pdfplumber
+        - PDF图片型/图片：使用 OCR
+        - Excel/CSV：使用 pandas
+        - XML/OFD/TEXT：直接读取
+        - Word：使用 docx
+    
+    Args:
+        file_path: 文件存储路径
+        file_format: 文件格式类型
+        sheet_name: Excel工作表名称（可选）
+        
+    Returns:
+        str: 提取的文本内容
+    """
+    path = Path(file_path)
+    
+    try:
+        if file_format == FileFormat.PDF_TEXT:
+            import pdfplumber
+            text_parts = []
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text() or ""
+                    text_parts.append(page_text)
+            return "\n".join(text_parts)
+        
+        elif file_format in {FileFormat.PDF_IMAGE, FileFormat.IMAGE}:
+            # 图片型文件需要OCR
+            from app.services.ocr_service import extract_text_from_image
+            return extract_text_from_image(file_path)
+        
+        elif file_format == FileFormat.EXCEL:
+            import pandas as pd
+            if sheet_name:
+                df = pd.read_excel(file_path, sheet_name=sheet_name)
+            else:
+                df = pd.read_excel(file_path)
+            return df.to_string()
+        
+        elif file_format == FileFormat.CSV:
+            import pandas as pd
+            df = pd.read_csv(file_path)
+            return df.to_string()
+        
+        elif file_format == FileFormat.XML:
+            raw_content = path.read_text(encoding="utf-8", errors="ignore")
+            return _format_xml_text(raw_content)
+        
+        elif file_format == FileFormat.OFD:
+            return _extract_text_from_ofd(file_path)
+        
+        elif file_format in {FileFormat.TEXT, FileFormat.MARKDOWN}:
+            return path.read_text(encoding="utf-8", errors="ignore")
+        
+        elif file_format == FileFormat.WORD:
+            try:
+                import docx
+                doc = docx.Document(file_path)
+                return "\n".join(p.text for p in doc.paragraphs)
+            except Exception:
+                return ""
+        
+    except Exception as e:
+        logger.warning(f"文本提取失败 {file_path}: {e}")
+        return ""
+    
+    return ""
+
+
+# =============================================================================
+# 规则引擎解析
+# =============================================================================
+
+def parse_with_rule_engine(
+    file_path: str,
+    document_type: DocumentType,
+    extracted_text: str,
+    file_format: FileFormat | None = None,
+) -> ParseResult:
+    """
+    规则引擎解析
+    
+    功能描述：使用规则解析器解析各类财务文档的结构化数据
+    业务逻辑：
+        1. 根据文档类型选择对应的规则解析器
+        2. 使用正则表达式提取关键字段
+        3. 构建结构化数据
+        4. 计算置信度（基于提取字段的完整性）
+    
+    Args:
+        file_path: 文件存储路径
+        document_type: 文档类型
+        extracted_text: 已提取的文本内容
+        file_format: 文件格式（可选）
+        
+    Returns:
+        ParseResult: 规则引擎解析结果
+    """
+    from app.services.parser_engine.rule_parsers import parse_with_rules
+    
+    try:
+        parsed_data = parse_with_rules(document_type.value, extracted_text, file_path)
+        
+        # 计算置信度：基于提取字段的完整性
+        total_fields = len(parsed_data)
+        filled_fields = sum(1 for v in parsed_data.values() if v is not None and v != "")
+        
+        if total_fields == 0:
+            confidence = 0.0
+        else:
+            confidence = min(0.95, filled_fields / total_fields)
+        
+        # 判断细分类型（基于数据内容）
+        sub_type = _determine_sub_type(document_type, parsed_data)
+        
+        return ParseResult(
+            document_type=document_type,
+            sub_type=sub_type,
+            file_format=file_format,
+            data=parsed_data,
+            confidence=confidence,
+            engine=EngineType.RULE,
+            engine_name="rule_engine",
+            raw_text=extracted_text[:2000],
+            validation_errors=[],
+            accounting_notes="",
+        )
+        
+    except Exception as e:
+        logger.error(f"规则引擎解析失败 {file_path}: {e}")
+        return ParseResult(
+            document_type=document_type,
+            file_format=file_format,
+            confidence=0.0,
+            engine=EngineType.RULE,
+            engine_name="rule_engine",
+            validation_errors=[f"规则引擎解析失败: {e}"],
+        )
+
+
+def _determine_sub_type(document_type: DocumentType, data: dict[str, Any]) -> DocumentSubType | None:
+    """
+    根据解析数据确定文档细分类型
+    
+    功能描述：基于解析出的数据特征判断文档细分类型
+    业务逻辑：
+        发票：根据金额和税率判断专用/普通/电子发票
+        银行流水：根据交易记录数量判断流水单/对账单
+        合同：根据金额大小判断
+        
+    Args:
+        document_type: 文档类型
+        data: 解析出的结构化数据
+        
+    Returns:
+        DocumentSubType: 细分类型，或 None
+    """
+    if document_type == DocumentType.INVOICE:
+        amount = data.get("total_amount")
+        if amount and amount > 0:
+            if data.get("tax_rate"):
+                return DocumentSubType.INVOICE_NORMAL
+            return DocumentSubType.INVOICE_ELECTRONIC
+        return DocumentSubType.INVOICE_NORMAL
+    
+    elif document_type == DocumentType.BANK_STATEMENT:
+        transactions = data.get("transactions", [])
+        if len(transactions) > 10:
+            return DocumentSubType.BANK_STATEMENT_DETAIL
+        return DocumentSubType.BANK_STATEMENT_SUMMARY
+    
+    elif document_type == DocumentType.CONTRACT:
+        amount = data.get("contract_amount")
+        if amount and amount > 100000:
+            return DocumentSubType.CONTRACT_MAJOR
+        return DocumentSubType.CONTRACT_STANDARD
+    
+    return None
+
+
+# =============================================================================
+# LLM 引擎解析
+# =============================================================================
+
+def parse_with_llm_engine(
+    file_path: str,
+    document_type: DocumentType,
+    extracted_text: str,
+    model_name: str = None,
+    file_format: FileFormat | None = None,
+) -> ParseResult:
+    """
+    LLM 引擎解析
+    
+    功能描述：使用 LLM 进行语义理解解析
+    业务逻辑：
+        - 构建提示词（包含文档类型和会计准则要求）
+        - 调用 LLM API
+        - 解析 JSON 结果
+        - 计算置信度
+    
+    Args:
+        file_path: 文件存储路径
+        document_type: 文档类型
+        extracted_text: 已提取的文本内容
+        model_name: LLM 模型名称（可选）
+        
+    Returns:
+        ParseResult: LLM 引擎解析结果
+    """
+    settings = get_settings()
+    
+    # 确定模型名称
+    if model_name is None:
+        model_name = settings.llm_preferred_model
+    
+    # 构建 LLM 客户端
+    llm_client = LightweightLLMClient()
+    
+    if not llm_client.is_configured():
+        logger.warning(f"LLM 未配置，跳过 LLM 解析")
+        return ParseResult(
+            document_type=document_type,
+            file_format=file_format,
+            confidence=0.0,
+            engine=EngineType.LLM,
+            engine_name=model_name,
+            validation_errors=["LLM 未配置"],
+        )
+    
+    # 构建提示词
+    prompt = build_llm_prompt(document_type, extracted_text)
+    
+    messages = [
+        {"role": "system", "content": "你是一个专业的财务审计助手，擅长解析各类财务文档。请严格按照JSON格式返回结果。"},
+        {"role": "user", "content": prompt},
+    ]
+    
+    try:
+        # 调用 LLM
+        llm_result = llm_client.chat(messages, temperature=0.1)
+        
+        if not llm_result.available:
+            logger.warning(f"LLM 调用失败: {llm_result.error}")
+            return ParseResult(
+                document_type=document_type,
+                file_format=file_format,
+                confidence=0.0,
+                engine=EngineType.LLM,
+                engine_name=model_name,
+                validation_errors=[llm_result.error],
+            )
+        
+        # 解析 JSON 结果
+        content = llm_result.content
+        if content:
+            data = json.loads(content)
+            
+            # 提取置信度（LLM 自评估）
+            confidence = data.get("confidence", 0.7)
+            
+            # 提取校验错误
+            validation_errors = data.get("validation_errors", [])
+            
+            # 提取会计建议
+            accounting_notes = data.get("accounting_notes", "")
+            
+            return ParseResult(
+                document_type=document_type,
+                sub_type=None,
+                file_format=file_format,
+                data=data.get("fields", {}),
+                confidence=confidence,
+                engine=EngineType.LLM,
+                engine_name=model_name,
+                raw_text=extracted_text[:1000],
+                validation_errors=validation_errors,
+                accounting_notes=accounting_notes,
+            )
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"LLM 结果 JSON 解析失败: {e}")
+        return ParseResult(
+            document_type=document_type,
+            file_format=file_format,
+            confidence=0.0,
+            engine=EngineType.LLM,
+            engine_name=model_name,
+            validation_errors=[f"JSON 解析失败: {e}"],
+        )
+    
+    except Exception as e:
+        logger.error(f"LLM 引擎解析失败 {file_path}: {e}")
+        return ParseResult(
+            document_type=document_type,
+            file_format=file_format,
+            confidence=0.0,
+            engine=EngineType.LLM,
+            engine_name=model_name,
+            validation_errors=[f"LLM 引擎解析失败: {e}"],
+        )
+    
+    return ParseResult(
+        document_type=document_type,
+        file_format=file_format,
+        confidence=0.0,
+        engine=EngineType.LLM,
+        engine_name=model_name,
+    )
+
+
+def build_llm_prompt(document_type: DocumentType, extracted_text: str) -> str:
+    """
+    构建 LLM 提示词
+    
+    功能描述：根据文档类型构建针对性的提示词
+    业务逻辑：
+        - 包含文档类型说明
+        - 包含会计准则要求
+        - 包含字段提取要求
+        - 包含置信度自评估要求
+    
+    Args:
+        document_type: 文档类型
+        extracted_text: 已提取的文本内容
+        
+    Returns:
+        str: 构建的提示词
+    """
+    # 文档类型说明
+    type_descriptions = {
+        DocumentType.INVOICE: "增值税发票（可能为专用发票、普通发票、定额发票、电子发票）",
+        DocumentType.BANK_STATEMENT: "银行流水单、银行对账单或银行回单",
+        DocumentType.CONTRACT: "合同协议（可能为标准合同、简易合同、手写合同、订单等）",
+        DocumentType.INVENTORY_RECEIPT: "入库单、物流单、销售单或电商订单",
+        DocumentType.SALARY_TABLE: "工资表或薪酬计算表",
+        DocumentType.EXPENSE_DOCUMENT: "费用报销单据（可能为差旅报销、招待单、行程单等）",
+        DocumentType.RECEIPT: "收据凭证",
+    }
+    
+    doc_type_desc = type_descriptions.get(document_type, "财务文档")
+    
+    # 字段提取要求（根据文档类型）
+    field_requirements = {
+        DocumentType.INVOICE: [
+            "发票号码", "发票代码", "开票日期", "购买方名称", "销售方名称",
+            "不含税金额", "税率", "税额", "价税合计", "发票类型"
+        ],
+        DocumentType.BANK_STATEMENT: [
+            "银行名称", "账号", "交易日期", "交易金额", "对方账户",
+            "对方名称", "摘要", "余额", "单据类型"
+        ],
+        DocumentType.CONTRACT: [
+            "合同编号", "甲方名称", "乙方名称", "签订日期", "合同金额",
+            "合同期限", "合同类型", "违约责任"
+        ],
+        DocumentType.INVENTORY_RECEIPT: [
+            "单据编号", "日期", "供应商/客户", "物品名称", "数量",
+            "单价", "金额", "单据类型"
+        ],
+        DocumentType.SALARY_TABLE: [
+            "工资期间", "员工数", "工资总额", "个税合计", "社保合计",
+            "公积金合计", "实发合计"
+        ],
+        DocumentType.EXPENSE_DOCUMENT: [
+            "报销日期", "报销人", "报销类型", "报销金额", "费用明细",
+            "审批状态"
+        ],
+        DocumentType.RECEIPT: [
+            "收据编号", "日期", "收款人", "付款人", "金额", "事由"
+        ],
+    }
+    
+    required_fields = field_requirements.get(document_type, [])
+    
+    json_format_example = '''
+{
+    "fields": {
+        "字段名": "字段值"
+    },
+    "confidence": 0.8,
+    "validation_errors": [],
+    "accounting_notes": ""
+}
+'''
+    
+    prompt = f"""
+请解析以下{doc_type_desc}，提取关键字段信息。
+
+【文档内容】
+{extracted_text[:2000]}
+
+【提取要求】
+请提取以下字段（如果存在）：{', '.join(required_fields)}
+
+【返回格式】
+请严格按照 JSON 格式返回结果：
+{json_format_example}
+
+【注意事项】
+1. 如果字段不存在，请填 null 或空字符串
+2. 金额字段请保留原始格式（不要转数字）
+3. 置信度请根据文本清晰度和字段完整性自评估（0-1之间）
+4. 如果发现会计勾稽关系错误，请在 validation_errors 中标注
+5. 如果能识别适用的会计准则，请在 accounting_notes 中说明
+"""
+    
+    return prompt
+
+
+# =============================================================================
+# 多LLM引擎对比
+# =============================================================================
+
+async def multi_llm_comparison(
+    file_path: str,
+    document_type: DocumentType,
+    extracted_text: str,
+) -> LLMComparisonResult:
+    """
+    多LLM引擎对比流程
+    
+    功能描述：并行调用多个LLM引擎，对比解析结果，选择最优
+    业务逻辑：
+        1. 并行调用配置的所有LLM引擎
+        2. 收集各引擎解析结果
+        3. 进行字段一致性分析
+        4. 根据对比策略选择最优结果
+        5. 标注字段来源
+    
+    会计口径：
+        - 字段一致性率用于判断结果可信度
+        - 加权投票综合各引擎优势
+        - 字段来源标注便于审计追溯
+    
+    Args:
+        file_path: 文件存储路径
+        document_type: 文档类型
+        extracted_text: 已提取的文本内容
+        
+    Returns:
+        LLMComparisonResult: 多LLM引擎对比结果
+    """
+    settings = get_settings()
+    
+    # 解析配置参数
+    engines_list = settings.llm_comparison_engines.split(",")
+    weights_json = json.loads(settings.llm_engine_weights)
+    comparison_strategy = settings.llm_comparison_strategy
+    
+    # 1. 并行调用所有引擎
+    engine_tasks = []
+    for engine_name in engines_list:
+        task = asyncio.create_task(
+            asyncio.to_thread(
+                parse_with_llm_engine,
+                file_path,
+                document_type,
+                extracted_text,
+                engine_name,
+            )
+        )
+        engine_tasks.append((engine_name, task))
+    
+    # 2. 收集结果（设置超时）
+    engine_results = {}
+    timeout = settings.llm_timeout_seconds
+    
+    for engine_name, task in engine_tasks:
+        try:
+            result = await asyncio.wait_for(task, timeout=timeout)
+            engine_results[engine_name] = result
+        except asyncio.TimeoutError:
+            logger.warning(f"LLM 引擎 {engine_name} 超时")
+            engine_results[engine_name] = None
+        except Exception as e:
+            logger.error(f"LLM 引擎 {engine_name} 调用失败: {e}")
+            engine_results[engine_name] = None
+    
+    # 3. 字段一致性分析
+    field_agreement = calculate_field_agreement(engine_results)
+    
+    # 4. 根据策略选择结果
+    final_result = None
+    selection_reason = ""
+    field_sources = {}
+    
+    if comparison_strategy == "weighted_vote":
+        final_result = weighted_vote_selection(engine_results, weights_json)
+        selection_reason = "加权投票"
+        field_sources = determine_field_sources(engine_results, final_result)
+    
+    elif comparison_strategy == "highest_confidence":
+        valid_results = [r for r in engine_results.values() if r and r.confidence > 0]
+        if valid_results:
+            final_result = max(valid_results, key=lambda r: r.confidence)
+            selection_reason = "置信度最高"
+            field_sources = {field: final_result.engine_name for field in final_result.data.keys()}
+    
+    elif comparison_strategy == "intersection":
+        final_result = intersection_selection(engine_results)
+        selection_reason = "字段交集"
+        field_sources = {field: "intersection" for field in final_result.data.keys()}
+    
+    elif comparison_strategy == "user_review":
+        # 返回所有结果，前端让用户选择
+        return LLMComparisonResult(
+            engine_results=engine_results,
+            field_agreement=field_agreement,
+            final_result=None,
+            selection_reason="等待用户选择",
+            field_sources={},
+        )
+    
+    return LLMComparisonResult(
+        engine_results=engine_results,
+        field_agreement=field_agreement,
+        final_result=final_result,
+        selection_reason=selection_reason,
+        field_sources=field_sources,
+    )
+
+
+def calculate_field_agreement(results: dict[str, ParseResult]) -> dict[str, float]:
+    """
+    计算各字段的一致性率
+    
+    功能描述：统计各字段在多引擎中的一致性
+    业务逻辑：
+        - 对于每个字段，统计各引擎给出的值
+        - 计算相同值的比例
+    
+    会计口径：
+        - 一致性率越高表示结果越可信
+    
+    Args:
+        results: 各引擎的解析结果
+        
+    Returns:
+        dict: 各字段的一致性率（0-1之间）
+    """
+    agreement = {}
+    
+    # 获取所有字段名
+    all_fields = set()
+    for result in results.values():
+        if result and result.data:
+            all_fields.update(result.data.keys())
+    
+    # 计算每个字段的一致性
+    for field in all_fields:
+        values = []
+        for result in results.values():
+            if result and result.data and field in result.data:
+                values.append(str(result.data[field]))
+        
+        if len(values) > 1:
+            # 计算一致性率（相同值的比例）
+            unique_values = set(values)
+            max_count = max(sum(1 for v in values if v == uv) for uv in unique_values)
+            agreement[field] = max_count / len(values)
+        else:
+            agreement[field] = 1.0 if values else 0.0
+    
+    return agreement
+
+
+def weighted_vote_selection(
+    results: dict[str, ParseResult],
+    weights: dict[str, float],
+) -> ParseResult:
+    """
+    加权投票选择最优结果
+    
+    功能描述：根据引擎权重计算得分，选择最优值
+    业务逻辑：
+        1. 对于每个字段，统计各引擎给出的值
+        2. 按引擎权重计算每个值的加权得分
+        3. 选择得分最高的值
+        4. 合成最终结果
+    
+    会计口径：
+        - 权重根据各引擎历史准确率配置
+    
+    Args:
+        results: 各引擎的解析结果
+        weights: 引擎权重配置
+        
+    Returns:
+        ParseResult: 加权投票后的最终结果
+    """
+    if not results:
+        return ParseResult(document_type=DocumentType.UNKNOWN, confidence=0.0)
+    
+    # 获取第一个有效结果的文档类型
+    first_result = next((r for r in results.values() if r), None)
+    if not first_result:
+        return ParseResult(document_type=DocumentType.UNKNOWN, confidence=0.0)
+    
+    document_type = first_result.document_type
+    
+    final_data = {}
+    
+    # 获取所有字段名
+    all_fields = set()
+    for result in results.values():
+        if result and result.data:
+            all_fields.update(result.data.keys())
+    
+    # 对每个字段进行加权投票
+    for field in all_fields:
+        value_scores = {}
+        
+        for engine_name, result in results.items():
+            if result and result.data and field in result.data:
+                value = str(result.data[field])
+                weight = weights.get(engine_name, 0.25)
+                value_scores[value] = value_scores.get(value, 0) + weight
+        
+        # 选择得分最高的值
+        if value_scores:
+            best_value = max(value_scores.keys(), key=lambda v: value_scores[v])
+            
+            # 找到给出该值的引擎，使用其原始数据类型
+            for engine_name, result in results.items():
+                if result and result.data and field in result.data:
+                    if str(result.data[field]) == best_value:
+                        final_data[field] = result.data[field]
+                        break
+    
+    # 计算综合置信度（加权平均）
+    total_weight = 0.0
+    weighted_confidence = 0.0
+    for engine_name, result in results.items():
+        if result:
+            weight = weights.get(engine_name, 0.25)
+            weighted_confidence += result.confidence * weight
+            total_weight += weight
+    
+    final_confidence = weighted_confidence / total_weight if total_weight > 0 else 0.0
+    
+    return ParseResult(
+        document_type=document_type,
+        data=final_data,
+        confidence=final_confidence,
+        engine=EngineType.WEIGHTED_VOTE,
+        engine_name="weighted_vote",
+        raw_text="",  # 不重复保存
+        validation_errors=[],
+        accounting_notes="",
+    )
+
+
+def intersection_selection(results: dict[str, ParseResult]) -> ParseResult:
+    """
+    交集选择（只取各引擎一致的字段）
+    
+    功能描述：只保留各引擎完全一致的字段
+    业务逻辑：
+        - 对于每个字段，只有所有引擎都给出相同值才保留
+    
+    会计口径：
+        - 严格保守，确保字段准确性
+    
+    Args:
+        results: 各引擎的解析结果
+        
+    Returns:
+        ParseResult: 交集选择后的结果
+    """
+    if not results:
+        return ParseResult(document_type=DocumentType.UNKNOWN, confidence=0.0)
+    
+    first_result = next((r for r in results.values() if r), None)
+    if not first_result:
+        return ParseResult(document_type=DocumentType.UNKNOWN, confidence=0.0)
+    
+    document_type = first_result.document_type
+    final_data = {}
+    
+    # 获取所有字段名
+    all_fields = set()
+    for result in results.values():
+        if result and result.data:
+            all_fields.update(result.data.keys())
+    
+    # 对每个字段检查一致性
+    for field in all_fields:
+        values = []
+        for result in results.values():
+            if result and result.data and field in result.data:
+                values.append(str(result.data[field]))
+        
+        # 只有所有值相同才保留
+        if values and len(set(values)) == 1:
+            final_data[field] = results[list(results.keys())[0]].data[field]
+    
+    return ParseResult(
+        document_type=document_type,
+        data=final_data,
+        confidence=1.0,  # 交集选择置信度默认为1.0（严格一致）
+        engine=EngineType.FUSED,
+        engine_name="intersection",
+        raw_text="",
+        validation_errors=[],
+        accounting_notes="",
+    )
+
+
+def determine_field_sources(
+    results: dict[str, ParseResult],
+    final_result: ParseResult,
+) -> dict[str, str]:
+    """
+    确定各字段的来源引擎
+    
+    功能描述：标注每个字段来自哪个引擎
+    业务逻辑：
+        - 对于每个字段，找到给出该值的引擎
+    
+    会计口径：
+        - 来源标注便于审计追溯
+    
+    Args:
+        results: 各引擎的解析结果
+        final_result: 最终选择的解析结果
+        
+    Returns:
+        dict: 各字段的来源引擎
+    """
+    field_sources = {}
+    
+    for field, value in final_result.data.items():
+        # 找到给出该值的引擎
+        for engine_name, result in results.items():
+            if result and result.data and field in result.data:
+                if result.data[field] == value:
+                    field_sources[field] = engine_name
+                    break
+    
+    return field_sources
+
+
+# =============================================================================
+# 双引擎并行解析
+# =============================================================================
+
+async def dual_engine_parallel_parse(
+    file_path: str,
+    document_type: DocumentType,
+    extracted_text: str,
+    file_format: FileFormat | None = None,
+) -> dict[str, Any]:
+    """
+    双引擎并行解析
+    
+    功能描述：规则引擎和LLM引擎并行解析，按置信度选择最优，返回完整对比信息
+    业务逻辑：
+        1. 并行调用规则引擎和LLM引擎
+        2. 收集两个引擎的结果
+        3. 比较置信度，选择最优结果
+        4. 返回完整的对比信息，便于前端展示
+    
+    会计口径：
+        - 置信度选择确保结果准确性
+        - 保留两个引擎的结果便于审计追溯
+    
+    Args:
+        file_path: 文件存储路径
+        document_type: 文档类型
+        extracted_text: 已提取的文本内容
+        file_format: 文件格式
+        
+    Returns:
+        dict: 包含两个引擎结果和最终选择的对比信息
+    """
+    config = get_runtime_parser_engine_config()
+    
+    # 1. 并行调用两个引擎
+    rule_task = asyncio.create_task(
+        asyncio.to_thread(
+            parse_with_rule_engine,
+            file_path,
+            document_type,
+            extracted_text,
+            file_format,
+        )
+    )
+    
+    llm_task = asyncio.create_task(
+        asyncio.to_thread(
+            parse_with_llm_engine,
+            file_path,
+            document_type,
+            extracted_text,
+            config.get("llm_preferred_model", "qwen2.5-14b-chat"),
+            file_format,
+        )
+    )
+    
+    # 2. 收集结果
+    rule_result = None
+    llm_result = None
+    
+    try:
+        rule_result = await asyncio.wait_for(rule_task, timeout=config.get("llm_parallel_timeout_seconds", 60))
+    except asyncio.TimeoutError:
+        logger.warning("规则引擎解析超时")
+    
+    try:
+        llm_result = await asyncio.wait_for(llm_task, timeout=config.get("llm_timeout_seconds", 30))
+    except asyncio.TimeoutError:
+        logger.warning("LLM 引擎解析超时")
+    
+    # 3. 选择最优结果
+    final_result = None
+    selection_reason = ""
+    
+    if rule_result and llm_result:
+        if rule_result.confidence >= llm_result.confidence:
+            logger.info(f"双引擎并行：选择规则引擎结果（置信度 {rule_result.confidence} vs {llm_result.confidence}）")
+            final_result = rule_result
+            selection_reason = f"规则引擎置信度更高 ({rule_result.confidence:.2f} vs {llm_result.confidence:.2f})"
+        else:
+            logger.info(f"双引擎并行：选择LLM引擎结果（置信度 {llm_result.confidence} vs {rule_result.confidence}）")
+            final_result = llm_result
+            selection_reason = f"LLM引擎置信度更高 ({llm_result.confidence:.2f} vs {rule_result.confidence:.2f})"
+    elif rule_result:
+        logger.info("双引擎并行：仅有规则引擎结果")
+        final_result = rule_result
+        selection_reason = "LLM引擎未返回结果，使用规则引擎"
+    elif llm_result:
+        logger.info("双引擎并行：仅有LLM引擎结果")
+        final_result = llm_result
+        selection_reason = "规则引擎未返回结果，使用LLM引擎"
+    else:
+        logger.error("双引擎并行：两个引擎都失败")
+        final_result = ParseResult(
+            document_type=document_type,
+            file_format=file_format,
+            confidence=0.0,
+            engine=EngineType.RULE,
+            validation_errors=["双引擎并行解析失败"],
+        )
+        selection_reason = "两个引擎都失败"
+    
+    # 4. 返回完整的对比信息
+    return {
+        "rule_engine_result": rule_result.to_dict() if rule_result else None,
+        "llm_engine_result": llm_result.to_dict() if llm_result else None,
+        "final_result": final_result,
+        "selection_reason": selection_reason,
+        "engine_comparison": {
+            "rule_confidence": rule_result.confidence if rule_result else 0.0,
+            "llm_confidence": llm_result.confidence if llm_result else 0.0,
+            "selection_reason": selection_reason,
+        },
+    }
+
+
+# =============================================================================
+# 未识别文件处理
+# =============================================================================
+
+def handle_unrecognized_file(
+    file_path: str,
+    file_format: FileFormat,
+    extracted_text: str,
+) -> UnrecognizedFile:
+    """
+    未识别文件处理
+    
+    功能描述：对于无法识别类型的文件，记录并准备二次分析
+    业务逻辑：
+        1. 创建 UnrecognizedFile 对象
+        2. 记录初次分析结果
+        3. 准备二次分析流程
+    
+    会计口径：
+        - 未识别文件需要人工复核或二次分析
+    
+    Args:
+        file_path: 文件存储路径
+        file_format: 文件格式
+        extracted_text: 已提取的文本内容
+        
+    Returns:
+        UnrecognizedFile: 未识别文件对象
+    """
+    from datetime import datetime
+    
+    # 创建未识别文件对象
+    unrecognized = UnrecognizedFile(
+        file_id=0,  # 需要在数据库中创建后填入
+        file_path=file_path,
+        file_name=Path(file_path).name,
+        file_format=file_format,
+        upload_time=datetime.now(),
+        analysis_status="pending",
+        extracted_text=extracted_text,
+        extracted_features={},
+    )
+    
+    # 初次分析（尝试遍历所有类型）
+    first_analysis = {}
+    for doc_type in DocumentType.get_all_types():
+        try:
+            # 尝试使用LLM解析
+            result = parse_with_llm_engine(file_path, doc_type, extracted_text)
+            if result.confidence > 0.5:
+                first_analysis[doc_type.value] = {
+                    "confidence": result.confidence,
+                    "data": result.data,
+                }
+        except Exception:
+            pass
+    
+    unrecognized.first_analysis = first_analysis
+    unrecognized.analysis_status = "analyzing"
+    
+    return unrecognized
+
+
+# =============================================================================
+# 主调度器类
+# =============================================================================
+
+class ParserEngineDispatcher:
+    """
+    解析引擎调度器
+    
+    功能描述：统一调度各类解析引擎，实现最优解析
+    业务逻辑：
+        1. 格式识别 → 类型判断 → 引擎调度 → 结果融合
+        2. 支持双引擎并行和多LLM对比
+        3. 处理未识别文件
+    
+    会计口径：
+        - 确保解析结果符合会计准则要求
+        - 提供置信度和校验错误便于复核
+    """
+    
+    def __init__(self, db=None):
+        self.settings = get_settings()
+        self.config = get_runtime_parser_engine_config(db)
+    
+    async def parse(
+        self,
+        file_path: str,
+        user_preselected_type: DocumentType | None = None,
+        sheet_name: str | None = None,
+    ) -> ParseResult | LLMComparisonResult | dict[str, Any]:
+        """
+        统一解析入口
+        
+        功能描述：完整的解析流程（格式→类型→引擎→结果）
+        业务逻辑：
+            1. 格式识别
+            2. 类型判断
+            3. 提取文本
+            4. 选择引擎调度策略
+            5. 执行解析
+            6. 返回结果
+        
+        Args:
+            file_path: 文件存储路径
+            user_preselected_type: 用户预选的文档类型（可选）
+            sheet_name: Excel工作表名称（可选）
+            
+        Returns:
+            ParseResult 或 LLMComparisonResult: 解析结果
+        """
+        # 1. 格式识别
+        format_result = recognize_file_format(file_path)
+        
+        if format_result.file_format == FileFormat.UNKNOWN:
+            logger.error(f"文件格式无法识别: {file_path}")
+            return ParseResult(
+                document_type=DocumentType.UNKNOWN,
+                confidence=0.0,
+                validation_errors=[format_result.error_message or "文件格式无法识别"],
+            )
+        
+        # 2. 类型判断
+        type_result = classify_document_type(
+            file_path,
+            format_result.file_format,
+            None,  # extracted_text 由类型判断器自己提取
+            user_preselected_type,
+        )
+        
+        if type_result.document_type == DocumentType.UNKNOWN:
+            logger.warning(f"文档类型无法识别: {file_path}")
+            # 返回未识别文件对象（后续二次分析）
+            return ParseResult(
+                document_type=DocumentType.UNKNOWN,
+                confidence=0.0,
+                validation_errors=[type_result.conflict_reason or "文档类型无法识别"],
+            )
+        
+        # 3. 提取文本
+        extracted_text = extract_text_from_file(file_path, format_result.file_format, sheet_name=sheet_name)
+        
+        # 4. 选择引擎调度策略
+        if self.config.get("llm_multi_engine_enabled", False):
+            # 多LLM引擎对比
+            logger.info(f"启用多LLM引擎对比策略: {self.config.get('llm_comparison_strategy', 'weighted_vote')}")
+            return await multi_llm_comparison(
+                file_path,
+                type_result.document_type,
+                extracted_text,
+                format_result.file_format,
+            )
+        
+        elif self.config.get("llm_enable_parallel_parsing", False):
+            # 双引擎并行
+            logger.info("启用双引擎并行策略")
+            return await dual_engine_parallel_parse(
+                file_path,
+                type_result.document_type,
+                extracted_text,
+                format_result.file_format,
+            )
+        
+        else:
+            # 单引擎（优先LLM，失败则规则）
+            if self.config.get("ai_local_model_enabled", True):
+                llm_result = parse_with_llm_engine(
+                    file_path,
+                    type_result.document_type,
+                    extracted_text,
+                    self.config.get("llm_preferred_model", ""),
+                    format_result.file_format,
+                )
+                if llm_result.confidence > 0.5:
+                    return llm_result
+            
+            # 规则引擎兜底
+            return parse_with_rule_engine(
+                file_path,
+                type_result.document_type,
+                extracted_text,
+                format_result.file_format,
+            )
+
+
+# =============================================================================
+# 便捷函数
+# =============================================================================
+
+async def parse_file(
+    file_path: str,
+    user_preselected_type: DocumentType | None = None,
+) -> ParseResult | LLMComparisonResult:
+    """
+    便捷函数：解析文件
+    
+    功能描述：一键完成文件解析流程
+    业务逻辑：调用 ParserEngineDispatcher.parse()
+    
+    Args:
+        file_path: 文件存储路径
+        user_preselected_type: 用户预选的文档类型（可选）
+        
+    Returns:
+        ParseResult 或 LLMComparisonResult: 解析结果
+    """
+    dispatcher = ParserEngineDispatcher()
+    return await dispatcher.parse(file_path, user_preselected_type)
+
+
+def parse_result_to_source_document_result(
+    parse_result: ParseResult | LLMComparisonResult,
+    filename: str,
+) -> object:
+    """
+    将新引擎的 ParseResult 或 LLMComparisonResult 转换为旧引擎的 SourceDocumentResult
+    
+    功能描述：保持向后兼容，使新引擎结果可以无缝集成到现有导入流程
+    业务逻辑：
+        - 对于 ParseResult：直接转换文档类型枚举为字符串，保持数据结构
+        - 对于 LLMComparisonResult：使用最终选择的结果（如果存在）或第一个引擎的结果
+    
+    会计口径：
+        - 保持置信度和文本信息的准确性
+        - 保留校验错误和会计建议
+    
+    Args:
+        parse_result: 新引擎的解析结果（ParseResult 或 LLMComparisonResult）
+        filename: 文件名
+        
+    Returns:
+        SourceDocumentResult: 旧引擎格式的解析结果
+    """
+    from app.services.source_document_service import SourceDocumentResult
+    
+    # 处理 LLMComparisonResult
+    if isinstance(parse_result, LLMComparisonResult):
+        # 使用最终选择的结果，如果没有则使用第一个有效结果
+        final_result = parse_result.final_result
+        if not final_result:
+            # 取第一个有效结果
+            for result in parse_result.engine_results.values():
+                if result:
+                    final_result = result
+                    break
+        
+        if final_result:
+            parse_result = final_result
+        else:
+            # 没有有效结果，返回空结果
+            return SourceDocumentResult(
+                document_type="general",
+                confidence=0.0,
+                data={},
+                raw_text="",
+                file_name=filename,
+            )
+    
+    # 处理 ParseResult
+    if isinstance(parse_result, ParseResult):
+        return SourceDocumentResult(
+            document_type=parse_result.document_type.value,
+            confidence=parse_result.confidence,
+            data=parse_result.data,
+            raw_text=parse_result.raw_text,
+            file_name=filename,
+        )
+    
+    # 默认返回通用文档
+    return SourceDocumentResult(
+        document_type="general",
+        confidence=0.0,
+        data={},
+        raw_text="",
+        file_name=filename,
+    )
+
+
+# =============================================================================
+# 性能监控与统计
+# =============================================================================
+
+class ParserPerformanceMonitor:
+    """
+    解析引擎性能监控器
+    
+    功能描述：统计和记录解析引擎的性能指标，便于优化和监控
+    业务逻辑：
+        - 记录各阶段耗时（格式识别、类型判断、文本提取、解析执行）
+        - 按文档类型和文件格式统计平均耗时
+        - 记录成功率和错误率
+        - 支持获取性能统计报告
+    
+    会计口径：
+        - 性能数据用于系统优化，不影响财务数据准确性
+        - 监控数据可用于审计系统运行状态
+    """
+    
+    def __init__(self) -> None:
+        self._total_parses: int = 0
+        self._successful_parses: int = 0
+        self._failed_parses: int = 0
+        
+        self._stage_durations: dict[str, list[float]] = defaultdict(list)
+        self._format_durations: dict[str, list[float]] = defaultdict(list)
+        self._doctype_durations: dict[str, list[float]] = defaultdict(list)
+        
+        self._error_counts: dict[str, int] = defaultdict(int)
+    
+    def record_parse_start(self) -> float:
+        """记录解析开始时间"""
+        return time.time()
+    
+    def record_stage_duration(self, stage_name: str, duration_ms: float) -> None:
+        """记录某个阶段的耗时"""
+        self._stage_durations[stage_name].append(duration_ms)
+    
+    def record_parse_complete(
+        self,
+        file_format: str,
+        document_type: str,
+        total_duration_ms: float,
+        success: bool,
+        error_type: str | None = None,
+    ) -> None:
+        """
+        记录一次解析完成
+        
+        Args:
+            file_format: 文件格式
+            document_type: 文档类型
+            total_duration_ms: 总耗时（毫秒）
+            success: 是否成功
+            error_type: 错误类型（如果失败）
+        """
+        self._total_parses += 1
+        if success:
+            self._successful_parses += 1
+        else:
+            self._failed_parses += 1
+            if error_type:
+                self._error_counts[error_type] += 1
+        
+        self._format_durations[file_format].append(total_duration_ms)
+        self._doctype_durations[document_type].append(total_duration_ms)
+    
+    def get_stats(self) -> dict[str, Any]:
+        """
+        获取性能统计报告
+        
+        Returns:
+            包含各项性能指标的字典
+        """
+        def _avg(values: list[float]) -> float:
+            return round(sum(values) / len(values), 2) if values else 0.0
+        
+        def _max(values: list[float]) -> float:
+            return round(max(values), 2) if values else 0.0
+        
+        def _min(values: list[float]) -> float:
+            return round(min(values), 2) if values else 0.0
+        
+        success_rate = (
+            round(self._successful_parses / self._total_parses * 100, 2)
+            if self._total_parses > 0
+            else 0.0
+        )
+        
+        return {
+            "total_parses": self._total_parses,
+            "successful_parses": self._successful_parses,
+            "failed_parses": self._failed_parses,
+            "success_rate_percent": success_rate,
+            "stage_stats": {
+                stage: {
+                    "count": len(durations),
+                    "avg_ms": _avg(durations),
+                    "max_ms": _max(durations),
+                    "min_ms": _min(durations),
+                }
+                for stage, durations in self._stage_durations.items()
+            },
+            "format_stats": {
+                fmt: {
+                    "count": len(durations),
+                    "avg_ms": _avg(durations),
+                    "max_ms": _max(durations),
+                    "min_ms": _min(durations),
+                }
+                for fmt, durations in self._format_durations.items()
+            },
+            "doctype_stats": {
+                doctype: {
+                    "count": len(durations),
+                    "avg_ms": _avg(durations),
+                    "max_ms": _max(durations),
+                    "min_ms": _min(durations),
+                }
+                for doctype, durations in self._doctype_durations.items()
+            },
+            "error_stats": dict(self._error_counts),
+        }
+    
+    def reset(self) -> None:
+        """重置所有统计数据"""
+        self._total_parses = 0
+        self._successful_parses = 0
+        self._failed_parses = 0
+        self._stage_durations.clear()
+        self._format_durations.clear()
+        self._doctype_durations.clear()
+        self._error_counts.clear()
+
+
+# 全局性能监控器实例
+performance_monitor = ParserPerformanceMonitor()
+
+
+def get_performance_stats() -> dict[str, Any]:
+    """获取解析引擎性能统计数据"""
+    return performance_monitor.get_stats()
+
+
+def reset_performance_stats() -> None:
+    """重置解析引擎性能统计数据"""
+    performance_monitor.reset()

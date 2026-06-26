@@ -44,6 +44,8 @@ from app.api.routes_project import router as project_router
 from app.api.routes_lifecycle import router as lifecycle_router
 from app.api.routes_team import router as team_router
 from app.api.routes_scope_settings import router as scope_settings_router
+from app.api.routes_parser_engine import router as parser_engine_router
+from app.api.routes_config import router as config_router
 from app.db import models
 import app.models  # noqa: F401 — register app.models tables for create_all
 from app.db.session import Base, engine
@@ -332,6 +334,8 @@ app.include_router(project_router)
 app.include_router(lifecycle_router)
 app.include_router(team_router)
 app.include_router(scope_settings_router)
+app.include_router(parser_engine_router)
+app.include_router(config_router)
 app.include_router(binding_requests_router)
 app.include_router(bank_router)
 app.include_router(confirmations_router)

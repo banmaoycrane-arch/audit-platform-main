@@ -2113,4 +2113,146 @@ export const api = {
       `/api/audit/dashboard/submitted${query ? `?${query}` : ''}`
     )
   },
+
+  // ==========================================================================
+  // 解析引擎 API
+  // ==========================================================================
+  getParserEngineStatus: () =>
+    request<{
+      status: string
+      llm_multi_engine_enabled: boolean
+      llm_enable_parallel_parsing: boolean
+      llm_max_concurrent_models: number
+      llm_preferred_model: string
+      llm_comparison_strategy: string
+      supported_formats: string[]
+      supported_document_types: string[]
+    }>('/api/parser-engine/status'),
+
+  listExcelSheets: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<{
+      success: boolean
+      sheet_count: number
+      sheets: Array<{
+        name: string
+        rows: number
+        columns: string[]
+        preview: Record<string, unknown>[]
+      }>
+    }>('/api/parser-engine/list-excel-sheets', { method: 'POST', body: form })
+  },
+
+  parseFile: (organizationId: number, file: File, sheetName?: string) => {
+    const form = new FormData()
+    form.append('organization_id', String(organizationId))
+    form.append('file', file)
+    if (sheetName) {
+      form.append('sheet_name', sheetName)
+    }
+    return request<{
+      file_format: string
+      document_type: string
+      document_sub_type: string | null
+      confidence: number
+      engine_type: string
+      data: Record<string, unknown>
+      raw_text: string | null
+      error_message: string | null
+      parse_duration_ms: number
+      engine_comparison?: Record<string, unknown>
+      multi_llm_comparison?: Record<string, unknown>
+    }>('/api/parser-engine/parse-file', { method: 'POST', body: form })
+  },
+
+  parseSourceFile: (fileId: number) =>
+    request<{
+      file_format: string
+      document_type: string
+      document_sub_type: string | null
+      confidence: number
+      engine_type: string
+      data: Record<string, unknown>
+      raw_text: string | null
+      error_message: string | null
+      parse_duration_ms: number
+    }>(`/api/parser-engine/parse-source-file/${fileId}`, { method: 'POST' }),
+
+  getPerformanceStats: () =>
+    request<{
+      total_parses: number
+      successful_parses: number
+      failed_parses: number
+      success_rate_percent: number
+      stage_stats: Record<string, { count: number; avg_ms: number; max_ms: number; min_ms: number }>
+      format_stats: Record<string, { count: number; avg_ms: number; max_ms: number; min_ms: number }>
+      doctype_stats: Record<string, { count: number; avg_ms: number; max_ms: number; min_ms: number }>
+      error_stats: Record<string, number>
+    }>('/api/parser-engine/performance-stats'),
+
+  resetPerformanceStats: () =>
+    request<{ status: string; message: string }>(
+      '/api/parser-engine/performance-stats/reset',
+      { method: 'POST' }
+    ),
+
+  // ==========================================================================
+  // 配置管理 API
+  // ==========================================================================
+  getParserEngineConfig: () =>
+    request<{
+      ai_provider: string
+      ai_base_url: string
+      ai_model: string
+      ai_api_key: string | null
+      ai_local_model_enabled: boolean
+      ai_fallback_to_rules: boolean
+      llm_max_concurrent_models: number
+      llm_memory_limit_mb: number
+      llm_preferred_model: string
+      llm_fallback_model: string
+      llm_timeout_seconds: number
+      llm_enable_parallel_parsing: boolean
+      llm_parallel_timeout_seconds: number
+      llm_result_selection_mode: string
+      llm_confidence_threshold_auto: number
+      llm_confidence_threshold_user: number
+      llm_multi_engine_enabled: boolean
+      llm_comparison_mode: string
+      llm_comparison_strategy: string
+      llm_comparison_engines: string
+      llm_engine_weights: string
+      llm_agreement_threshold: number
+      llm_save_all_results: boolean
+    }>('/api/config/parser-engine'),
+
+  saveParserEngineConfig: (config: Record<string, unknown>) =>
+    request<{ success: boolean; message: string; config?: Record<string, unknown> }>(
+      '/api/config/parser-engine',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) }
+    ),
+
+  testAIConnection: (params: { ai_base_url: string; ai_model: string; ai_api_key?: string }) =>
+    request<{ success: boolean; message: string; model?: string; base_url?: string }>(
+      '/api/config/parser-engine/test-connection',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) }
+    ),
+
+  getProviderOptions: () =>
+    request<{
+      providers: Array<{ value: string; label: string; description: string; default_base_url: string; default_model: string; requires_api_key: boolean; has_model_list: boolean }>
+      models: Array<{ value: string; label: string; description: string }>
+      comparison_modes: Array<{ value: string; label: string }>
+      comparison_strategies: Array<{ value: string; label: string }>
+      selection_modes: Array<{ value: string; label: string }>
+    }>('/api/config/provider-options'),
+
+  getOllamaModels: (baseUrl: string) =>
+    request<{
+      success: boolean
+      message?: string
+      models: Array<{ value: string; label: string; description: string }>
+      count: number
+    }>(`/api/config/ollama-models?base_url=${encodeURIComponent(baseUrl)}`),
 }
