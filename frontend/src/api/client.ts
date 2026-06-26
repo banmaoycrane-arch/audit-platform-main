@@ -367,6 +367,7 @@ export type CoaTemplatePreview = CoaIndustryTemplate & {
 }
 
 export type ChartOfAccount = {
+  ledger_id?: number | null
   code: string
   name: string
   parent_code: string | null
@@ -1273,15 +1274,22 @@ export const api = {
     const query = params.toString()
     return request<AccountingPeriodRecommendation>(`/api/accounting-periods/recommendation${query ? `?${query}` : ''}`)
   },
-  listChartOfAccounts: () => request<ChartOfAccount[]>('/api/coa'),
+  listChartOfAccounts: (ledgerId?: number | null) => {
+    const query = ledgerId ? `?ledger_id=${ledgerId}` : ''
+    return request<ChartOfAccount[]>(`/api/coa${query}`)
+  },
   listCoaIndustryTemplates: () => request<CoaIndustryTemplate[]>('/api/coa/industry-templates'),
-  previewCoaIndustryTemplate: (templateCode: string) =>
-    request<CoaTemplatePreview>(`/api/coa/industry-templates/${templateCode}`),
-  importCoaIndustryTemplate: (templateCode: string) =>
-    request<{ template: CoaIndustryTemplate; summary: CoaTemplatePreview['summary']; created_accounts: CoaTemplateAccount[] }>(
-      `/api/coa/industry-templates/${templateCode}/import`,
+  previewCoaIndustryTemplate: (templateCode: string, ledgerId?: number | null) => {
+    const query = ledgerId ? `?ledger_id=${ledgerId}` : ''
+    return request<CoaTemplatePreview>(`/api/coa/industry-templates/${templateCode}${query}`)
+  },
+  importCoaIndustryTemplate: (templateCode: string, ledgerId?: number | null) => {
+    const query = ledgerId ? `?ledger_id=${ledgerId}` : ''
+    return request<{ template: CoaIndustryTemplate; summary: CoaTemplatePreview['summary']; created_accounts: CoaTemplateAccount[] }>(
+      `/api/coa/industry-templates/${templateCode}/import${query}`,
       { method: 'POST' }
-    ),
+    )
+  },
   listCounterparties: () => request<Counterparty[]>('/api/counterparties'),
   listLedgerFiles: (filters?: {
     ledger_id?: number | null

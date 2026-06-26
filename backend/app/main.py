@@ -127,6 +127,7 @@ def _ensure_local_sqlite_schema() -> None:
         if "chart_of_accounts" in table_names:
             account_columns = {column["name"] for column in inspector.get_columns("chart_of_accounts")}
             account_missing_columns = {
+                "ledger_id": "ALTER TABLE chart_of_accounts ADD COLUMN ledger_id INTEGER",
                 "account_category": "ALTER TABLE chart_of_accounts ADD COLUMN account_category VARCHAR(40)",
                 "account_subcategory": "ALTER TABLE chart_of_accounts ADD COLUMN account_subcategory VARCHAR(40)",
                 "equity_subcategory": "ALTER TABLE chart_of_accounts ADD COLUMN equity_subcategory VARCHAR(40)",
@@ -135,6 +136,65 @@ def _ensure_local_sqlite_schema() -> None:
             for column_name, ddl in account_missing_columns.items():
                 if column_name not in account_columns:
                     connection.execute(text(ddl))
+            account_indexes = connection.execute(text("PRAGMA index_list('chart_of_accounts')")).fetchall()
+            has_global_code_unique = False
+            has_ledger_code_unique = False
+            for index_row in account_indexes:
+                index_name = index_row[1]
+                is_unique = bool(index_row[2])
+                if not is_unique:
+                    continue
+                index_columns = [
+                    column_row[2]
+                    for column_row in connection.execute(text(f"PRAGMA index_info('{index_name}')")).fetchall()
+                ]
+                if index_columns == ["code"]:
+                    has_global_code_unique = True
+                if index_columns == ["ledger_id", "code"]:
+                    has_ledger_code_unique = True
+            if has_global_code_unique and not has_ledger_code_unique:
+                connection.execute(text("""
+                    CREATE TABLE chart_of_accounts_new (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        ledger_id INTEGER,
+                        code VARCHAR(20) NOT NULL,
+                        name VARCHAR(200) NOT NULL,
+                        parent_code VARCHAR(20),
+                        level INTEGER NOT NULL,
+                        category VARCHAR(40) NOT NULL,
+                        direction VARCHAR(10) NOT NULL,
+                        account_category VARCHAR(40),
+                        account_subcategory VARCHAR(40),
+                        equity_subcategory VARCHAR(40),
+                        include_in_dividend_base BOOLEAN,
+                        is_terminal BOOLEAN NOT NULL,
+                        status VARCHAR(20) NOT NULL,
+                        is_system BOOLEAN NOT NULL,
+                        created_at DATETIME,
+                        updated_at DATETIME,
+                        FOREIGN KEY(ledger_id) REFERENCES ledgers (id),
+                        CONSTRAINT uq_chart_of_accounts_ledger_code UNIQUE (ledger_id, code)
+                    )
+                """))
+                connection.execute(text("""
+                    INSERT INTO chart_of_accounts_new (
+                        id, ledger_id, code, name, parent_code, level, category, direction,
+                        account_category, account_subcategory, equity_subcategory,
+                        include_in_dividend_base, is_terminal, status, is_system,
+                        created_at, updated_at
+                    )
+                    SELECT
+                        id, ledger_id, code, name, parent_code, level, category, direction,
+                        account_category, account_subcategory, equity_subcategory,
+                        include_in_dividend_base, is_terminal, status, is_system,
+                        created_at, updated_at
+                    FROM chart_of_accounts
+                """))
+                connection.execute(text("DROP TABLE chart_of_accounts"))
+                connection.execute(text("ALTER TABLE chart_of_accounts_new RENAME TO chart_of_accounts"))
+                connection.execute(text("CREATE INDEX ix_chart_of_accounts_code ON chart_of_accounts (code)"))
+                connection.execute(text("CREATE INDEX ix_chart_of_accounts_parent_code ON chart_of_accounts (parent_code)"))
+                connection.execute(text("CREATE INDEX ix_chart_of_accounts_ledger_id ON chart_of_accounts (ledger_id)"))
 
         if "counterparties" in table_names:
             counterparty_columns = {column["name"] for column in inspector.get_columns("counterparties")}

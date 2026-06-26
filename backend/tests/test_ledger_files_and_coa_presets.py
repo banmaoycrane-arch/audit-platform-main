@@ -149,3 +149,35 @@ def test_industry_template_preview_and_import_do_not_override_existing_account(c
     cash_account = next(item for item in accounts if item["code"] == "1001")
     assert cash_account["name"] == "库存现金-用户已修改"
     assert any(item["code"] == "1002" for item in accounts)
+
+
+def test_industry_template_import_is_scoped_to_selected_ledger(client):
+    preview_ledger_a = client.get("/api/coa/industry-templates/general?ledger_id=101")
+    assert preview_ledger_a.status_code == 200
+    assert preview_ledger_a.json()["summary"]["new"] > 0
+
+    imported_a = client.post("/api/coa/industry-templates/general/import?ledger_id=101")
+    assert imported_a.status_code == 200
+    assert imported_a.json()["summary"]["new"] > 0
+
+    accounts_a = client.get("/api/coa?ledger_id=101")
+    assert accounts_a.status_code == 200
+    assert len(accounts_a.json()) > 0
+    assert {item["ledger_id"] for item in accounts_a.json()} == {101}
+
+    accounts_b_before = client.get("/api/coa?ledger_id=202")
+    assert accounts_b_before.status_code == 200
+    assert accounts_b_before.json() == []
+
+    preview_ledger_b = client.get("/api/coa/industry-templates/general?ledger_id=202")
+    assert preview_ledger_b.status_code == 200
+    assert preview_ledger_b.json()["summary"]["new"] == imported_a.json()["summary"]["new"]
+
+    imported_b = client.post("/api/coa/industry-templates/general/import?ledger_id=202")
+    assert imported_b.status_code == 200
+    assert imported_b.json()["summary"]["new"] == imported_a.json()["summary"]["new"]
+
+    accounts_b_after = client.get("/api/coa?ledger_id=202")
+    assert accounts_b_after.status_code == 200
+    assert len(accounts_b_after.json()) == len(accounts_a.json())
+    assert {item["ledger_id"] for item in accounts_b_after.json()} == {202}

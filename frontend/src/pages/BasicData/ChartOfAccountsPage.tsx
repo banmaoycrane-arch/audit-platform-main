@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Form, Input, Modal, Select, Space, Statistic, Switch, Table, Tag, Typography, message } from 'antd'
+import { api } from '../../api/client'
+import { useAuthStore } from '../../stores/authStore'
 
 const { Text } = Typography
 
@@ -103,6 +105,7 @@ function getAccountingGuide(accountCategory?: string, equitySubcategory?: string
 }
 
 export function ChartOfAccountsPage() {
+  const { currentLedgerId } = useAuthStore()
   const [list, setList] = useState<Account[]>([])
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
@@ -114,13 +117,16 @@ export function ChartOfAccountsPage() {
   const [form] = Form.useForm()
   const accountCategory = Form.useWatch('account_category', form)
   const equitySubcategory = Form.useWatch('equity_subcategory', form)
+  const ledgerQuery = currentLedgerId ? `?ledger_id=${currentLedgerId}` : ''
 
   const load = async () => {
+    if (!currentLedgerId) {
+      setList([])
+      return
+    }
     setLoading(true)
     try {
-      const resp = await fetch(`${API_BASE}/api/coa`)
-      const data = await resp.json()
-      setList(data)
+      setList(await api.listChartOfAccounts(currentLedgerId))
     } catch (error) {
       message.error('加载科目失败')
     } finally {
@@ -128,14 +134,17 @@ export function ChartOfAccountsPage() {
     }
   }
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => { void load() }, [currentLedgerId])
 
   const openPresetModal = async () => {
+    if (!currentLedgerId) {
+      message.warning('请先选择账套，再加载行业预设科目')
+      return
+    }
     setPresetOpen(true)
     setPresetLoading(true)
     try {
-      const resp = await fetch(`${API_BASE}/api/coa/industry-templates`)
-      setTemplates(await resp.json())
+      setTemplates(await api.listCoaIndustryTemplates())
     } catch (error) {
       message.error('加载行业预设失败')
     } finally {
@@ -147,12 +156,9 @@ export function ChartOfAccountsPage() {
     setSelectedTemplateCode(templateCode)
     setPresetLoading(true)
     try {
-      const resp = await fetch(`${API_BASE}/api/coa/industry-templates/${templateCode}`)
-      if (!resp.ok) {
-        message.error(`预览失败：${await resp.text()}`)
-        return
-      }
-      setTemplatePreview(await resp.json())
+      setTemplatePreview(await api.previewCoaIndustryTemplate(templateCode, currentLedgerId))
+    } catch (error) {
+      message.error(`预览失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setPresetLoading(false)
     }
@@ -162,23 +168,24 @@ export function ChartOfAccountsPage() {
     if (!selectedTemplateCode) return
     setPresetLoading(true)
     try {
-      const resp = await fetch(`${API_BASE}/api/coa/industry-templates/${selectedTemplateCode}/import`, { method: 'POST' })
-      if (!resp.ok) {
-        message.error(`导入失败：${await resp.text()}`)
-        return
-      }
-      const result = await resp.json()
+      const result = await api.importCoaIndustryTemplate(selectedTemplateCode, currentLedgerId)
       message.success(`导入完成：新增 ${result.summary.new} 个，跳过 ${result.summary.skipped} 个，冲突 ${result.summary.conflicts} 个`)
       setPresetOpen(false)
       setTemplatePreview(null)
       setSelectedTemplateCode(undefined)
       await load()
+    } catch (error) {
+      message.error(`导入失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setPresetLoading(false)
     }
   }
 
   const openCreateModal = () => {
+    if (!currentLedgerId) {
+      message.warning('请先选择账套，再新增会计科目')
+      return
+    }
     form.resetFields()
     setOpen(true)
   }
@@ -195,7 +202,7 @@ export function ChartOfAccountsPage() {
             ? false
             : null,
     }
-    const resp = await fetch(`${API_BASE}/api/coa`, {
+    const resp = await fetch(`${API_BASE}/api/coa${ledgerQuery}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -211,7 +218,7 @@ export function ChartOfAccountsPage() {
   }
 
   const handleStatusChange = async (code: string, action: 'disable' | 'archive') => {
-    const resp = await fetch(`${API_BASE}/api/coa/${code}/${action}`, { method: 'POST' })
+    const resp = await fetch(`${API_BASE}/api/coa/${code}/${action}${ledgerQuery}`, { method: 'POST' })
     if (!resp.ok) {
       message.error(await resp.text())
       return
@@ -220,7 +227,7 @@ export function ChartOfAccountsPage() {
   }
 
   const handleDelete = async (code: string) => {
-    const resp = await fetch(`${API_BASE}/api/coa/${code}`, { method: 'DELETE' })
+    const resp = await fetch(`${API_BASE}/api/coa/${code}${ledgerQuery}`, { method: 'DELETE' })
     if (!resp.ok) {
       message.error(await resp.text())
       return
@@ -294,18 +301,27 @@ export function ChartOfAccountsPage() {
       title="会计科目"
       extra={(
         <Space>
-          <Button onClick={openPresetModal}>加载行业预设</Button>
-          <Button type="primary" onClick={openCreateModal}>新增</Button>
+          <Button onClick={openPresetModal} disabled={!currentLedgerId}>加载行业预设</Button>
+          <Button type="primary" onClick={openCreateModal} disabled={!currentLedgerId}>新增</Button>
         </Space>
       )}
     >
+      {!currentLedgerId && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="请先在顶部选择账套"
+          description="会计科目按账套隔离维护。选择账套后，加载行业预设只会写入当前账套。"
+        />
+      )}
       {list.length === 0 && !loading ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={
             <Space direction="vertical" size={4}>
-              <Text strong>当前企业尚未设计会计科目</Text>
-              <Text type="secondary">请围绕本企业实际资产、负债和所有者权益结构建立会计科目。</Text>
+              <Text strong>当前账套尚未设计会计科目</Text>
+              <Text type="secondary">请围绕当前账套的资产、负债和所有者权益结构建立会计科目。</Text>
             </Space>
           }
         >

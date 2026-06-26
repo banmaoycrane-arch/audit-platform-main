@@ -851,9 +851,13 @@ class EntryTag(Base):
 
 class ChartOfAccounts(Base):
     __tablename__ = "chart_of_accounts"
+    __table_args__ = (
+        UniqueConstraint("ledger_id", "code", name="uq_chart_of_accounts_ledger_code"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    code: Mapped[str] = mapped_column(String(20), index=True)
     name: Mapped[str] = mapped_column(String(200))
     parent_code: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     level: Mapped[int] = mapped_column(Integer, default=1)

@@ -133,9 +133,15 @@ def get_industry_template(template_code: str) -> dict:
     }
 
 
-def preview_industry_template(db: Session, template_code: str) -> dict:
+def _scope_filter(query, ledger_id: int | None):
+    if ledger_id is None:
+        return query.filter(ChartOfAccounts.ledger_id.is_(None))
+    return query.filter(ChartOfAccounts.ledger_id == ledger_id)
+
+
+def preview_industry_template(db: Session, template_code: str, ledger_id: int | None = None) -> dict:
     template = get_industry_template(template_code)
-    existing_accounts = {row.code: row for row in db.query(ChartOfAccounts).all()}
+    existing_accounts = {row.code: row for row in _scope_filter(db.query(ChartOfAccounts), ledger_id).all()}
     accounts = []
     summary = {"new": 0, "skipped": 0, "conflicts": 0}
     for item in template["accounts"]:
@@ -151,13 +157,14 @@ def preview_industry_template(db: Session, template_code: str) -> dict:
     return {**template, "accounts": accounts, "summary": summary}
 
 
-def import_industry_template(db: Session, template_code: str) -> dict:
-    preview = preview_industry_template(db, template_code)
+def import_industry_template(db: Session, template_code: str, ledger_id: int | None = None) -> dict:
+    preview = preview_industry_template(db, template_code, ledger_id)
     created_accounts = []
     for item in preview["accounts"]:
         if item["import_status"] != "new":
             continue
         account = ChartOfAccounts(
+            ledger_id=ledger_id,
             code=item["code"],
             name=item["name"],
             parent_code=item.get("parent_code"),
@@ -177,13 +184,17 @@ def import_industry_template(db: Session, template_code: str) -> dict:
 
 def init_default_accounts(db: Session) -> int:
     """启动时初始化默认会计科目，返回新增条数。"""
-    existing_codes = {row.code for row in db.query(ChartOfAccounts.code).all()}
+    existing_codes = {
+        row.code
+        for row in db.query(ChartOfAccounts.code).filter(ChartOfAccounts.ledger_id.is_(None)).all()
+    }
     created = 0
     for item in DEFAULT_ACCOUNTS:
         if item["code"] in existing_codes:
             continue
         db.add(
             ChartOfAccounts(
+                ledger_id=None,
                 code=item["code"],
                 name=item["name"],
                 parent_code=None,
@@ -201,16 +212,16 @@ def init_default_accounts(db: Session) -> int:
     return created
 
 
-def list_accounts(db: Session) -> list[ChartOfAccounts]:
+def list_accounts(db: Session, ledger_id: int | None = None) -> list[ChartOfAccounts]:
     return (
-        db.query(ChartOfAccounts)
+        _scope_filter(db.query(ChartOfAccounts), ledger_id)
         .order_by(ChartOfAccounts.code)
         .all()
     )
 
 
-def get_by_code(db: Session, code: str) -> ChartOfAccounts | None:
-    return db.query(ChartOfAccounts).filter(ChartOfAccounts.code == code).first()
+def get_by_code(db: Session, code: str, ledger_id: int | None = None) -> ChartOfAccounts | None:
+    return _scope_filter(db.query(ChartOfAccounts), ledger_id).filter(ChartOfAccounts.code == code).first()
 
 
 def _validate_account_design_fields(payload: dict) -> None:
@@ -247,14 +258,15 @@ def _normalize_account_design_fields(payload: dict) -> dict:
     return normalized
 
 
-def create_account(db: Session, payload: dict) -> ChartOfAccounts:
+def create_account(db: Session, payload: dict, ledger_id: int | None = None) -> ChartOfAccounts:
     payload = _normalize_account_design_fields(payload)
-    if get_by_code(db, payload["code"]):
+    if get_by_code(db, payload["code"], ledger_id):
         raise ValueError("科目代码已存在")
     parent_code = payload.get("parent_code")
-    if parent_code and not get_by_code(db, parent_code):
+    if parent_code and not get_by_code(db, parent_code, ledger_id):
         raise ValueError("父级科目不存在")
     account = ChartOfAccounts(
+        ledger_id=ledger_id,
         code=payload["code"],
         name=payload["name"],
         parent_code=parent_code,
@@ -275,8 +287,8 @@ def create_account(db: Session, payload: dict) -> ChartOfAccounts:
     return account
 
 
-def update_account(db: Session, code: str, payload: dict) -> ChartOfAccounts:
-    account = get_by_code(db, code)
+def update_account(db: Session, code: str, payload: dict, ledger_id: int | None = None) -> ChartOfAccounts:
+    account = get_by_code(db, code, ledger_id)
     if not account:
         raise LookupError("科目不存在")
     payload = _normalize_account_design_fields(payload)
@@ -305,8 +317,8 @@ def update_account(db: Session, code: str, payload: dict) -> ChartOfAccounts:
     return account
 
 
-def set_status(db: Session, code: str, status: str) -> ChartOfAccounts:
-    account = get_by_code(db, code)
+def set_status(db: Session, code: str, status: str, ledger_id: int | None = None) -> ChartOfAccounts:
+    account = get_by_code(db, code, ledger_id)
     if not account:
         raise LookupError("科目不存在")
     if status not in {"active", "disabled", "archived"}:
@@ -317,8 +329,8 @@ def set_status(db: Session, code: str, status: str) -> ChartOfAccounts:
     return account
 
 
-def delete_account(db: Session, code: str) -> None:
-    account = get_by_code(db, code)
+def delete_account(db: Session, code: str, ledger_id: int | None = None) -> None:
+    account = get_by_code(db, code, ledger_id)
     if not account:
         raise LookupError("科目不存在")
     if account.is_system:
@@ -326,8 +338,10 @@ def delete_account(db: Session, code: str) -> None:
     in_use = (
         db.query(AccountingEntry)
         .filter(AccountingEntry.account_code == code)
-        .first()
     )
+    if ledger_id is not None:
+        in_use = in_use.filter(AccountingEntry.ledger_id == ledger_id)
+    in_use = in_use.first()
     if in_use:
         raise PermissionError("该科目存在业务记录，不可删除")
     db.delete(account)
