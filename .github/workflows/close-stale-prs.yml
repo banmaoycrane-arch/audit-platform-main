@@ -8,6 +8,9 @@ on:
         required: false
         default: '87'
         type: string
+  push:
+    branches: [main]
+    paths: ['.github/workflows/close-stale-prs.yml']
 
 permissions:
   pull-requests: write
