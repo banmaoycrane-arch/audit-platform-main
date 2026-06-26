@@ -15,7 +15,12 @@
 
 ### Changed / 变更
 
+- **传统人工录入凭证 UI**：升级为纸质记账凭证极简风格，含摘要/科目/借贷面额分列（亿千百十万千百十元角分）、快速录入切换、附单据数、备注与签字栏；支持保存、保存并新增、保存并复制、清空；默认 5 行空白分录行。（PR [#90](https://github.com/banmaoycrane-arch/audit-platform-main/pull/90)）
 - **AI 凭证证据暂存（权责发生制）**：单发票可暂存落库（应收+收入），不确认银行存款；发票+流水走「开票挂应收 → 收款核销应收」两笔分录，避免发票直连银行存款，便于现金流量表归集。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
+
+### Fixed / 修复
+
+- **序时簿/文件导入诊断**：Excel/CSV 在 AI 路径走结构化预览；解析失败时返回 `parse_diagnostics` 列映射引导，前端展示表头匹配/未识别提示及切换序时簿模式入口；修复日期字段 JSON 序列化导致预览静默失败。（PR [#90](https://github.com/banmaoycrane-arch/audit-platform-main/pull/90)）
 
 ## [2026-06-25]
 
