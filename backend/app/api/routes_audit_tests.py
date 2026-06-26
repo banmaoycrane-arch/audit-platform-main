@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     AccountingEntry,
+    AccountingPeriod,
     AuditFinding,
     AuditFindingReviewAction,
     AuditReport,
@@ -87,6 +88,37 @@ def _load_job_to_ledgers(db: Session, job: ImportJob) -> None:
         ledger_service.add_invoice(data, f"凭证-{entry.voucher_no or '未编号'}-行{entry.entry_line_no}-{entry.id}")
 
 
+def _build_audit_scope_metadata(db: Session, job: ImportJob) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "audit_scope_type": job.audit_scope_type,
+        "audit_period_id": job.audit_period_id,
+        "audit_account_codes": list(job.audit_account_codes or []),
+        "project_id": job.project_id,
+    }
+    if job.audit_period_id:
+        period = db.get(AccountingPeriod, job.audit_period_id)
+        if period:
+            metadata["audit_period_code"] = period.period_code
+            metadata["audit_period_start"] = period.start_date.isoformat()
+            metadata["audit_period_end"] = period.end_date.isoformat()
+    return metadata
+
+
+def _build_scope_label(db: Session, job: ImportJob) -> tuple[str, str]:
+    scope_type = job.audit_scope_type or "all"
+    if scope_type == "by_account":
+        codes = job.audit_account_codes or []
+        label = f"按科目审计: {', '.join(codes)}" if codes else "按科目审计"
+        return label, label
+    if scope_type == "by_period":
+        period = db.get(AccountingPeriod, job.audit_period_id) if job.audit_period_id else None
+        if period:
+            label = f"按期间审计: {period.period_code}"
+            return label, f"{period.start_date.isoformat()} ~ {period.end_date.isoformat()}"
+        return "按期间审计", "按期间审计"
+    return "全量审计", "全量审计"
+
+
 def _report_to_dict(report) -> dict:
     return report.model_dump(mode="json")
 
@@ -157,11 +189,13 @@ def run_audit_tests(job_id: int, db: Session = Depends(get_db)) -> dict:
         raise HTTPException(status_code=404, detail="导入任务不存在")
 
     _load_job_to_ledgers(db, job)
+    scope_label, period_label = _build_scope_label(db, job)
     report = audit_test_service.generate_report(
-        period="当前导入任务",
-        scope=f"导入任务 {job_id}",
+        period=period_label,
+        scope=scope_label,
     )
     payload = _report_to_dict(report)
+    payload["audit_scope"] = _build_audit_scope_metadata(db, job)
 
     persisted = _persist_findings(db, job_id, payload.get("findings", []))
     payload["findings"] = [_finding_to_dict(item) for item in persisted]

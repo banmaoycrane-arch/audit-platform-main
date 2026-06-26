@@ -26,6 +26,10 @@ class ImportJob(Base):
     file_count: Mapped[int] = mapped_column(Integer, default=0)
     entry_count: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audit_scope_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    audit_period_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_periods.id"), nullable=True)
+    audit_account_codes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     organization: Mapped[Organization] = relationship()
