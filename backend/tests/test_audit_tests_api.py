@@ -99,7 +99,9 @@ def test_run_audit_tests_generates_report_and_findings(client):
     run_response = test_client.post(f"/api/audit-tests/{job_id}/run")
     assert run_response.status_code == 200
     report = run_response.json()
-    assert report["scope"] == f"导入任务 {job_id}"
+    assert report["scope"] == "全量审计"
+    assert "audit_scope" in report
+    assert report["audit_scope"]["audit_scope_type"] is None
     assert "summary" in report
     assert "findings" in report
     assert report["summary"]["total_findings"] == len(report["findings"])
@@ -110,7 +112,8 @@ def test_run_audit_tests_generates_report_and_findings(client):
     finally:
         db.close()
     assert persisted_report is not None
-    assert persisted_report.report_payload["scope"] == f"导入任务 {job_id}"
+    assert persisted_report.report_payload["scope"] == "全量审计"
+    assert "audit_scope" in persisted_report.report_payload
 
     report_response = test_client.get(f"/api/audit-tests/{job_id}/report")
     assert report_response.status_code == 200
@@ -119,6 +122,27 @@ def test_run_audit_tests_generates_report_and_findings(client):
     findings_response = test_client.get(f"/api/audit-tests/{job_id}/findings")
     assert findings_response.status_code == 200
     assert isinstance(findings_response.json(), list)
+
+
+def test_run_audit_tests_uses_saved_scope_metadata(client):
+    test_client, TestingSessionLocal = client
+    job_id = seed_audit_job(TestingSessionLocal)
+
+    db = TestingSessionLocal()
+    try:
+        job = db.get(ImportJob, job_id)
+        job.audit_scope_type = "by_account"
+        job.audit_account_codes = ["1403"]
+        db.commit()
+    finally:
+        db.close()
+
+    run_response = test_client.post(f"/api/audit-tests/{job_id}/run")
+    assert run_response.status_code == 200
+    report = run_response.json()
+    assert report["scope"] == "按科目审计: 1403"
+    assert report["audit_scope"]["audit_scope_type"] == "by_account"
+    assert report["audit_scope"]["audit_account_codes"] == ["1403"]
 
 
 def test_get_report_before_run_returns_404(client):
@@ -145,9 +169,8 @@ def test_audit_reports_are_isolated_by_import_job_id(client):
 
     assert first_report.status_code == 200
     assert second_report.status_code == 200
-    assert first_report.json()["scope"] == f"导入任务 {first_job_id}"
-    assert second_report.json()["scope"] == f"导入任务 {second_job_id}"
-    assert first_report.json()["scope"] != second_report.json()["scope"]
+    assert first_report.json()["scope"] == "全量审计"
+    assert second_report.json()["scope"] == "全量审计"
 
     db = TestingSessionLocal()
     try:
@@ -168,7 +191,8 @@ def test_audit_reports_are_isolated_by_import_job_id(client):
     assert report_count == 2
     assert first_persisted is not None
     assert second_persisted is not None
-    assert first_persisted.report_payload["scope"] != second_persisted.report_payload["scope"]
+    assert first_persisted.report_payload["scope"] == "全量审计"
+    assert second_persisted.report_payload["scope"] == "全量审计"
 
 
 def test_run_audit_tests_unknown_job_returns_404(client):

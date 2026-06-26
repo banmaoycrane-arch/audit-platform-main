@@ -369,3 +369,19 @@ def extract_text(path: str) -> str:
         return extract_text_from_image(path)
 
     return ""
+
+
+def build_parse_diagnostics(parse_result: ParseResult) -> dict[str, Any]:
+    """生成列映射诊断信息，供前端展示分列引导。"""
+    return {
+        "template_name": parse_result.template_name,
+        "matched_fields": parse_result.matched_fields,
+        "unmatched_headers": parse_result.unmatched_headers,
+        "total_rows": parse_result.total_rows,
+        "success_rows": parse_result.success_rows,
+        "expected_columns": list(STANDARD_FIELDS.values()),
+        "guidance": (
+            "请检查表头是否包含：凭证号、凭证日期、摘要、科目名称、借方金额、贷方金额等列。"
+            "若您的文件是序时簿/凭证表，请返回 Step1 选择「序时簿导入生成会计凭证」后重新上传。"
+        ),
+    }

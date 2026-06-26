@@ -38,7 +38,9 @@ from app.api.routes_audit_workflow import router as audit_workflow_router
 from app.api.routes_project import router as project_router
 from app.api.routes_lifecycle import router as lifecycle_router
 from app.api.routes_team import router as team_router
+from app.api.routes_scope_settings import router as scope_settings_router
 from app.db import models
+import app.models  # noqa: F401 — register app.models tables for create_all
 from app.db.session import Base, engine
 
 Base.metadata.create_all(bind=engine)
@@ -81,8 +83,16 @@ def _ensure_local_sqlite_schema() -> None:
 
         if "import_jobs" in table_names:
             import_job_columns = {column["name"] for column in inspector.get_columns("import_jobs")}
-            if "ledger_id" not in import_job_columns:
-                connection.execute(text("ALTER TABLE import_jobs ADD COLUMN ledger_id INTEGER"))
+            import_job_missing_columns = {
+                "ledger_id": "ALTER TABLE import_jobs ADD COLUMN ledger_id INTEGER",
+                "audit_scope_type": "ALTER TABLE import_jobs ADD COLUMN audit_scope_type VARCHAR(40)",
+                "audit_period_id": "ALTER TABLE import_jobs ADD COLUMN audit_period_id INTEGER",
+                "audit_account_codes": "ALTER TABLE import_jobs ADD COLUMN audit_account_codes JSON",
+                "project_id": "ALTER TABLE import_jobs ADD COLUMN project_id INTEGER",
+            }
+            for column_name, ddl in import_job_missing_columns.items():
+                if column_name not in import_job_columns:
+                    connection.execute(text(ddl))
 
         if "users" in table_names:
             user_columns = {column["name"] for column in inspector.get_columns("users")}
@@ -96,6 +106,11 @@ def _ensure_local_sqlite_schema() -> None:
             for column_name, ddl in user_missing_columns.items():
                 if column_name not in user_columns:
                     connection.execute(text(ddl))
+
+        if "ledgers" in table_names:
+            ledger_columns = {column["name"] for column in inspector.get_columns("ledgers")}
+            if "accounting_start_date" not in ledger_columns:
+                connection.execute(text("ALTER TABLE ledgers ADD COLUMN accounting_start_date DATE"))
 
         if "accounting_periods" in table_names:
             period_columns = {column["name"] for column in inspector.get_columns("accounting_periods")}
@@ -179,6 +194,9 @@ def _ensure_local_sqlite_schema() -> None:
                 "counterparty_id": "ALTER TABLE accounting_entries ADD COLUMN counterparty_id INTEGER",
                 "entry_line_no": "ALTER TABLE accounting_entries ADD COLUMN entry_line_no INTEGER DEFAULT 1 NOT NULL",
                 "review_status": "ALTER TABLE accounting_entries ADD COLUMN review_status VARCHAR(20) DEFAULT 'draft' NOT NULL",
+                "post_status": "ALTER TABLE accounting_entries ADD COLUMN post_status VARCHAR(20) DEFAULT 'draft' NOT NULL",
+                "posted_at": "ALTER TABLE accounting_entries ADD COLUMN posted_at DATETIME",
+                "posted_by": "ALTER TABLE accounting_entries ADD COLUMN posted_by INTEGER",
             }
             for column_name, ddl in entry_missing_columns.items():
                 if column_name not in entry_columns:
@@ -221,6 +239,52 @@ def _ensure_local_sqlite_schema() -> None:
                     ") WHERE ledger_id IS NULL"
                 ))
 
+        scope_settings_tables = {
+            "ledger_settings": """
+                CREATE TABLE ledger_settings (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    ledger_id INTEGER NOT NULL UNIQUE,
+                    settings JSON,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(ledger_id) REFERENCES ledgers (id)
+                )
+            """,
+            "team_settings": """
+                CREATE TABLE team_settings (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    team_id INTEGER NOT NULL UNIQUE,
+                    settings JSON,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(team_id) REFERENCES teams (id)
+                )
+            """,
+            "project_settings": """
+                CREATE TABLE project_settings (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    project_id INTEGER NOT NULL UNIQUE,
+                    settings JSON,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(project_id) REFERENCES projects (id)
+                )
+            """,
+            "entity_scope_settings": """
+                CREATE TABLE entity_scope_settings (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    ledger_id INTEGER NOT NULL UNIQUE,
+                    settings JSON,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(ledger_id) REFERENCES ledgers (id)
+                )
+            """,
+        }
+        for table_name, ddl in scope_settings_tables.items():
+            if table_name not in table_names:
+                connection.execute(text(ddl))
+
 
 _ensure_local_sqlite_schema()
 
@@ -262,6 +326,7 @@ app.include_router(module_registers_router)
 app.include_router(project_router)
 app.include_router(lifecycle_router)
 app.include_router(team_router)
+app.include_router(scope_settings_router)
 app.include_router(binding_requests_router)
 app.include_router(bank_router)
 app.include_router(confirmations_router)

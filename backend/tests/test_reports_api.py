@@ -240,6 +240,81 @@ def _seed_reclassification(TestingSessionLocal):
         db.close()
 
 
+def _seed_non_standard_account(TestingSessionLocal):
+    db = TestingSessionLocal()
+    try:
+        org = Organization(name="非标准科目测试", fiscal_year=2026)
+        db.add(org)
+        db.flush()
+        period = AccountingPeriod(
+            organization_id=org.id,
+            period_code="2026-01",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+        )
+        db.add(period)
+        db.flush()
+
+        for code, name, category, direction in [
+            ("1122", "应收账款", "asset", "debit"),
+            ("9999", "自定义辅助科目", "asset", "debit"),
+        ]:
+            db.add(
+                ChartOfAccounts(
+                    code=code,
+                    name=name,
+                    parent_code=None,
+                    level=1,
+                    category=category,
+                    direction=direction,
+                    is_terminal=True,
+                    status="active",
+                    is_system=False,
+                )
+            )
+
+        for code, debit, credit in [
+            ("1122", Decimal("0"), Decimal("500")),
+            ("9999", Decimal("200"), Decimal("0")),
+        ]:
+            db.add(
+                OpeningBalance(
+                    organization_id=org.id,
+                    period_id=period.id,
+                    account_code=code,
+                    debit_balance=debit,
+                    credit_balance=credit,
+                )
+            )
+        db.commit()
+        return org.id, period.id
+    finally:
+        db.close()
+
+
+def test_balance_sheet_skips_non_standard_account_codes(client):
+    """非标准科目编码不应触发往来重分类，且不能导致资产负债表接口 500。"""
+    test_client, TestingSessionLocal = client
+    org_id, period_id = _seed_non_standard_account(TestingSessionLocal)
+    resp = test_client.get(
+        "/api/reports/balance-sheet",
+        params={"organization_id": org_id, "period_id": period_id},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assets = {row["account_code"]: row for row in body["assets"]}
+    liabilities = {row["account_code"]: row for row in body["liabilities"]}
+
+    assert assets["9999"]["closing_debit"] == 200
+    assert "reclassified_to_account_code" not in assets["9999"]
+    assert assets["1122"]["reclassified_to_account_code"] == "2203"
+    assert liabilities["2203"]["closing_credit"] == 500
+
+    adjustments = body["reclassification_adjustments"]
+    assert all(item["from_account_code"] != "9999" for item in adjustments)
+
+
 def test_balance_sheet_reclassifies_counterparty_reverse_balances(client):
     test_client, TestingSessionLocal = client
     org_id, period_id = _seed_reclassification(TestingSessionLocal)

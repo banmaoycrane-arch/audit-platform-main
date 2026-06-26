@@ -26,6 +26,10 @@ class ImportJob(Base):
     file_count: Mapped[int] = mapped_column(Integer, default=0)
     entry_count: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audit_scope_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    audit_period_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_periods.id"), nullable=True)
+    audit_account_codes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     organization: Mapped[Organization] = relationship()
@@ -381,6 +385,9 @@ class AccountingEntry(Base):
     normalized_text: Mapped[str] = mapped_column(Text, default="")
     entry_line_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     review_status: Mapped[str] = mapped_column(String(20), default="draft")
+    post_status: Mapped[str] = mapped_column(String(20), default="draft")
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (

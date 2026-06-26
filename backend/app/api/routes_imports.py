@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import ImportJob, SourceFile
 from app.db.session import SessionLocal, get_db
-from app.schemas.import_job import DayBookReportRead, ImportJobCreate, ImportJobRead
+from app.schemas.import_job import AuditScopeUpdate, DayBookReportRead, ImportJobCreate, ImportJobRead
 from app.services.import_service import attach_file, create_import_job, get_import_summary, process_import_job
 from app.services.audit_day_book_service import DayBookReport, process_day_book_import
 from app.services.entry_generation_service import _normalize_evidence_type
@@ -66,7 +66,36 @@ def create_job(payload: ImportJobCreate, db: Session = Depends(get_db)) -> Impor
         payload.fiscal_year,
         payload.source_type,
         payload.ledger_id,
+        payload.audit_scope_type,
+        payload.audit_period_id,
+        payload.audit_account_codes,
+        payload.project_id,
     )
+
+
+@router.put("/{job_id}/audit-scope", response_model=ImportJobRead)
+def update_audit_scope(
+    job_id: int,
+    payload: AuditScopeUpdate,
+    db: Session = Depends(get_db),
+) -> ImportJob:
+    """保存或更新导入任务的审计范围（Step1）。"""
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+
+    if payload.audit_scope_type == "by_account" and not payload.audit_account_codes:
+        raise HTTPException(status_code=400, detail="按科目审计时必须选择至少一个科目")
+    if payload.audit_scope_type == "by_period" and not payload.audit_period_id:
+        raise HTTPException(status_code=400, detail="按期间审计时必须选择会计期间")
+
+    job.audit_scope_type = payload.audit_scope_type
+    job.audit_period_id = payload.audit_period_id
+    job.audit_account_codes = payload.audit_account_codes
+    job.project_id = payload.project_id
+    db.commit()
+    db.refresh(job)
+    return job
 
 
 @router.get("", response_model=list[ImportJobRead])

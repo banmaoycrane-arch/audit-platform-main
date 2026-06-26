@@ -1,6 +1,7 @@
-import { Button, Divider, Form, Input, message, Modal, Select, Tag } from 'antd'
+import { Button, Divider, Form, Input, message, Modal, Select, Tag, DatePicker } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { useState, useEffect } from 'react'
+import dayjs from 'dayjs'
 import { api } from '../api/client'
 import type { Team } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
@@ -73,7 +74,13 @@ export function LedgerSelector() {
     const values = await form.validateFields()
     setCreating(true)
     try {
-      const ledger = await api.createLedger({ team_id: values.team_id, name: values.name })
+      const ledger = await api.createLedger({
+        team_id: values.team_id,
+        name: values.name,
+        accounting_start_date: values.accounting_start_date
+          ? dayjs(values.accounting_start_date).format('YYYY-MM-DD')
+          : undefined,
+      })
       await api.createEntity({
         entity_name: values.entity_name || values.name,
         entity_code: values.entity_code || null,
@@ -179,6 +186,14 @@ export function LedgerSelector() {
           </Form.Item>
           <Form.Item name="name" label="账套名称" rules={[{ required: true, message: '请输入账套名称' }]}>
             <Input placeholder="例如：XX公司2026账套" />
+          </Form.Item>
+          <Form.Item
+            name="accounting_start_date"
+            label="会计时间线起点"
+            initialValue={dayjs()}
+            rules={[{ required: true, message: '请选择会计时间线起点' }]}
+          >
+            <DatePicker style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="entity_name" label="会计主体名称">
             <Input placeholder="默认使用账套名称；建议填写真实甲方/核算主体名称" />

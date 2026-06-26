@@ -17,6 +17,9 @@ class AccountingEntryRead(BaseModel):
     normalized_text: str
     entry_line_no: int
     review_status: str = "draft"
+    post_status: str = "draft"
+    posted_at: datetime | None = None
+    posted_by: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

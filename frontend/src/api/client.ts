@@ -9,7 +9,18 @@ export type ImportJob = {
   file_count: number
   entry_count: number
   error_message: string | null
+  audit_scope_type?: 'all' | 'by_account' | 'by_period' | null
+  audit_period_id?: number | null
+  audit_account_codes?: string[] | null
+  project_id?: number | null
   created_at: string
+}
+
+export type AuditScopePayload = {
+  audit_scope_type: 'all' | 'by_account' | 'by_period'
+  audit_period_id?: number | null
+  audit_account_codes?: string[] | null
+  project_id?: number | null
 }
 
 export type AccountingEntry = {
@@ -131,6 +142,16 @@ export type DayBookReport = {
   }>
 }
 
+export type ParseDiagnostics = {
+  template_name?: string | null
+  matched_fields?: Record<string, string>
+  unmatched_headers?: string[]
+  total_rows?: number
+  success_rows?: number
+  expected_columns?: string[]
+  guidance?: string
+}
+
 export type AuditFinding = {
   id: string
   db_id?: number
@@ -153,6 +174,11 @@ export type AuditTestReport = {
   test_date: string
   period: string
   scope: string
+  audit_scope?: AuditScopePayload & {
+    audit_period_code?: string
+    audit_period_start?: string
+    audit_period_end?: string
+  }
   total_transactions: number
   tested_transactions: number
   forward_test: Record<string, any>
@@ -767,6 +793,62 @@ export type WorkflowConfig = {
   updated_at: string | null
 }
 
+export type ScopeSettingsCatalogField = {
+  label: string
+  type: 'select' | 'boolean' | 'text'
+  options?: Array<{ value: string; label: string }>
+  depends_on?: Record<string, boolean | string>
+}
+
+export type ScopeSettingsCatalog = Record<
+  string,
+  {
+    label: string
+    description: string
+    fields: Record<string, ScopeSettingsCatalogField>
+  }
+>
+
+export type LedgerSettingsData = {
+  currency_mode: 'single' | 'multi'
+  base_currency: string
+  balance_direction_rule: 'strict' | 'natural'
+  account_code_pattern: '4-2-2-2' | '3-3-2-2'
+  allow_custom_subjects: boolean
+}
+
+export type TeamSettingsData = {
+  allow_multi_team_membership: boolean
+  require_binding_approval: boolean
+  default_ledger_role: 'admin' | 'accountant' | 'viewer'
+  ledger_grant_policy: 'admin_only' | 'manager_can_grant'
+  team_roles_enabled: string[]
+}
+
+export type ProjectSettingsData = {
+  allow_merge: boolean
+  allow_virtual_project: boolean
+  virtual_project_label: string
+  require_manager_on_create: boolean
+}
+
+export type EntityScopeSettingsData = {
+  allow_virtual_entity: boolean
+  require_tax_registration: boolean
+  default_entity_category: 'operating' | 'holding' | 'branch'
+  allow_multi_entity_per_ledger: boolean
+}
+
+export type ScopeSettingsResponse<T> = {
+  scope: string
+  settings: T
+  created_at: string | null
+  updated_at: string | null
+  ledger_id?: number
+  team_id?: number
+  project_id?: number
+}
+
 export type AuditProcedureRun = {
   id: number
   project_id: number | null
@@ -805,6 +887,7 @@ export type Ledger = {
   role?: string
   status: string
   created_at?: string
+  accounting_start_date?: string | null
   activated_at?: string | null
   suspended_at?: string | null
   archived_at?: string | null
@@ -824,6 +907,7 @@ export type LedgerAuth = {
 export type CreateLedgerPayload = {
   name: string
   team_id: number
+  accounting_start_date?: string
 }
 
 export type AgentTaskPlan = {
@@ -1014,7 +1098,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message })
     }),
-  createImportJob: (organizationName: string, sourceType?: string, ledgerId?: number | null) =>
+  createImportJob: (
+    organizationName: string,
+    sourceType?: string,
+    ledgerId?: number | null,
+    auditScope?: AuditScopePayload,
+  ) =>
     request<ImportJob>('/api/import-jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1022,7 +1111,17 @@ export const api = {
         organization_name: organizationName,
         source_type: sourceType || 'voucher_import',
         ledger_id: ledgerId || undefined,
+        audit_scope_type: auditScope?.audit_scope_type,
+        audit_period_id: auditScope?.audit_period_id ?? undefined,
+        audit_account_codes: auditScope?.audit_account_codes,
+        project_id: auditScope?.project_id ?? undefined,
       })
+    }),
+  updateImportJobAuditScope: (jobId: number, auditScope: AuditScopePayload) =>
+    request<ImportJob>(`/api/import-jobs/${jobId}/audit-scope`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(auditScope),
     }),
   listImportJobs: (ledgerId?: number) => {
     const params = new URLSearchParams()
@@ -1147,6 +1246,11 @@ export const api = {
     }
     return response.blob()
   },
+  postImportJobEntries: (jobId: number) =>
+    request<{ job_id: number; posted: number; total: number; posted_at: string }>(
+      `/api/import-jobs/${jobId}/post`,
+      { method: 'POST' }
+    ),
   exportAuditReport: async (jobId: number, format: 'xlsx' | 'json'): Promise<Blob> => {
     const response = await fetch(`${API_BASE}/api/audit-tests/${jobId}/export?format=${format}`)
     if (!response.ok) {
@@ -1243,11 +1347,18 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     }),
-  generateEntries: (jobId: number, periodId: number) =>
+  generateEntries: (
+    jobId: number,
+    periodId: number,
+    accountingJudgmentPolicy: 'compliant_default' | 'revenue_first' | 'counterparty_first' = 'compliant_default',
+  ) =>
     request<EntryDraft[]>(`/api/import-jobs/${jobId}/generate-entries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ period_id: periodId })
+      body: JSON.stringify({
+        period_id: periodId,
+        accounting_judgment_policy: accountingJudgmentPolicy,
+      }),
     }),
   commitEntries: (jobId: number, periodId: number, drafts: EntryDraft[]) =>
     request<{ count: number; entry_ids: number[]; job_id: number }>(`/api/import-jobs/${jobId}/commit-entries`, {
@@ -1580,5 +1691,39 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: reason || undefined }),
+    }),
+
+  getScopeSettingsCatalog: () => request<ScopeSettingsCatalog>('/api/scope-settings/catalog'),
+  getLedgerSettings: (ledgerId: number) =>
+    request<ScopeSettingsResponse<LedgerSettingsData>>(`/api/scope-settings/ledger/${ledgerId}`),
+  updateLedgerSettings: (ledgerId: number, payload: Partial<LedgerSettingsData>) =>
+    request<ScopeSettingsResponse<LedgerSettingsData>>(`/api/scope-settings/ledger/${ledgerId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  getTeamSettings: (teamId: number) =>
+    request<ScopeSettingsResponse<TeamSettingsData>>(`/api/scope-settings/team/${teamId}`),
+  updateTeamSettings: (teamId: number, payload: Partial<TeamSettingsData>) =>
+    request<ScopeSettingsResponse<TeamSettingsData>>(`/api/scope-settings/team/${teamId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  getProjectSettings: (projectId: number) =>
+    request<ScopeSettingsResponse<ProjectSettingsData>>(`/api/scope-settings/project/${projectId}`),
+  updateProjectSettings: (projectId: number, payload: Partial<ProjectSettingsData>) =>
+    request<ScopeSettingsResponse<ProjectSettingsData>>(`/api/scope-settings/project/${projectId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  getEntityScopeSettings: (ledgerId: number) =>
+    request<ScopeSettingsResponse<EntityScopeSettingsData>>(`/api/scope-settings/entity/${ledgerId}`),
+  updateEntityScopeSettings: (ledgerId: number, payload: Partial<EntityScopeSettingsData>) =>
+    request<ScopeSettingsResponse<EntityScopeSettingsData>>(`/api/scope-settings/entity/${ledgerId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     }),
 }

@@ -9,24 +9,33 @@
 更新记录：
     2026-06-18  初始创建账套管理服务
 """
+from datetime import date
+
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.models.ledger import Ledger
 from app.models.user_ledger_auth import UserLedgerAuth
 from app.models.user import User
 from app.models.team import Team
+from app.services.ledger_timeline_service import initialize_ledger_timeline
 
 
-def create_ledger(db: Session, team_id: int, name: str) -> Ledger:
+def create_ledger(
+    db: Session,
+    team_id: int,
+    name: str,
+    accounting_start_date: date | None = None,
+) -> Ledger:
     """
     创建新账套。
 
-    业务逻辑：在指定团队下创建独立账套，实现多客户/多项目数据隔离
-    会计口径：每个账套对应独立的会计核算主体
+    业务逻辑：在指定团队下创建独立账套，并按会计起始日期种子化首个开放期间
+    会计口径：每个账套对应独立的会计核算主体与时间线
 
     Args:
         team_id: 所属团队ID
         name: 账套名称
+        accounting_start_date: 会计时间线起点，默认当天
 
     Returns:
         Ledger: 新创建的账套对象
@@ -34,8 +43,16 @@ def create_ledger(db: Session, team_id: int, name: str) -> Ledger:
     注意事项：
         1. 团队必须存在
     """
-    ledger = Ledger(team_id=team_id, name=name, status="active")
+    anchor = accounting_start_date or date.today()
+    ledger = Ledger(
+        team_id=team_id,
+        name=name,
+        status="active",
+        accounting_start_date=anchor,
+    )
     db.add(ledger)
+    db.flush()
+    initialize_ledger_timeline(db, ledger, organization_name=name)
     db.commit()
     db.refresh(ledger)
     return ledger

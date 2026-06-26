@@ -1,5 +1,17 @@
 from datetime import datetime
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+AuditScopeType = Literal["all", "by_account", "by_period"]
+
+
+class AuditScopeUpdate(BaseModel):
+    audit_scope_type: AuditScopeType
+    audit_period_id: int | None = None
+    audit_account_codes: list[str] | None = None
+    project_id: int | None = None
 
 
 class ImportJobCreate(BaseModel):
@@ -20,6 +32,10 @@ class ImportJobCreate(BaseModel):
     fiscal_year: int | None = None
     source_type: str = "voucher_import"
     ledger_id: int | None = None
+    audit_scope_type: AuditScopeType | None = None
+    audit_period_id: int | None = None
+    audit_account_codes: list[str] | None = None
+    project_id: int | None = None
 
 
 class ImportJobRead(BaseModel):
@@ -31,6 +47,10 @@ class ImportJobRead(BaseModel):
     file_count: int
     entry_count: int
     error_message: str | None
+    audit_scope_type: str | None = None
+    audit_period_id: int | None = None
+    audit_account_codes: list[str] | None = Field(default=None)
+    project_id: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

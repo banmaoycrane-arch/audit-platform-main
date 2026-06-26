@@ -269,9 +269,12 @@ export function ProjectsPage() {
           <Paragraph type="secondary">管理核算项目、审计项目与业务项目</Paragraph>
         </Col>
         <Col>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-            新增项目
-          </Button>
+          <Space>
+            <Button onClick={() => navigate('/scope-settings?tab=project')}>管理配置</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+              新增项目
+            </Button>
+          </Space>
         </Col>
       </Row>
 

@@ -90,8 +90,7 @@ class DayBookProcessingResult:
     entries_created: int = 0
     report: DayBookReport | None = None
     error_message: str | None = None
-
-
+    parse_diagnostics: dict[str, Any] | None = None
 def _amount_to_decimal(value: Any) -> Decimal:
     """
     将金额转换为 Decimal 类型
@@ -297,6 +296,7 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
 
         all_entries: list[dict[str, Any]] = []
         total_created = 0
+        last_parse_diagnostics: dict[str, Any] | None = None
 
         for source_file in files:
             file_type = source_file.file_type.lower()
@@ -305,13 +305,20 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
 
             # 解析文件
             parse_result = parse_entries(source_file.storage_path)
+            if not parse_result.entries:
+                from app.services.file_parser_service import build_parse_diagnostics
+
+                last_parse_diagnostics = build_parse_diagnostics(parse_result)
             if parse_result.entries:
                 all_entries.extend(parse_result.entries)
 
         if not all_entries:
+            from app.services.file_parser_service import build_parse_diagnostics
+
             return DayBookProcessingResult(
                 success=False,
-                error_message="未解析到有效分录数据",
+                error_message="未解析到有效分录数据，请检查表头列名是否包含凭证号、日期、摘要、科目、借贷金额",
+                parse_diagnostics=last_parse_diagnostics,
             )
 
         # 按 voucher_no 分组

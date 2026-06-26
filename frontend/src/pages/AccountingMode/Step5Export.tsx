@@ -33,6 +33,7 @@ export function Step5Export() {
     }
     setExporting(true)
     try {
+      await api.postImportJobEntries(jobId)
       const blob = await api.exportImportJob(jobId, exportFormat)
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')

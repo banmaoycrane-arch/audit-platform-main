@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Divider, Form, Input, List, message, Select, Space, Steps, Tag, Typography } from 'antd'
+import { Alert, Button, Card, DatePicker, Divider, Form, Input, List, message, Select, Space, Steps, Tag, Typography } from 'antd'
+import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { AuthContext, Ledger, Project, Team } from '../api/client'
@@ -135,7 +136,13 @@ export function OnboardingPage() {
     }
     setLoading(true)
     try {
-      const ledger = await api.createLedger({ team_id: teamId, name: values.name })
+      const ledger = await api.createLedger({
+        team_id: teamId,
+        name: values.name,
+        accounting_start_date: values.accounting_start_date
+          ? dayjs(values.accounting_start_date).format('YYYY-MM-DD')
+          : undefined,
+      })
       await api.switchLedger(ledger.id)
       setSelectedLedgerId(ledger.id)
       message.success('账套创建成功，请继续确认项目')
@@ -330,7 +337,7 @@ export function OnboardingPage() {
               </Card>
             )}
             <Card size="small" title="创建新账套">
-              <Form form={ledgerForm} layout="vertical" initialValues={{ team_id: selectedTeamId || undefined }}>
+              <Form form={ledgerForm} layout="vertical" initialValues={{ team_id: selectedTeamId || undefined, accounting_start_date: dayjs() }}>
                 <Form.Item name="team_id" label="所属团队" rules={[{ required: true, message: '请选择所属团队' }]}>
                   <Select
                     placeholder="请选择团队"
@@ -340,6 +347,14 @@ export function OnboardingPage() {
                 </Form.Item>
                 <Form.Item name="name" label="账套名称" rules={[{ required: true, message: '请输入账套名称' }]}>
                   <Input placeholder="例如：XX公司2026账套" />
+                </Form.Item>
+                <Form.Item
+                  name="accounting_start_date"
+                  label="会计时间线起点"
+                  rules={[{ required: true, message: '请选择会计时间线起点' }]}
+                  extra="默认创建当天；补建历史账套时请调整为实际开账日期"
+                >
+                  <DatePicker style={{ width: '100%' }} />
                 </Form.Item>
                 <Space>
                   <Button onClick={() => setCurrentStep(0)}>返回团队步骤</Button>

@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/import-jobs", tags=["entry-generation"])
 
 class GeneratePayload(BaseModel):
     period_id: int
+    accounting_judgment_policy: str = "compliant_default"
 
 
 class CommitPayload(BaseModel):
@@ -117,7 +118,12 @@ def generate_entries(
     period = db.get(AccountingPeriod, payload.period_id)
     if not period:
         raise HTTPException(status_code=404, detail="会计期间不存在")
-    drafts = entry_generation_service.generate_drafts(db, job, period)
+    drafts = entry_generation_service.generate_drafts(
+        db,
+        job,
+        period,
+        accounting_judgment_policy=payload.accounting_judgment_policy,
+    )
     return drafts
 
 

@@ -1,11 +1,11 @@
-import { Card, Upload, Button, Steps, Typography, message, Tag, Space, Modal, Input, List, DatePicker, Table, InputNumber, Alert, Select, Statistic } from 'antd'
+import { Card, Upload, Button, Steps, Typography, message, Tag, Space, Modal, Input, List, DatePicker, Alert, Select, Statistic } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { DeleteOutlined, InboxOutlined, PlusOutlined, RobotOutlined } from '@ant-design/icons'
-import type { ColumnsType } from 'antd/es/table'
+import { InboxOutlined, PlusOutlined, RobotOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
-import { api, type AccountingPeriod, type ChartOfAccount, type Counterparty, type DayBookReport, type EntryDraft, type ImportPeriodSuggestion } from '../../api/client'
+import { api, type AccountingPeriod, type ChartOfAccount, type Counterparty, type DayBookReport, type EntryDraft, type ImportPeriodSuggestion, type ParseDiagnostics } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { TraditionalVoucherForm, type VoucherEntryLine } from '../../components/voucher/TraditionalVoucherForm'
 import { useAuthStore } from '../../stores/authStore'
 
 const { Dragger } = Upload
@@ -52,17 +52,7 @@ interface UploadedFile {
   projectName?: string
 }
 
-interface ManualEntryLine {
-  key: string
-  entry_line_no: number
-  summary: string
-  account_code: string
-  account_name: string
-  debit_amount: number
-  credit_amount: number
-  counterparty: string
-  account_source: 'coa' | 'manual'
-}
+interface ManualEntryLine extends VoucherEntryLine {}
 
 const createManualLine = (lineNo: number): ManualEntryLine => ({
   key: `${Date.now()}-${lineNo}`,
@@ -108,11 +98,50 @@ const getCounterpartyHintStatus = (row: ManualEntryLine) => {
   return row.counterparty.trim() ? 'provided' : 'required_missing'
 }
 
+const renderParseGuidance = (
+  diagnostics: ParseDiagnostics | null,
+  options?: { onSwitchDayBook?: () => void },
+) => {
+  if (!diagnostics) return null
+  return (
+    <Alert
+      title="未能识别有效分录列，请检查表头分列"
+      description={(
+        <Space direction="vertical" style={{ width: '100%' }}>
+          {diagnostics.guidance && <Text>{diagnostics.guidance}</Text>}
+          {diagnostics.template_name && (
+            <Text type="secondary">识别模板：{diagnostics.template_name}</Text>
+          )}
+          {diagnostics.matched_fields && Object.keys(diagnostics.matched_fields).length > 0 && (
+            <Text type="secondary">
+              已匹配列：{Object.entries(diagnostics.matched_fields).map(([field, header]) => `${field}→${header}`).join('；')}
+            </Text>
+          )}
+          {diagnostics.unmatched_headers && diagnostics.unmatched_headers.length > 0 && (
+            <Text type="warning">未识别表头：{diagnostics.unmatched_headers.join('、')}</Text>
+          )}
+          {diagnostics.expected_columns && (
+            <Text type="secondary">建议表头包含：{diagnostics.expected_columns.join('、')}</Text>
+          )}
+          {options?.onSwitchDayBook && (
+            <Button type="primary" onClick={options.onSwitchDayBook}>
+              切换到「序时簿导入」模式
+            </Button>
+          )}
+        </Space>
+      )}
+      type="error"
+      showIcon
+      style={{ marginTop: '16px' }}
+    />
+  )
+}
+
 export function Step2AccountingImportSource() {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { currentLedgerId } = useAuthStore()
+  const { currentLedgerId, user } = useAuthStore()
   const inputMode = searchParams.get('inputMode') || 'ai_generated'
   const isManualEntry = inputMode === 'manual_entry'
   const isAiGenerated = inputMode === 'ai_generated'
@@ -148,43 +177,40 @@ export function Step2AccountingImportSource() {
   const [manualRows, setManualRows] = useState<ManualEntryLine[]>([
     createManualLine(1),
     createManualLine(2),
+    createManualLine(3),
+    createManualLine(4),
+    createManualLine(5),
   ])
   const [manualSubmitting, setManualSubmitting] = useState(false)
+  const [manualAttachmentCount, setManualAttachmentCount] = useState(0)
+  const [manualRemark, setManualRemark] = useState('')
+  const [manualQuickEntry, setManualQuickEntry] = useState(false)
   const [dayBookReport, setDayBookReport] = useState<DayBookReport | null>(null)
   const [importPeriodSuggestion, setImportPeriodSuggestion] = useState<ImportPeriodSuggestion | null>(null)
   const [importPeriodReason, setImportPeriodReason] = useState('')
   const [outputPath, setOutputPath] = useState<string>('')
   const [processingUpload, setProcessingUpload] = useState(false)
   const [entryCount, setEntryCount] = useState(0)
+  const [parseGuidance, setParseGuidance] = useState<ParseDiagnostics | null>(null)
+  const [structuredPreviewCount, setStructuredPreviewCount] = useState(0)
 
   const manualVoucherNo = `${manualVoucherType}-${manualVoucherNumber}`
-  const debitTotal = roundAmount(manualRows.reduce((sum, row) => sum + Number(row.debit_amount || 0), 0))
-  const creditTotal = roundAmount(manualRows.reduce((sum, row) => sum + Number(row.credit_amount || 0), 0))
+  const activeManualRows = useMemo(() => manualRows.filter(row =>
+    row.summary.trim()
+    || row.account_code.trim()
+    || row.account_name.trim()
+    || Number(row.debit_amount || 0) > 0
+    || Number(row.credit_amount || 0) > 0
+    || row.counterparty.trim()
+  ), [manualRows])
+  const debitTotal = roundAmount(activeManualRows.reduce((sum, row) => sum + Number(row.debit_amount || 0), 0))
+  const creditTotal = roundAmount(activeManualRows.reduce((sum, row) => sum + Number(row.credit_amount || 0), 0))
   const balanceDiff = roundAmount(debitTotal - creditTotal)
   const isBalanced = debitTotal > 0 && creditTotal > 0 && balanceDiff === 0
   const activeChartOfAccounts = useMemo(
     () => chartOfAccounts.filter(account => account.status === 'active'),
     [chartOfAccounts]
   )
-
-  const accountCodeOptions = activeChartOfAccounts.map(account => ({
-    value: account.code,
-    label: `${account.code} ${account.name}`,
-    account,
-  }))
-
-  const accountNameOptions = activeChartOfAccounts.map(account => ({
-    value: account.code,
-    label: account.name,
-    account,
-  }))
-
-  const counterpartyOptions = counterparties
-    .filter(counterparty => counterparty.is_active)
-    .map(counterparty => ({
-      value: counterparty.name,
-      label: `${counterparty.name}（${counterparty.role}）`,
-    }))
 
   const syncQueryToUrl = (updates: { jobId?: number | null; periodId?: number | null }) => {
     const next = new URLSearchParams(searchParams)
@@ -306,6 +332,7 @@ export function Step2AccountingImportSource() {
 
   const handleDayBookUpload = async (file: File) => {
     setProcessingUpload(true)
+    setParseGuidance(null)
     try {
       let jobId = currentJobId
       if (!jobId) {
@@ -320,15 +347,37 @@ export function Step2AccountingImportSource() {
 
       message.loading({ content: '正在解析序时簿并生成会计凭证...', key: 'daybook-parse' })
       const result = await api.processImportJobSync(jobId)
+      const jobStatus = result.job?.status
       const reportSummary = result.report as {
         output_path?: string
         total_entries?: number
+        failed_files?: number
+        error_message?: string
+        parse_diagnostics?: ParseDiagnostics
         period_suggestion?: ImportPeriodSuggestion
         day_book_report?: DayBookReport
+        file_summary?: Array<{ parse_diagnostics?: ParseDiagnostics; error?: string }>
       }
 
+      const diagnostics = reportSummary.parse_diagnostics
+        || reportSummary.file_summary?.find((item) => item.parse_diagnostics)?.parse_diagnostics
+        || null
+      const totalEntries = reportSummary.total_entries || 0
+      const failed = (reportSummary.failed_files ?? 0) > 0 || jobStatus === 'failed' || totalEntries === 0
+
       setOutputPath(reportSummary.output_path || 'direct_entries')
-      setEntryCount(reportSummary.total_entries || 0)
+      setEntryCount(totalEntries)
+
+      if (failed) {
+        setParseGuidance(diagnostics)
+        setDayBookReport(null)
+        const detail = reportSummary.error_message
+          || reportSummary.file_summary?.find((item) => item.error)?.error
+          || '未解析到有效分录，请检查表头列名'
+        message.error({ content: `序时簿解析失败：${detail}`, key: 'daybook-parse' })
+        return
+      }
+
       if (reportSummary.period_suggestion) {
         setImportPeriodSuggestion(reportSummary.period_suggestion)
         applyPeriodSuggestion(reportSummary.period_suggestion)
@@ -341,7 +390,7 @@ export function Step2AccountingImportSource() {
       }
 
       message.success({
-        content: `序时簿解析完成，已生成 ${reportSummary.total_entries || 0} 条分录`,
+        content: `序时簿解析完成，已生成 ${totalEntries} 条分录`,
         key: 'daybook-parse',
       })
     } catch (error) {
@@ -385,6 +434,20 @@ export function Step2AccountingImportSource() {
         const reportSummary = syncResult.report as {
           output_path?: string
           total_entries?: number
+          error_message?: string
+          parse_diagnostics?: ParseDiagnostics
+          file_summary?: Array<{
+            filename: string
+            type?: string
+            success?: boolean
+            error?: string
+            recommended_mode?: string
+            parse_diagnostics?: ParseDiagnostics
+            entries?: number
+            register_summary?: string
+            module_registrations?: UploadedFile['moduleRegistrations']
+            module_label?: string
+          }>
           register_summary?: Array<{
             filename: string
             register_summary?: string
@@ -392,6 +455,31 @@ export function Step2AccountingImportSource() {
             module_label?: string
           }>
         }
+        const fileSummary = reportSummary.file_summary?.find((item) => item.filename === file.name)
+        const isStructuredPreview = fileSummary?.type === 'structured_preview' || fileSummary?.recommended_mode === 'day_book_import'
+
+        if (isStructuredPreview) {
+          const previewCount = fileSummary?.entries || 0
+          setStructuredPreviewCount(previewCount)
+          setParseGuidance(fileSummary?.parse_diagnostics || reportSummary.parse_diagnostics || null)
+          setOutputPath('structured_preview')
+          setEntryCount(0)
+          if (previewCount > 0) {
+            message.warning({
+              content: `识别到 ${previewCount} 条结构化分录。Excel/CSV 序时簿请切换到「序时簿导入」模式生成正式凭证。`,
+              key: 'parsing',
+            })
+          } else {
+            message.error({
+              content: fileSummary?.error || reportSummary.error_message || '表格未识别到有效分录列',
+              key: 'parsing',
+            })
+          }
+          return
+        }
+
+        setStructuredPreviewCount(0)
+        setParseGuidance(null)
         setOutputPath(reportSummary.output_path || 'register_ledger')
         setEntryCount(reportSummary.total_entries || 0)
 
@@ -582,9 +670,46 @@ export function Step2AccountingImportSource() {
     }))
   }
 
-  const addManualRow = () => {
-    const maxLineNo = manualRows.reduce((max, row) => Math.max(max, row.entry_line_no), 0)
-    setManualRows(prev => [...prev, createManualLine(maxLineNo + 1)])
+  const addManualRow = (afterKey?: string) => {
+    setManualRows(prev => {
+      const maxLineNo = prev.reduce((max, row) => Math.max(max, row.entry_line_no), 0)
+      const nextLine = createManualLine(maxLineNo + 1)
+      if (!afterKey) return [...prev, nextLine]
+      const index = prev.findIndex(row => row.key === afterKey)
+      if (index < 0) return [...prev, nextLine]
+      const next = [...prev]
+      next.splice(index + 1, 0, nextLine)
+      return next.map((row, rowIndex) => ({ ...row, entry_line_no: rowIndex + 1 }))
+    })
+  }
+
+  const resetManualForm = (options?: { keepPeriod?: boolean; incrementVoucherNumber?: boolean }) => {
+    const nextNumber = options?.incrementVoucherNumber
+      ? String(Number.parseInt(manualVoucherNumber, 10) + 1 || 1).padStart(3, '0')
+      : '001'
+    setManualVoucherType('记')
+    setManualVoucherNumber(nextNumber)
+    setManualAttachmentCount(0)
+    setManualRemark('')
+    setManualRows([
+      createManualLine(1),
+      createManualLine(2),
+      createManualLine(3),
+      createManualLine(4),
+      createManualLine(5),
+    ])
+    if (!options?.keepPeriod) {
+      setManualVoucherDate(periodStart || '')
+    } else if (manualVoucherDate) {
+      setManualVoucherDate(manualVoucherDate)
+    } else {
+      setManualVoucherDate(periodStart || '')
+    }
+  }
+
+  const clearManualForm = () => {
+    resetManualForm({ keepPeriod: true })
+    message.info('已清空当前凭证内容')
   }
 
   const removeManualRow = (key: string) => {
@@ -636,9 +761,14 @@ export function Step2AccountingImportSource() {
       message.warning('凭证日期不在所选会计期间内，请先调整日期或重新选择期间')
       return false
     }
-    for (const row of manualRows) {
+    const activeRows = activeManualRows
+    if (activeRows.length === 0) {
+      message.warning('请至少录入一行有效分录')
+      return false
+    }
+    for (const row of activeRows) {
       if (!row.summary.trim() || !row.account_code.trim() || !row.account_name.trim()) {
-        message.warning(`第 ${row.entry_line_no} 行请填写摘要，并从会计科目表选择科目代码和科目名称`)
+        message.warning(`第 ${row.entry_line_no} 行请填写摘要，并从会计科目表选择科目`)
         return false
       }
       if (Number(row.debit_amount || 0) > 0 && Number(row.credit_amount || 0) > 0) {
@@ -650,7 +780,7 @@ export function Step2AccountingImportSource() {
         return false
       }
       if (getCounterpartyHintStatus(row) === 'required_missing') {
-        message.warning(`第 ${row.entry_line_no} 行属于往来性质科目，请填写客户、供应商或其他对方单位，便于后续对账和审计追踪`)
+        message.warning(`第 ${row.entry_line_no} 行属于往来性质科目，请填写客户、供应商或其他对方单位`)
         return false
       }
     }
@@ -661,174 +791,69 @@ export function Step2AccountingImportSource() {
     return true
   }
 
-  const submitManualVoucher = async () => {
+  const buildManualDrafts = (context: { periodId: number }): EntryDraft[] => activeManualRows.map(row => ({
+    voucher_no: manualVoucherNo,
+    voucher_date: manualVoucherDate,
+    account_code: row.account_code.trim(),
+    account_name: row.account_name.trim(),
+    summary: row.summary.trim(),
+    debit_amount: roundAmount(Number(row.debit_amount || 0)),
+    credit_amount: roundAmount(Number(row.credit_amount || 0)),
+    counterparty: row.counterparty.trim() || null,
+    entry_line_no: row.entry_line_no,
+    metadata: {
+      source: 'manual_entry',
+      inputMode,
+      periodId: context.periodId,
+      voucherDate: manualVoucherDate,
+      voucherType: manualVoucherType,
+      voucherNumber: manualVoucherNumber,
+      voucher_no_compatible: manualVoucherNo,
+      attachmentCount: manualAttachmentCount,
+      remark: manualRemark,
+      quickEntry: manualQuickEntry,
+      account_source: row.account_source,
+      used_custom_account_entry: usedCustomAccountEntry,
+      counterparty_hint_status: getCounterpartyHintStatus(row),
+      archive_context: '传统人工凭证录入：已保存期间、日期、凭证字/号、附单据、备注和科目选择来源，metadata 仅用于项目归档与追踪。',
+    },
+    tags: [],
+  }))
+
+  const submitManualVoucher = async (action: 'save' | 'save_and_new' | 'save_and_copy' = 'save') => {
     if (!validateManualRows()) return
     setManualSubmitting(true)
     try {
       const context = await ensurePeriod('manual_entry')
-      const drafts: EntryDraft[] = manualRows.map(row => ({
-        voucher_no: manualVoucherNo,
-        voucher_date: manualVoucherDate,
-        account_code: row.account_code.trim(),
-        account_name: row.account_name.trim(),
-        summary: row.summary.trim(),
-        debit_amount: roundAmount(Number(row.debit_amount || 0)),
-        credit_amount: roundAmount(Number(row.credit_amount || 0)),
-        counterparty: row.counterparty.trim() || null,
-        entry_line_no: row.entry_line_no,
-        metadata: {
-          source: 'manual_entry',
-          inputMode,
-          periodId: context.periodId,
-          voucherDate: manualVoucherDate,
-          voucherType: manualVoucherType,
-          voucherNumber: manualVoucherNumber,
-          voucher_no_compatible: manualVoucherNo,
-          account_source: row.account_source,
-          used_custom_account_entry: usedCustomAccountEntry,
-          counterparty_hint_status: getCounterpartyHintStatus(row),
-          archive_context: '人工凭证录入：已保存期间、日期、凭证字/号、科目选择来源和往来单位提示状态，metadata 仅用于项目归档与追踪，不改变标准 AccountingEntry 字段落库口径。',
-        },
-        tags: [],
-      }))
+      const drafts = buildManualDrafts(context)
       const result = await api.commitManualEntries(context.periodId, drafts)
-      message.success(`人工凭证已提交 ${result.count} 条分录`)
-      const nextParams = new URLSearchParams()
-      nextParams.set('inputMode', inputMode)
-      nextParams.set('jobId', String(result.job_id))
-      nextParams.set('periodId', String(context.periodId))
-      navigate(`${stepPath(4)}?${nextParams.toString()}`)
+      message.success(`凭证已保存，共 ${result.count} 条分录`)
+
+      if (action === 'save') {
+        const nextParams = new URLSearchParams()
+        nextParams.set('inputMode', inputMode)
+        nextParams.set('jobId', String(result.job_id))
+        nextParams.set('periodId', String(context.periodId))
+        navigate(`${stepPath(4)}?${nextParams.toString()}`)
+        return
+      }
+
+      if (action === 'save_and_new') {
+        resetManualForm({ keepPeriod: true, incrementVoucherNumber: true })
+        return
+      }
+
+      const nextVoucherNumber = String(Number.parseInt(manualVoucherNumber, 10) + 1 || 1).padStart(3, '0')
+      setManualVoucherNumber(nextVoucherNumber)
+      setManualAttachmentCount(0)
+      setManualRemark('')
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
-      message.error(`提交人工凭证失败：${detail}`)
+      message.error(`保存凭证失败：${detail}`)
     } finally {
       setManualSubmitting(false)
     }
   }
-
-  const manualColumns: ColumnsType<ManualEntryLine> = [
-    {
-      title: '行号',
-      dataIndex: 'entry_line_no',
-      key: 'entry_line_no',
-      width: 90,
-      render: (value: number, record) => (
-        <InputNumber min={1} precision={0} value={value} onChange={(val) => updateManualRow(record.key, 'entry_line_no', val)} />
-      )
-    },
-    {
-      title: '摘要',
-      dataIndex: 'summary',
-      key: 'summary',
-      width: 180,
-      render: (value: string, record) => (
-        <Input value={value} placeholder="例如：收到货款" onChange={(e) => updateManualRow(record.key, 'summary', e.target.value)} />
-      )
-    },
-    {
-      title: '科目代码',
-      dataIndex: 'account_code',
-      key: 'account_code',
-      width: 190,
-      render: (value: string, record) => (
-        <Select
-          showSearch
-          value={value || undefined}
-          placeholder="选择科目代码"
-          loading={coaLoading}
-          options={accountCodeOptions}
-          optionFilterProp="label"
-          onSearch={setAccountSearchKeyword}
-          onChange={(accountCode) => selectAccountForRow(record.key, accountCode)}
-          notFoundContent={
-            <Button type="link" onClick={() => navigateToCoa(accountSearchKeyword)}>
-              去会计科目模块新增
-            </Button>
-          }
-          style={{ width: '100%' }}
-        />
-      )
-    },
-    {
-      title: '科目名称',
-      dataIndex: 'account_name',
-      key: 'account_name',
-      width: 190,
-      render: (_value: string, record) => (
-        <Select
-          showSearch
-          value={record.account_code || undefined}
-          placeholder="选择科目名称"
-          loading={coaLoading}
-          options={accountNameOptions}
-          optionFilterProp="label"
-          onSearch={setAccountSearchKeyword}
-          onChange={(accountCode) => selectAccountForRow(record.key, accountCode)}
-          notFoundContent={
-            <Button type="link" onClick={() => navigateToCoa(accountSearchKeyword)}>
-              去会计科目模块新增
-            </Button>
-          }
-          style={{ width: '100%' }}
-        />
-      )
-    },
-    {
-      title: '借方金额',
-      dataIndex: 'debit_amount',
-      key: 'debit_amount',
-      width: 140,
-      render: (value: number, record) => (
-        <InputNumber min={0} precision={2} value={value} onChange={(val) => updateManualRow(record.key, 'debit_amount', val)} />
-      )
-    },
-    {
-      title: '贷方金额',
-      dataIndex: 'credit_amount',
-      key: 'credit_amount',
-      width: 140,
-      render: (value: number, record) => (
-        <InputNumber min={0} precision={2} value={value} onChange={(val) => updateManualRow(record.key, 'credit_amount', val)} />
-      )
-    },
-    {
-      title: '对方单位',
-      dataIndex: 'counterparty',
-      key: 'counterparty',
-      width: 210,
-      render: (value: string, record) => {
-        const hintStatus = getCounterpartyHintStatus(record)
-        return (
-          <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            <Select
-              showSearch
-              allowClear
-              value={value || undefined}
-              placeholder="选择或输入客户/供应商"
-              loading={counterpartiesLoading}
-              options={counterpartyOptions}
-              optionFilterProp="label"
-              onSearch={(keyword) => updateManualRow(record.key, 'counterparty', keyword)}
-              onChange={(nextValue) => updateManualRow(record.key, 'counterparty', nextValue || '')}
-              onBlur={() => updateManualRow(record.key, 'counterparty', value)}
-              style={{ width: '100%' }}
-            />
-            {hintStatus === 'required_missing' && (
-              <Text type="warning" style={{ fontSize: 12 }}>往来科目建议填写对方单位</Text>
-            )}
-          </Space>
-        )
-      }
-    },
-    {
-      title: '操作',
-      key: 'action',
-      width: 80,
-      render: (_, record) => (
-        <Button danger type="text" icon={<DeleteOutlined />} onClick={() => removeManualRow(record.key)} />
-      )
-    },
-  ]
 
   const renderPeriodSelectionCard = (sectionTitle: string) => (
     <Card style={{ marginTop: '16px' }}>
@@ -880,7 +905,7 @@ export function Step2AccountingImportSource() {
 
   if (isManualEntry) {
     return (
-      <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
+      <div style={{ padding: '24px', maxWidth: '1280px', margin: '0 auto' }}>
         <Steps
           current={currentStep}
           items={[
@@ -890,112 +915,71 @@ export function Step2AccountingImportSource() {
             { title: '复核调整' },
             { title: '确认导出' }
           ]}
-          style={{ marginBottom: '32px' }}
+          style={{ marginBottom: '24px' }}
         />
 
-        <FlowNav prev={stepPath(1)} next={stepPath(4)} style={{ marginBottom: '16px' }} />
+        <FlowNav prev={stepPath(1)} style={{ marginBottom: '16px' }} />
 
         <Title level={4}>传统人工录入凭证</Title>
-        <Text type="secondary">请录入一张标准会计凭证，系统校验分录借贷平衡后形成待复核分录，并进入复核调整步骤。</Text>
+        <Text type="secondary" style={{ display: 'block', marginBottom: '16px' }}>
+          按纸质记账凭证样式录入：摘要、科目、借方/贷方面额分列。保存后可进入复核调整。
+        </Text>
 
-        <Card style={{ marginTop: '16px' }}>
-          <Title level={5}>1. 凭证基本信息</Title>
-          <Space wrap align="start">
-            <Space direction="vertical" size={4}>
-              <Text>凭证字</Text>
-              <Select
-                value={manualVoucherType}
-                options={VOUCHER_TYPE_OPTIONS}
-                onChange={setManualVoucherType}
-                style={{ width: 120 }}
-              />
-            </Space>
-            <Space direction="vertical" size={4}>
-              <Text>凭证号</Text>
-              <Input
-                value={manualVoucherNumber}
-                onChange={(e) => setManualVoucherNumber(e.target.value)}
-                placeholder="001"
-                style={{ width: 140 }}
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>默认建议：001</Text>
-            </Space>
-            <Space direction="vertical" size={4}>
-              <Text>凭证日期</Text>
-              <DatePicker
-                value={manualVoucherDate ? dayjs(manualVoucherDate) : null}
-                placeholder="凭证日期"
-                disabledDate={disableVoucherDate}
-                onChange={handleVoucherDateChange}
-              />
-              {periodStart && periodEnd && (
-                <Text type="secondary" style={{ fontSize: 12 }}>日期范围：{periodStart} 至 {periodEnd}</Text>
-              )}
-            </Space>
-            <Space direction="vertical" size={4}>
-              <Text>兼容凭证字号</Text>
-              <Input value={manualVoucherNo} readOnly style={{ width: 160 }} />
-              <Text type="secondary" style={{ fontSize: 12 }}>提交时写入原 voucher_no 字段</Text>
-            </Space>
-          </Space>
-        </Card>
+        <TraditionalVoucherForm
+          voucherType={manualVoucherType}
+          voucherNumber={manualVoucherNumber}
+          voucherDate={manualVoucherDate}
+          attachmentCount={manualAttachmentCount}
+          remark={manualRemark}
+          quickEntry={manualQuickEntry}
+          rows={manualRows}
+          debitTotal={debitTotal}
+          creditTotal={creditTotal}
+          isBalanced={isBalanced}
+          balanceDiff={balanceDiff}
+          submitting={manualSubmitting}
+          periodId={periodId}
+          periodCode={periodCode}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+          periodSuggestion={periodSuggestion}
+          accountingPeriods={accountingPeriods}
+          periodsLoading={periodsLoading}
+          chartOfAccounts={chartOfAccounts}
+          coaLoading={coaLoading}
+          counterparties={counterparties}
+          counterpartiesLoading={counterpartiesLoading}
+          preparerName={user?.username || ''}
+          voucherTypeOptions={VOUCHER_TYPE_OPTIONS}
+          onVoucherTypeChange={setManualVoucherType}
+          onVoucherNumberChange={setManualVoucherNumber}
+          onVoucherDateChange={handleVoucherDateChange}
+          onAttachmentCountChange={setManualAttachmentCount}
+          onRemarkChange={setManualRemark}
+          onQuickEntryChange={setManualQuickEntry}
+          onSelectPeriod={handleSelectPeriod}
+          onPeriodCodeChange={setPeriodCode}
+          onPeriodStartChange={setPeriodStart}
+          onPeriodEndChange={setPeriodEnd}
+          onUpdateRow={updateManualRow}
+          onSelectAccount={selectAccountForRow}
+          onAddRow={addManualRow}
+          onRemoveRow={removeManualRow}
+          onNavigateToCoa={navigateToCoa}
+          onAccountSearch={setAccountSearchKeyword}
+          getCounterpartyHintStatus={getCounterpartyHintStatus}
+          disableVoucherDate={disableVoucherDate}
+          onSave={() => void submitManualVoucher('save')}
+          onSaveAndNew={() => void submitManualVoucher('save_and_new')}
+          onSaveAndCopy={() => void submitManualVoucher('save_and_copy')}
+          onClear={clearManualForm}
+          onNewVoucher={() => resetManualForm({ keepPeriod: true, incrementVoucherNumber: false })}
+          onOpenVoucherList={() => navigate('/ledger/entries')}
+        />
 
-        {renderPeriodSelectionCard('2. 选择会计期间')}
-
-        <Card style={{ marginTop: '16px' }}>
-          <Space style={{ marginBottom: '16px', width: '100%', justifyContent: 'space-between' }}>
-            <Title level={5} style={{ margin: 0 }}>3. 分录明细</Title>
-            <Space>
-              <Button onClick={() => navigateToCoa()}>
-                去会计科目模块新增
-              </Button>
-              <Button type="dashed" icon={<PlusOutlined />} onClick={addManualRow}>新增行</Button>
-            </Space>
-          </Space>
-          <Alert
-            title="科目选择说明"
-            description="分录科目从会计科目表选择并自动填入代码和名称；科目不存在时，请跳转到会计科目模块新增，正式生效日期由会计科目模块人工确认。"
-            type="info"
-            showIcon
-            style={{ marginBottom: '16px' }}
-          />
-          <Table
-            columns={manualColumns}
-            dataSource={manualRows}
-            rowKey="key"
-            pagination={false}
-            size="small"
-            scroll={{ x: 1220 }}
-          />
-          <div style={{ marginTop: '16px', display: 'flex', gap: '16px', alignItems: 'center' }}>
-            <Text strong>借方合计：¥{debitTotal.toFixed(2)}</Text>
-            <Text strong>贷方合计：¥{creditTotal.toFixed(2)}</Text>
-            <Tag color={isBalanced ? 'green' : 'red'}>
-              {isBalanced ? '借贷平衡' : `差额：¥${Math.abs(balanceDiff).toFixed(2)}`}
-            </Tag>
-          </div>
-          {!isBalanced && (
-            <Alert
-              title="借贷未平衡"
-              description="一张凭证的分录借方合计必须等于贷方合计，且借贷双方金额均大于 0，平衡后才能提交。"
-              type="warning"
-              showIcon
-              style={{ marginTop: '16px' }}
-            />
-          )}
-        </Card>
-
-        <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
+        <div style={{ marginTop: '16px' }} className="no-print">
           <Button onClick={() => navigate(`${stepPath(1)}?inputMode=${inputMode}`)}>
-            上一步
-          </Button>
-          <Button
-            type="primary"
-            loading={manualSubmitting}
-            onClick={submitManualVoucher}
-            disabled={!isBalanced}
-          >
-            提交人工凭证，进入复核
+            返回选择模式
           </Button>
         </div>
       </div>
@@ -1017,7 +1001,12 @@ export function Step2AccountingImportSource() {
           style={{ marginBottom: '32px' }}
         />
 
-        <FlowNav prev={stepPath(1)} next={stepPath(4)} style={{ marginBottom: '16px' }} />
+        <FlowNav
+          prev={stepPath(1)}
+          onNext={handleNext}
+          nextDisabled={entryCount === 0 || !currentJobId}
+          style={{ marginBottom: '16px' }}
+        />
 
         <Title level={4}>序时簿导入生成会计凭证</Title>
         <Text type="secondary">
@@ -1065,6 +1054,9 @@ export function Step2AccountingImportSource() {
               style={{ marginTop: '16px' }}
             />
           )}
+          {renderParseGuidance(parseGuidance, {
+            onSwitchDayBook: () => navigate(`${stepPath(1)}?inputMode=day_book_import`),
+          })}
         </Card>
 
         {dayBookReport && (
@@ -1167,14 +1159,22 @@ export function Step2AccountingImportSource() {
       {outputPath && (
         <Alert
           title={`当前输出路径：${outputPath}`}
-          description={outputPath === 'register_ledger'
-            ? '原始资料识别后登记到功能模块台账（非会计分录），下一步结合台账证据生成凭证草稿。'
-            : '结构化文件已解析为分录预览，请改用序时簿导入模式生成正式凭证。'}
-          type="info"
+          description={
+            outputPath === 'register_ledger'
+              ? '原始资料（PDF/图片等）识别后登记到功能模块台账（非会计分录），下一步结合台账证据生成凭证草稿。'
+              : outputPath === 'structured_preview'
+                ? `已识别结构化表格 ${structuredPreviewCount > 0 ? `（${structuredPreviewCount} 条分录预览）` : ''}。Excel/CSV 序时簿请切换到「序时簿导入」模式生成正式会计凭证。`
+                : '结构化文件已解析为分录预览，请改用序时簿导入模式生成正式凭证。'
+          }
+          type={outputPath === 'structured_preview' ? 'warning' : 'info'}
           showIcon
           style={{ marginTop: '12px' }}
         />
       )}
+
+      {renderParseGuidance(parseGuidance, {
+        onSwitchDayBook: () => navigate(`${stepPath(1)}?inputMode=day_book_import`),
+      })}
 
       <Card style={{ marginTop: '16px' }}>
         <Title level={5}>1. 提供原始资料类型辅助信息</Title>
@@ -1234,7 +1234,8 @@ export function Step2AccountingImportSource() {
           </p>
           <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
           <p className="ant-upload-hint">
-            支持 PDF/图片/Excel/CSV 等。资料将保存为底稿、AI 解析登记到功能模块台账，并自动归档到项目目录；不直接生成会计分录。
+            支持 PDF/图片（原始资料 AI 识别）或 Excel/CSV（结构化序时簿预览）。
+            PDF/图片将登记模块台账；Excel/CSV 会检测列映射并引导切换到序时簿导入模式。
           </p>
         </Dragger>
 
