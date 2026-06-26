@@ -324,8 +324,31 @@ def _persist_contract(
     raw_text: str | None,
     filename: str,
     decomposition: SemanticDecomposition,
+    *,
+    contract_parse_result: Any | None = None,
 ) -> tuple[list[int], list[ModuleRegistration]]:
+    """
+    将合同解析结果持久化到合同台账
+
+    功能描述：支持两种数据来源：
+        1. 传统 source_document_service 解析结果
+        2. ContractParser 基于 CAS 14 五步法的解析结果
+    业务逻辑：
+        1. 优先使用 ContractParser 结果（更详细的会计准则信息）
+        2. 回退到传统解析结果
+        3. 写入 contracts 表和关联表
+        4. 同步内存台账服务
+    """
     service = DocumentParsingService(db)
+
+    # 优先使用 ContractParser 结果（基于 CAS 14 五步法）
+    if contract_parse_result:
+        return _persist_contract_from_parser(
+            db, organization_id, source_file, contract_parse_result,
+            confidence, raw_text, filename, decomposition, service,
+        )
+
+    # 传统解析路径（保持向后兼容）
     parties = []
     if data.get("party_a"):
         parties.append({"party_role": "party_a", "party_name": data.get("party_a")})
@@ -385,6 +408,242 @@ def _persist_contract(
                     "accounting_dimension": target.accounting_dimension,
                     "decomposition_reason": target.reason,
                     "semantic_tags": decomposition.semantic_tags,
+                },
+            )
+            _register_to_module(module_key, module_entry)
+
+        module_regs.append(_build_module_registration(
+            module_key,
+            [contract.id],
+            accounting_dimension=target.accounting_dimension,
+            semantic_only=semantic_only,
+            reason=target.reason,
+        ))
+
+    return [contract.id], module_regs
+
+
+def _persist_contract_from_parser(
+    db: Session,
+    organization_id: int,
+    source_file: SourceFile,
+    contract_parse_result: Any,
+    confidence: float,
+    raw_text: str | None,
+    filename: str,
+    decomposition: SemanticDecomposition,
+    service: DocumentParsingService,
+) -> tuple[list[int], list[ModuleRegistration]]:
+    """
+    使用 ContractParser 结果持久化合同台账
+
+    功能描述：将基于 CAS 14 五步法的解析结果写入合同台账
+    业务逻辑：
+        1. 提取合同基本信息（编号、类型、名称）
+        2. 提取时间信息（签署日期、执行周期）
+        3. 提取金额信息（价税分离）
+        4. 提取履约义务（时段法/时点法）
+        5. 提取违约责任（预计负债）
+        6. 写入 contracts 表和关联表
+    """
+    from app.services.contract_parser_service import ContractParseResult
+
+    result = contract_parse_result
+    if not isinstance(result, ContractParseResult):
+        raise ValueError("contract_parse_result 必须是 ContractParseResult 类型")
+
+    # 确定合同类型
+    contract_type = "service"
+    if result.contract_type:
+        type_lower = result.contract_type.lower()
+        if any(kw in type_lower for kw in PURCHASE_KEYWORDS):
+            contract_type = "purchase"
+        elif any(kw in type_lower for kw in SALES_KEYWORDS):
+            contract_type = "sales"
+        elif "框架" in type_lower or "framework" in type_lower:
+            contract_type = "framework"
+
+    # 构建合同 payload
+    parties_data = []
+    for party in result.parties:
+        parties_data.append({
+            "party_role": party.role.lower().replace("甲方", "party_a").replace("乙方", "party_b").replace("丙方", "party_c"),
+            "party_name": party.name,
+            "party_code": party.tax_id,
+            "party_address": party.address,
+            "party_contact": party.contact,
+        })
+
+    # 履约义务（JSON 格式）
+    performance_obligations = []
+    for obligation in result.performance_obligations:
+        performance_obligations.append({
+            "obligation_no": str(obligation.item_no),
+            "obligation_name": obligation.description[:50] if obligation.description else "",
+            "obligation_description": obligation.description,
+            "quantity": float(obligation.quantity) if obligation.quantity else 0,
+            "unit": obligation.unit,
+            "unit_price": float(obligation.unit_price) if obligation.unit_price else 0,
+            "total_price": float(obligation.total_price) if obligation.total_price else 0,
+            "distinct": obligation.distinct,
+            "separately_identifiable": obligation.separately_identifiable,
+            "highly_interdependent": obligation.highly_interdependent,
+            "integration_service": obligation.integration_service,
+            "revenue_recognition_method": obligation.revenue_recognition_method,
+            "time_method_criteria": obligation.time_method_criteria,
+            "qualified_payment_right": obligation.qualified_payment_right,
+            "irreplaceable_use": obligation.irreplaceable_use,
+            "standalone_selling_price": float(obligation.standalone_selling_price) if obligation.standalone_selling_price else 0,
+            "allocation_ratio": float(obligation.allocation_ratio) if obligation.allocation_ratio else 0,
+        })
+
+    # 风险标记（违约责任）
+    risk_flags = {
+        "penalties": [
+            {
+                "penalty_clause": p.penalty_clause,
+                "penalty_amount": float(p.penalty_amount) if p.penalty_amount else 0,
+                "penalty_type": p.penalty_type,
+                "is_probable": p.is_probable,
+                "provision_required": p.provision_required,
+                "provision_amount": float(p.provision_amount) if p.provision_amount else 0,
+                "impact_on_revenue": p.impact_on_revenue,
+            }
+            for p in result.penalties
+        ],
+        "contract_costs": [
+            {
+                "cost_type": c.cost_type,
+                "amount": float(c.amount) if c.amount else 0,
+                "amortization_method": c.amortization_method,
+            }
+            for c in result.contract_costs
+        ],
+        "financial_assets": [
+            {
+                "asset_type": a.asset_type,
+                "amount": float(a.amount) if a.amount else 0,
+                "expected_credit_loss": float(a.expected_credit_loss) if a.expected_credit_loss else 0,
+                "risk_rating": a.risk_rating,
+            }
+            for a in result.financial_assets
+        ],
+        "tax_treatment": {
+            "tax_type": result.tax_treatment.tax_type,
+            "tax_rate": float(result.tax_treatment.tax_rate) if result.tax_treatment.tax_rate else 0,
+            "tax_amount": float(result.tax_treatment.tax_amount) if result.tax_treatment.tax_amount else 0,
+            "special_treatment": result.tax_treatment.special_treatment,
+        },
+        "accounting_notes": result.accounting_notes,
+        "five_step_analysis": result.five_step_analysis,
+        "validation_errors": result.validation_errors if hasattr(result, 'validation_errors') else [],
+    }
+
+    payload = _scope_payload(
+        source_file,
+        contract_no=None,  # 合同编号从文本中提取，如未提取则为空
+        contract_type=contract_type,
+        contract_name=result.summary[:80] if result.summary else filename,
+        sign_date=_parse_date(result.signing_date),
+        start_date=_parse_date(result.period.start_date) if result.period else None,
+        end_date=_parse_date(result.period.end_date) if result.period else None,
+        contract_amount=float(result.price.total_amount) if result.price.total_amount else 0,
+        currency=result.price.currency,
+        tax_rate=float(result.price.tax_rate) if result.price.tax_rate else 0,
+        tax_amount=float(result.price.tax_amount) if result.price.tax_amount else 0,
+        performance_obligations=performance_obligations,
+        transaction_price=float(result.price.amount_excl_tax) if result.price.amount_excl_tax else 0,
+        is_over_time=any(
+            o.revenue_recognition_method == "时段法"
+            for o in result.performance_obligations
+        ),
+        progress_method="output" if any(
+            o.revenue_recognition_method == "时段法" and "产出法" in str(o.time_method_criteria)
+            for o in result.performance_obligations
+        ) else "input",
+        revenue_recognition_type="over_time" if any(
+            o.revenue_recognition_method == "时段法"
+            for o in result.performance_obligations
+        ) else "point_in_time",
+        risk_flags=risk_flags,
+        parties=parties_data,
+        extracted_text=raw_text,
+        confidence_score=float(result.confidence_score) if result.confidence_score else 0.8,
+        execution_status="pending",
+    )
+
+    contract = service.parse_contract(organization_id, payload)
+    db.commit()
+
+    # 同步内存台账
+    module_keys = decomposition.module_keys() or ["contract_register"]
+    if contract_type == "purchase" and "purchase" not in module_keys:
+        module_keys.append("purchase")
+    if contract_type == "sales" and "sales" not in module_keys:
+        module_keys.append("sales")
+
+    base_data = {
+        "contract_number": contract.contract_no,
+        "party_a": next((p.party_name for p in contract.parties if p.party_role == "party_a"), ""),
+        "party_b": next((p.party_name for p in contract.parties if p.party_role == "party_b"), ""),
+        "sign_date": result.signing_date,
+        "contract_amount": float(result.price.total_amount) if result.price.total_amount else 0,
+        "amount": float(result.price.amount_excl_tax) if result.price.amount_excl_tax else 0,
+        "date": result.signing_date,
+    }
+    base_entry = ledger_service.add_contract(base_data, source_file.filename)
+    base_entry.metadata["semantic_tags"] = decomposition.semantic_tags
+    base_entry.metadata["cas14_five_step"] = True
+    base_entry.metadata["contract_parse_result"] = {
+        "contract_type": result.contract_type,
+        "contract_valid": result.contract_valid,
+        "commercial_substance": result.commercial_substance,
+        "collection_probable": result.collection_probable,
+        "parties": [{"name": p.name, "role": p.role} for p in result.parties],
+        "price": {
+            "total_amount": float(result.price.total_amount) if result.price.total_amount else 0,
+            "amount_excl_tax": float(result.price.amount_excl_tax) if result.price.amount_excl_tax else 0,
+            "tax_rate": float(result.price.tax_rate) if result.price.tax_rate else 0,
+            "tax_amount": float(result.price.tax_amount) if result.price.tax_amount else 0,
+        },
+        "performance_obligations_count": len(result.performance_obligations),
+        "penalties_count": len(result.penalties),
+    }
+
+    module_regs: list[ModuleRegistration] = []
+    target_by_key = {item.module_key: item for item in decomposition.module_targets}
+
+    for module_key in module_keys:
+        if module_key == "counterparty_ledger":
+            continue
+        target = target_by_key.get(module_key) or ModuleTarget(module_key=module_key, confidence=confidence, reason="CAS 14 五步法合同解析")
+        semantic_only = module_key in {"tax_invoice", "bank_cash_flow"} or module_key not in {"contract_register", "purchase", "sales"}
+
+        if semantic_only:
+            _register_semantic_projection(source_file, module_key, base_data, target.confidence, target, contract.id)
+        else:
+            module_entry = ContractLedger(
+                source_file=source_file.filename,
+                source_type="contract",
+                contract_number=base_entry.contract_number,
+                party_a=base_entry.party_a,
+                party_b=base_entry.party_b,
+                sign_date=base_entry.sign_date,
+                contract_amount=base_entry.contract_amount,
+                counterparty=base_entry.counterparty,
+                amount=base_entry.amount,
+                date=base_entry.date,
+                confidence=target.confidence,
+                business_type=BusinessType.PURCHASE if module_key == "purchase" else BusinessType.SALES if module_key == "sales" else BusinessType.OTHER,
+                metadata={
+                    **base_data,
+                    "module_key": module_key,
+                    "module_path": MODULE_DEFINITIONS[module_key]["module_path"],
+                    "contract_db_id": contract.id,
+                    "accounting_dimension": target.accounting_dimension,
+                    "decomposition_reason": target.reason,
+                    "semantic_tags": decomposition.semantic_tags,
+                    "cas14_five_step": True,
                 },
             )
             _register_to_module(module_key, module_entry)

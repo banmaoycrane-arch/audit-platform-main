@@ -911,11 +911,16 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
                     job.draft_data = {}
                 job.draft_data["contract_parse_result"] = {
                     "contract_type": contract_parse_result.contract_type,
+                    "contract_valid": contract_parse_result.contract_valid,
+                    "effective_conditions": contract_parse_result.effective_conditions,
+                    "commercial_substance": contract_parse_result.commercial_substance,
+                    "collection_probable": contract_parse_result.collection_probable,
                     "parties": [
                         {
                             "name": p.name,
                             "role": p.role,
                             "tax_id": p.tax_id,
+                            "legal_capacity": p.legal_capacity,
                         }
                         for p in contract_parse_result.parties
                     ],
@@ -924,16 +929,20 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
                         "start_date": contract_parse_result.period.start_date,
                         "end_date": contract_parse_result.period.end_date,
                         "duration_days": contract_parse_result.period.duration_days,
+                        "termination_terms": contract_parse_result.period.termination_terms,
                     },
                     "price": {
                         "total_amount": str(contract_parse_result.price.total_amount),
+                        "amount_excl_tax": str(contract_parse_result.price.amount_excl_tax),
                         "tax_rate": str(contract_parse_result.price.tax_rate),
                         "tax_amount": str(contract_parse_result.price.tax_amount),
-                        "amount_excl_tax": str(contract_parse_result.price.amount_excl_tax),
                         "currency": contract_parse_result.price.currency,
+                        "variable_consideration": str(contract_parse_result.price.variable_consideration),
+                        "variable_type": contract_parse_result.price.variable_type,
+                        "back_to_back": contract_parse_result.price.back_to_back,
                         "payment_terms": contract_parse_result.price.payment_terms,
                     },
-                    "items": [
+                    "performance_obligations": [
                         {
                             "item_no": i.item_no,
                             "description": i.description,
@@ -941,15 +950,23 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
                             "unit": i.unit,
                             "unit_price": str(i.unit_price),
                             "total_price": str(i.total_price),
+                            "distinct": i.distinct,
+                            "highly_interdependent": i.highly_interdependent,
+                            "integration_service": i.integration_service,
                             "revenue_recognition_method": i.revenue_recognition_method,
-                            "performance_obligations": i.performance_obligations,
+                            "time_method_criteria": i.time_method_criteria,
+                            "qualified_payment_right": i.qualified_payment_right,
+                            "irreplaceable_use": i.irreplaceable_use,
+                            "standalone_selling_price": str(i.standalone_selling_price),
+                            "allocation_ratio": str(i.allocation_ratio),
                         }
-                        for i in contract_parse_result.items
+                        for i in contract_parse_result.performance_obligations
                     ],
                     "penalties": [
                         {
                             "penalty_clause": p.penalty_clause,
                             "penalty_amount": str(p.penalty_amount),
+                            "penalty_type": p.penalty_type,
                             "is_probable": p.is_probable,
                             "provision_required": p.provision_required,
                             "provision_amount": str(p.provision_amount),
@@ -957,14 +974,67 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
                         }
                         for p in contract_parse_result.penalties
                     ],
+                    "contract_costs": [
+                        {
+                            "cost_type": c.cost_type,
+                            "amount": str(c.amount),
+                            "amortization_method": c.amortization_method,
+                        }
+                        for c in contract_parse_result.contract_costs
+                    ],
+                    "financial_assets": [
+                        {
+                            "asset_type": a.asset_type,
+                            "amount": str(a.amount),
+                            "expected_credit_loss": str(a.expected_credit_loss),
+                            "risk_rating": a.risk_rating,
+                        }
+                        for a in contract_parse_result.financial_assets
+                    ],
+                    "tax_treatment": {
+                        "tax_type": contract_parse_result.tax_treatment.tax_type,
+                        "tax_rate": str(contract_parse_result.tax_treatment.tax_rate),
+                        "tax_amount": str(contract_parse_result.tax_treatment.tax_amount),
+                        "special_treatment": contract_parse_result.tax_treatment.special_treatment,
+                    },
                     "summary": contract_parse_result.summary,
                     "accounting_notes": contract_parse_result.accounting_notes,
+                    "five_step_analysis": contract_parse_result.five_step_analysis,
                     "confidence_score": str(contract_parse_result.confidence_score),
                 }
                 # 进行会计校验
                 validation_errors = parser.validate_accounting(contract_parse_result)
                 if validation_errors:
                     job.draft_data["contract_validation_errors"] = validation_errors
+                
+                # 将解析结果同步到合同台账
+                try:
+                    from app.services.register_ingestion_service import _persist_contract
+                    from app.services.source_document_service import SourceDocumentResult
+                    from app.services.draft_semantic_decomposition_service import decompose_draft
+                    
+                    # 构建语义分解
+                    classification = SourceDocumentResult(
+                        document_type="contract",
+                        confidence=float(contract_parse_result.confidence_score) if contract_parse_result.confidence_score else 0.8,
+                        data={},
+                        raw_text=text,
+                        file_name=source_file.filename,
+                    )
+                    decomposition = decompose_draft(classification)
+                    
+                    # 持久化到合同台账
+                    _persist_contract(
+                        db, job.organization_id, source_file, {},
+                        float(contract_parse_result.confidence_score) if contract_parse_result.confidence_score else 0.8,
+                        text, source_file.filename, decomposition,
+                        contract_parse_result=contract_parse_result,
+                    )
+                    db.commit()
+                except Exception as e:
+                    # 台账同步失败不影响主流程，记录错误即可
+                    print(f"合同台账同步失败: {e}")
+                    
             except Exception as e:
                 # 合同解析失败不影响主流程，记录错误即可
                 print(f"合同解析失败: {e}")
