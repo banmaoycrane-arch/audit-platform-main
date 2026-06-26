@@ -368,18 +368,21 @@ export function LedgerManagementPage() {
           <Paragraph type="secondary">账套对应独立核算主体，授权列表用于控制谁能查看和处理账务数据。</Paragraph>
         </Col>
         <Col>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setCreateOpen(true)
-              if (teams.length === 1) {
-                createForm.setFieldValue('team_id', teams[0].id)
-              }
-            }}
-          >
-            创建账套
-          </Button>
+          <Space>
+            <Button onClick={() => navigate('/scope-settings?tab=ledger')}>管理配置</Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setCreateOpen(true)
+                if (teams.length === 1) {
+                  createForm.setFieldValue('team_id', teams[0].id)
+                }
+              }}
+            >
+              创建账套
+            </Button>
+          </Space>
         </Col>
       </Row>
 

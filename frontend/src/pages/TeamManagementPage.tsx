@@ -6,6 +6,7 @@ import {
   PlusOutlined, TeamOutlined, UserAddOutlined, MoreOutlined, UserOutlined, BookOutlined, SettingOutlined,
   ArrowRightOutlined, SafetyCertificateOutlined, LockOutlined, AuditOutlined, CheckCircleOutlined, LoadingOutlined, EditOutlined
 } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
 import type { BindingOptions, BindingRequest, Team, TeamMember } from '../api/client'
@@ -53,6 +54,7 @@ const requestStatusMap: Record<string, { label: string; color: string }> = {
   }
 
 export function TeamManagementPage() {
+  const navigate = useNavigate()
   const { authContext } = useAuthStore()
   const [teams, setTeams] = useState<Team[]>([])
   const [members, setMembers] = useState<TeamMember[]>([])
@@ -398,6 +400,7 @@ export function TeamManagementPage() {
         </Col>
         <Col>
           <Space>
+            <Button onClick={() => navigate('/scope-settings?tab=team')}>管理配置</Button>
             <Button icon={<SafetyCertificateOutlined />} onClick={() => setRequestOpen(true)}>
               申请授权
             </Button>

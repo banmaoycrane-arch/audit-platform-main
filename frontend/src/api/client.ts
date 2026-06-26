@@ -793,6 +793,62 @@ export type WorkflowConfig = {
   updated_at: string | null
 }
 
+export type ScopeSettingsCatalogField = {
+  label: string
+  type: 'select' | 'boolean' | 'text'
+  options?: Array<{ value: string; label: string }>
+  depends_on?: Record<string, boolean | string>
+}
+
+export type ScopeSettingsCatalog = Record<
+  string,
+  {
+    label: string
+    description: string
+    fields: Record<string, ScopeSettingsCatalogField>
+  }
+>
+
+export type LedgerSettingsData = {
+  currency_mode: 'single' | 'multi'
+  base_currency: string
+  balance_direction_rule: 'strict' | 'natural'
+  account_code_pattern: '4-2-2-2' | '3-3-2-2'
+  allow_custom_subjects: boolean
+}
+
+export type TeamSettingsData = {
+  allow_multi_team_membership: boolean
+  require_binding_approval: boolean
+  default_ledger_role: 'admin' | 'accountant' | 'viewer'
+  ledger_grant_policy: 'admin_only' | 'manager_can_grant'
+  team_roles_enabled: string[]
+}
+
+export type ProjectSettingsData = {
+  allow_merge: boolean
+  allow_virtual_project: boolean
+  virtual_project_label: string
+  require_manager_on_create: boolean
+}
+
+export type EntityScopeSettingsData = {
+  allow_virtual_entity: boolean
+  require_tax_registration: boolean
+  default_entity_category: 'operating' | 'holding' | 'branch'
+  allow_multi_entity_per_ledger: boolean
+}
+
+export type ScopeSettingsResponse<T> = {
+  scope: string
+  settings: T
+  created_at: string | null
+  updated_at: string | null
+  ledger_id?: number
+  team_id?: number
+  project_id?: number
+}
+
 export type AuditProcedureRun = {
   id: number
   project_id: number | null
@@ -1635,5 +1691,39 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: reason || undefined }),
+    }),
+
+  getScopeSettingsCatalog: () => request<ScopeSettingsCatalog>('/api/scope-settings/catalog'),
+  getLedgerSettings: (ledgerId: number) =>
+    request<ScopeSettingsResponse<LedgerSettingsData>>(`/api/scope-settings/ledger/${ledgerId}`),
+  updateLedgerSettings: (ledgerId: number, payload: Partial<LedgerSettingsData>) =>
+    request<ScopeSettingsResponse<LedgerSettingsData>>(`/api/scope-settings/ledger/${ledgerId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  getTeamSettings: (teamId: number) =>
+    request<ScopeSettingsResponse<TeamSettingsData>>(`/api/scope-settings/team/${teamId}`),
+  updateTeamSettings: (teamId: number, payload: Partial<TeamSettingsData>) =>
+    request<ScopeSettingsResponse<TeamSettingsData>>(`/api/scope-settings/team/${teamId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  getProjectSettings: (projectId: number) =>
+    request<ScopeSettingsResponse<ProjectSettingsData>>(`/api/scope-settings/project/${projectId}`),
+  updateProjectSettings: (projectId: number, payload: Partial<ProjectSettingsData>) =>
+    request<ScopeSettingsResponse<ProjectSettingsData>>(`/api/scope-settings/project/${projectId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  getEntityScopeSettings: (ledgerId: number) =>
+    request<ScopeSettingsResponse<EntityScopeSettingsData>>(`/api/scope-settings/entity/${ledgerId}`),
+  updateEntityScopeSettings: (ledgerId: number, payload: Partial<EntityScopeSettingsData>) =>
+    request<ScopeSettingsResponse<EntityScopeSettingsData>>(`/api/scope-settings/entity/${ledgerId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     }),
 }

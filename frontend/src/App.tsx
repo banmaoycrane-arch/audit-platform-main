@@ -54,6 +54,7 @@ import { PurchaseMatchPage } from './pages/Audit/PurchaseMatchPage'
 import { WorkpapersPage } from './pages/Audit/WorkpapersPage'
 import { AuditWorkflowPage } from './pages/Audit/AuditWorkflowPage'
 import { LedgerBooksPage } from './pages/LedgerBooksPage'
+import { ScopeSettingsPage } from './pages/ScopeSettingsPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -126,6 +127,7 @@ function AppRoutes() {
         <Route path="/inventory/workspace" element={<LedgerDataGuard><InventoryWorkspace /></LedgerDataGuard>} />
         <Route path="/fixed-assets/workspace" element={<LedgerDataGuard><FixedAssetsWorkspace /></LedgerDataGuard>} />
         <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/scope-settings" element={<ScopeSettingsPage />} />
         <Route path="/ledger/lifecycle" element={<LedgerLifecyclePage />} />
         <Route path="/accounting/step/1" element={<LedgerDataGuard><Step1AccountingSelectType /></LedgerDataGuard>} />
         <Route path="/accounting/step/2" element={<LedgerDataGuard><Step2AccountingImportSource /></LedgerDataGuard>} />

@@ -38,7 +38,9 @@ from app.api.routes_audit_workflow import router as audit_workflow_router
 from app.api.routes_project import router as project_router
 from app.api.routes_lifecycle import router as lifecycle_router
 from app.api.routes_team import router as team_router
+from app.api.routes_scope_settings import router as scope_settings_router
 from app.db import models
+import app.models  # noqa: F401 — register app.models tables for create_all
 from app.db.session import Base, engine
 
 Base.metadata.create_all(bind=engine)
@@ -237,6 +239,52 @@ def _ensure_local_sqlite_schema() -> None:
                     ") WHERE ledger_id IS NULL"
                 ))
 
+        scope_settings_tables = {
+            "ledger_settings": """
+                CREATE TABLE ledger_settings (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    ledger_id INTEGER NOT NULL UNIQUE,
+                    settings JSON,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(ledger_id) REFERENCES ledgers (id)
+                )
+            """,
+            "team_settings": """
+                CREATE TABLE team_settings (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    team_id INTEGER NOT NULL UNIQUE,
+                    settings JSON,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(team_id) REFERENCES teams (id)
+                )
+            """,
+            "project_settings": """
+                CREATE TABLE project_settings (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    project_id INTEGER NOT NULL UNIQUE,
+                    settings JSON,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(project_id) REFERENCES projects (id)
+                )
+            """,
+            "entity_scope_settings": """
+                CREATE TABLE entity_scope_settings (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    ledger_id INTEGER NOT NULL UNIQUE,
+                    settings JSON,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(ledger_id) REFERENCES ledgers (id)
+                )
+            """,
+        }
+        for table_name, ddl in scope_settings_tables.items():
+            if table_name not in table_names:
+                connection.execute(text(ddl))
+
 
 _ensure_local_sqlite_schema()
 
@@ -278,6 +326,7 @@ app.include_router(module_registers_router)
 app.include_router(project_router)
 app.include_router(lifecycle_router)
 app.include_router(team_router)
+app.include_router(scope_settings_router)
 app.include_router(binding_requests_router)
 app.include_router(bank_router)
 app.include_router(confirmations_router)
