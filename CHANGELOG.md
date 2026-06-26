@@ -17,6 +17,10 @@
 
 - **AI 凭证证据暂存（权责发生制）**：单发票可暂存落库（应收+收入），不确认银行存款；发票+流水走「开票挂应收 → 收款核销应收」两笔分录，避免发票直连银行存款，便于现金流量表归集。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 
+### Fixed / 修复
+
+- **引导完成后工作台团队与统计加载**：完成 onboarding 后自动刷新 auth context，工作台正确识别已绑定团队并加载仪表盘统计；`/api/dashboard/summary` 优先从用户团队关系解析团队信息，前端校验账套 ID 有效性并在统计请求失败时回退展示团队名称。（PR [#106](https://github.com/banmaoycrane-arch/audit-platform-main/pull/106)）
+
 ## [2026-06-25]
 
 ### Fixed / 修复
