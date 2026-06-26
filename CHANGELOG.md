@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [2026-06-26]
+
+### Added
+
+- **凭证入账状态与 Step5 确认入账**：会计分录新增 `post_status`、`posted_at`、`posted_by` 字段（迁移 `0012_entry_post_status`）；新增 `POST /api/import-jobs/{job_id}/post` 接口，将已复核（`verified` / `ready`）分录标记为 `posted`；Step5「确认入账与导出」在导出前自动调用入账接口。（PR #84）
+
+### Changed
+
+- **账套导出范围**：`GET /api/import-jobs/{job_id}/export` 仅导出 `post_status=posted` 的分录，未入账草稿不再出现在导出结果中。（PR #84）
+
 ## [2026-06-25]
 
 ### Fixed / 修复
