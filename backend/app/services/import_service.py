@@ -11,6 +11,7 @@
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal
 import json
 from pathlib import Path
 import threading
@@ -314,9 +315,11 @@ def _extract_source_summary(result: SourceDocumentResult) -> dict[str, Any]:
     }
 
 
-def _json_default(value: Any) -> str:
+def _json_default(value: Any) -> str | float:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 

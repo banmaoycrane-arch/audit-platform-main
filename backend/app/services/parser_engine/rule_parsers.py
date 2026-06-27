@@ -169,6 +169,7 @@ def parse_invoice_rules(text: str, file_path: str = "") -> dict[str, Any]:
 
     # 销售方名称
     seller_name_patterns = [
+        r'销售方[：:]\s*(.*?)(?=购买方|价税合计|纳税人识别号|$)',
         r'销售方名称[：:]\s*(.*?)(\n|购买方|纳税人识别号)',
         r'销货方名称[：:]\s*(.*?)(\n|购买方|纳税人识别号)',
         r'卖方[：:]\s*(.*?)(\n|购买方|纳税人)',
@@ -188,6 +189,7 @@ def parse_invoice_rules(text: str, file_path: str = "") -> dict[str, Any]:
 
     # 购买方名称
     buyer_name_patterns = [
+        r'购买方[：:]\s*(.*?)(?=销售方|价税合计|纳税人识别号|$)',
         r'购买方名称[：:]\s*(.*?)(\n|销售方|纳税人识别号)',
         r'购货方名称[：:]\s*(.*?)(\n|销售方|纳税人识别号)',
         r'买方[：:]\s*(.*?)(\n|销售方|纳税人)',
