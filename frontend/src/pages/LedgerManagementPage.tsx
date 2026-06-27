@@ -335,7 +335,7 @@ export function LedgerManagementPage() {
               handleEnterLedgerFiles(ledger.id)
             }}
           >
-            账套文件
+            支持性文件
           </Button>
         </div>
       </Card>

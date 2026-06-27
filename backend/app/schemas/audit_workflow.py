@@ -186,6 +186,7 @@ class AuditReviewRequestCreate(BaseModel):
     reviewer_level_1_id: int | None = None
     reviewer_level_2_id: int | None = None
     reviewer_level_3_id: int | None = None
+    submitted_version_id: int | None = None
 
 
 class AuditReviewSubmit(BaseModel):
@@ -223,6 +224,9 @@ class AuditReviewRequestRead(BaseModel):
     reviewer_level_1_id: int | None = None
     reviewer_level_2_id: int | None = None
     reviewer_level_3_id: int | None = None
+    submitted_version_id: int | None = None
+    approved_version_id: int | None = None
+    merged_version_id: int | None = None
     merged_by: int | None = None
     created_at: datetime
     submitted_at: datetime | None = None
@@ -257,6 +261,11 @@ class AuditCommentCreate(BaseModel):
     target_id: int
     content: str
     mention_user_ids: list[int] | None = None
+    marker_type: str | None = None
+    sheet_name: str | None = None
+    cell_ref: str | None = None
+    range_ref: str | None = None
+    severity: str | None = None
 
 
 class AuditCommentRead(BaseModel):
@@ -266,6 +275,13 @@ class AuditCommentRead(BaseModel):
     target_id: int
     content: str
     mention_user_ids: list[int] | None = Field(default=None)
+    marker_type: str | None = None
+    sheet_name: str | None = None
+    cell_ref: str | None = None
+    range_ref: str | None = None
+    severity: str | None = None
+    resolved_at: datetime | None = None
+    resolved_by: int | None = None
     created_by: int
     created_at: datetime
     updated_at: datetime

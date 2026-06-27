@@ -19,6 +19,7 @@ class ParseResultResponse(BaseModel):
     raw_text: str | None = None
     error_message: str | None = None
     parse_duration_ms: float | None = None
+    stage_timings: dict[str, float] | None = None
     engine_comparison: dict[str, Any] | None = None
     multi_llm_comparison: dict[str, Any] | None = None
 

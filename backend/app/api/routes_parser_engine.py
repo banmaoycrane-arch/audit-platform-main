@@ -52,6 +52,7 @@ def _convert_parse_result_to_dict(parse_result: Any) -> dict[str, Any]:
                     "selection_reason": parse_result.get("selection_reason", ""),
                     "rule_confidence": parse_result.get("engine_comparison", {}).get("rule_confidence", 0.0),
                     "llm_confidence": parse_result.get("engine_comparison", {}).get("llm_confidence", 0.0),
+                    "diagnosis": parse_result.get("engine_comparison", {}).get("diagnosis", {}),
                 },
             }
         else:
@@ -236,12 +237,18 @@ def parse_file_endpoint(
     
     try:
         import asyncio
-        from app.services.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher
+        from app.services.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher, performance_monitor
         
-        start_time = time.time()
+        parse_start = performance_monitor.record_parse_start()
+        stage_start = time.time()
         
         dispatcher = ParserEngineDispatcher(db)
+        performance_monitor.record_stage_duration(
+            "初始化调度器",
+            (time.time() - stage_start) * 1000,
+        )
         
+        stage_start = time.time()
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
@@ -250,11 +257,27 @@ def parse_file_endpoint(
                 parse_result = asyncio.run(dispatcher.parse(temp_path, sheet_name=sheet_name))
         except RuntimeError:
             parse_result = asyncio.run(dispatcher.parse(temp_path, sheet_name=sheet_name))
+        performance_monitor.record_stage_duration(
+            "解析执行",
+            (time.time() - stage_start) * 1000,
+        )
         
-        duration_ms = (time.time() - start_time) * 1000
+        duration_ms = (time.time() - parse_start) * 1000
         
         result_dict = _convert_parse_result_to_dict(parse_result)
         result_dict["parse_duration_ms"] = round(duration_ms, 2)
+        result_dict["stage_timings"] = {
+            "文件保存": round((stage_start - parse_start) * 1000, 2),
+            "解析执行": round(result_dict["parse_duration_ms"], 2),
+        }
+        
+        performance_monitor.record_parse_complete(
+            result_dict.get("file_format") or "unknown",
+            result_dict.get("document_type") or "unknown",
+            duration_ms,
+            not bool(result_dict.get("error_message")),
+            result_dict.get("error_message") or None,
+        )
         
         return ParseResultResponse(**result_dict)
         

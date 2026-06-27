@@ -748,6 +748,16 @@ export type WorkpaperVersion = {
   workpaper_index_id: number
   source_file_id: number
   filename: string | null
+  file_name?: string | null
+  file_ext?: string | null
+  mime_type?: string | null
+  storage_path?: string | null
+  file_hash?: string | null
+  file_size?: number | null
+  template_code?: string | null
+  sheet_count?: number | null
+  workbook_metadata?: { sheets?: string[] } | Record<string, unknown> | null
+  generated_from?: string | null
   version_no: string
   status: string
   status_label: string
@@ -933,6 +943,9 @@ export type AuditReviewRequest = {
   reviewer_level_1_id?: number | null
   reviewer_level_2_id?: number | null
   reviewer_level_3_id?: number | null
+  submitted_version_id?: number | null
+  approved_version_id?: number | null
+  merged_version_id?: number | null
   merged_by?: number | null
   created_at: string
   submitted_at?: string | null
@@ -952,6 +965,7 @@ export type AuditReviewRequestCreate = {
   reviewer_level_1_id?: number | null
   reviewer_level_2_id?: number | null
   reviewer_level_3_id?: number | null
+  submitted_version_id?: number | null
 }
 
 export type AuditReviewAction = {
@@ -987,6 +1001,13 @@ export type AuditComment = {
   target_id: number
   content: string
   mention_user_ids?: number[] | null
+  marker_type?: string | null
+  sheet_name?: string | null
+  cell_ref?: string | null
+  range_ref?: string | null
+  severity?: string | null
+  resolved_at?: string | null
+  resolved_by?: number | null
   created_by: number
   created_at: string
   updated_at: string
@@ -997,6 +1018,32 @@ export type AuditCommentCreate = {
   target_id: number
   content: string
   mention_user_ids?: number[] | null
+  marker_type?: string | null
+  sheet_name?: string | null
+  cell_ref?: string | null
+  range_ref?: string | null
+  severity?: string | null
+}
+
+export type AuditNotification = {
+  id: number
+  recipient_user_id: number
+  actor_user_id?: number | null
+  event_type: string
+  target_type: string
+  target_id: number
+  title: string
+  content?: string | null
+  is_read: boolean
+  project_id?: number | null
+  ledger_id?: number | null
+  created_at?: string | null
+  read_at?: string | null
+}
+
+export type AuditNotificationListResponse = {
+  items: AuditNotification[]
+  unread_count: number
 }
 
 export type AuditDashboardStats = {
@@ -1518,6 +1565,26 @@ export const api = {
     if (filters.limit) params.set('limit', String(filters.limit))
     return request<ModuleRegisterListResponse>(`/api/module-registers/${moduleKey}?${params.toString()}`)
   },
+  updateModuleRegisterRow: (moduleKey: string, rowId: number, fields: Record<string, unknown>) =>
+    request<{ status: string; message: string; row_id: number }>(`/api/module-registers/${moduleKey}/${rowId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    }),
+  correctModuleRegisterRow: (moduleKey: string, rowId: number, fields: Record<string, unknown>, correctionReason: string) =>
+    request<{ status: string; message: string; row_id: number }>(`/api/module-registers/${moduleKey}/${rowId}/correct`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields, correction_reason: correctionReason }),
+    }),
+  archiveModuleRegisterRow: (moduleKey: string, rowId: number, archiveReason?: string) =>
+    request<{ status: string; message: string; row_id: number }>(`/api/module-registers/${moduleKey}/${rowId}/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archive_reason: archiveReason }),
+    }),
+  deleteModuleRegisterRow: (moduleKey: string, rowId: number) =>
+    request<{ status: string; message: string; row_id: number }>(`/api/module-registers/${moduleKey}/${rowId}`, { method: 'DELETE' }),
   getModuleRegisterSummary: (ledgerId: number) =>
     request<ModuleRegisterSummary>(`/api/module-registers/summary?ledger_id=${ledgerId}`),
   bindFileCounterparty: (fileId: number, counterpartyId: number | null) =>
@@ -2083,6 +2150,20 @@ export const api = {
   deleteAuditComment: (commentId: number) =>
     request<{ deleted: boolean }>(`/api/audit/comments/${commentId}`, { method: 'DELETE' }),
 
+  listAuditNotifications: (filters?: { unread_only?: boolean; limit?: number }) => {
+    const params = new URLSearchParams()
+    if (filters?.unread_only != null) params.set('unread_only', String(filters.unread_only))
+    if (filters?.limit != null) params.set('limit', String(filters.limit))
+    const query = params.toString()
+    return request<AuditNotificationListResponse>(
+      `/api/audit/notifications${query ? `?${query}` : ''}`
+    )
+  },
+  markAuditNotificationRead: (notificationId: number) =>
+    request<AuditNotification>(`/api/audit/notifications/${notificationId}/read`, { method: 'POST' }),
+  markAllAuditNotificationsRead: () =>
+    request<{ status: string; updated_count: number }>('/api/audit/notifications/read-all', { method: 'POST' }),
+
   getAuditDashboardStats: (projectId?: number) => {
     const params = new URLSearchParams()
     if (projectId != null) params.set('project_id', String(projectId))
@@ -2144,7 +2225,7 @@ export const api = {
     }>('/api/parser-engine/list-excel-sheets', { method: 'POST', body: form })
   },
 
-  parseFile: (organizationId: number, file: File, sheetName?: string) => {
+  parseFile: (organizationId: number, file: File, sheetName?: string, options?: RequestInit) => {
     const form = new FormData()
     form.append('organization_id', String(organizationId))
     form.append('file', file)
@@ -2161,9 +2242,10 @@ export const api = {
       raw_text: string | null
       error_message: string | null
       parse_duration_ms: number
+      stage_timings?: Record<string, number> | null
       engine_comparison?: Record<string, unknown>
       multi_llm_comparison?: Record<string, unknown>
-    }>('/api/parser-engine/parse-file', { method: 'POST', body: form })
+    }>('/api/parser-engine/parse-file', { ...options, method: 'POST', body: form })
   },
 
   parseSourceFile: (fileId: number) =>

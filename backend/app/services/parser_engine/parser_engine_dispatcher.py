@@ -315,12 +315,110 @@ def _determine_sub_type(document_type: DocumentType, data: dict[str, Any]) -> Do
 # LLM 引擎解析
 # =============================================================================
 
+def _calculate_objective_confidence(
+    document_type: DocumentType,
+    fields: dict[str, Any],
+) -> float:
+    """
+    计算客观置信度（基于关键字段提取率）
+
+    功能描述：根据提取到的关键字段比例计算客观置信度
+    业务逻辑：
+        1. 定义各文档类型的关键字段（核心字段权重高）
+        2. 统计成功提取的字段比例
+        3. 按权重加权计算置信度
+        4. 核心字段提取率影响更大
+
+    会计口径：
+        - 核心字段（金额、日期、编号、双方名称）权重更高
+        - 辅助字段权重较低
+        - 确保关键会计信息完整时置信度较高
+
+    Args:
+        document_type: 文档类型
+        fields: 提取到的字段字典
+
+    Returns:
+        float: 客观置信度（0-1之间）
+    """
+    if not fields:
+        return 0.0
+
+    # 定义各文档类型的关键字段及权重
+    # 格式：[(字段名, 权重)]
+    key_fields_config = {
+        DocumentType.CONTRACT: [
+            ("party_a_name", 1.5),      # 甲方名称 - 核心
+            ("party_b_name", 1.5),      # 乙方名称 - 核心
+            ("contract_amount", 1.5),   # 合同金额 - 核心
+            ("contract_no", 1.2),       # 合同编号 - 重要
+            ("sign_date", 1.2),         # 签订日期 - 重要
+            ("contract_type", 1.0),     # 合同类型
+            ("contract_term", 0.8),     # 合同期限
+            ("project_name", 0.8),      # 项目名称
+            ("payment_terms", 0.7),     # 付款方式
+            ("liability_clause", 0.5),  # 违约责任
+            ("party_a_tax_id", 0.7),    # 甲方税号
+            ("party_b_tax_id", 0.7),    # 乙方税号
+        ],
+        DocumentType.INVOICE: [
+            ("total_amount", 1.5),      # 价税合计 - 核心
+            ("invoice_no", 1.2),        # 发票号码 - 重要
+            ("invoice_date", 1.2),      # 开票日期 - 重要
+            ("seller_name", 1.2),       # 销售方名称 - 重要
+            ("buyer_name", 1.2),        # 购买方名称 - 重要
+            ("amount_excl_tax", 1.0),   # 不含税金额
+            ("tax_amount", 1.0),        # 税额
+            ("tax_rate", 0.8),          # 税率
+            ("invoice_code", 0.8),      # 发票代码
+            ("seller_tax_id", 0.7),     # 销售方税号
+            ("buyer_tax_id", 0.7),      # 购买方税号
+        ],
+        DocumentType.BANK_STATEMENT: [
+            ("transaction_amount", 1.5),  # 交易金额 - 核心
+            ("transaction_date", 1.2),    # 交易日期 - 重要
+            ("counterparty_name", 1.2),   # 对方名称 - 重要
+            ("account_no", 1.0),          # 账号
+            ("bank_name", 0.8),           # 银行名称
+            ("summary", 0.8),             # 摘要
+            ("balance", 0.7),             # 余额
+        ],
+    }
+
+    # 默认权重配置（如果没有特殊配置）
+    default_fields = list(fields.keys())[:8]
+    fields_config = key_fields_config.get(
+        document_type,
+        [(f, 1.0) for f in default_fields],
+    )
+
+    if not fields_config:
+        return 0.5
+
+    total_weight = 0.0
+    extracted_weight = 0.0
+
+    for field_name, weight in fields_config:
+        total_weight += weight
+        value = fields.get(field_name)
+        # 字段不为空、不为null、不为空字符串才算提取成功
+        if value is not None and value != "" and value != "null":
+            extracted_weight += weight
+
+    if total_weight == 0:
+        return 0.0
+
+    confidence = extracted_weight / total_weight
+    return round(min(1.0, confidence), 3)
+
+
 def parse_with_llm_engine(
     file_path: str,
     document_type: DocumentType,
     extracted_text: str,
     model_name: str = None,
     file_format: FileFormat | None = None,
+    llm_config: dict | None = None,
 ) -> ParseResult:
     """
     LLM 引擎解析
@@ -337,18 +435,24 @@ def parse_with_llm_engine(
         document_type: 文档类型
         extracted_text: 已提取的文本内容
         model_name: LLM 模型名称（可选）
+        file_format: 文件格式（可选）
+        llm_config: LLM配置字典（可选），包含ai_base_url, ai_model, ai_api_key等
         
     Returns:
         ParseResult: LLM 引擎解析结果
     """
     settings = get_settings()
     
+    # 确定LLM配置
+    if llm_config is None:
+        llm_config = {}
+    
     # 确定模型名称
     if model_name is None:
-        model_name = settings.llm_preferred_model
+        model_name = llm_config.get("ai_model") or settings.llm_preferred_model
     
     # 构建 LLM 客户端
-    llm_client = LightweightLLMClient()
+    llm_client = LightweightLLMClient(config=llm_config if llm_config.get("ai_base_url") else None)
     
     if not llm_client.is_configured():
         logger.warning(f"LLM 未配置，跳过 LLM 解析")
@@ -390,13 +494,29 @@ def parse_with_llm_engine(
             data = json.loads(content)
             
             # 提取置信度（LLM 自评估）
-            confidence = data.get("confidence", 0.7)
+            llm_self_confidence = data.get("confidence", 0.7)
+            
+            # 计算客观置信度（基于关键字段提取率）
+            objective_confidence = _calculate_objective_confidence(
+                document_type, data.get("fields", {})
+            )
+            
+            # 融合置信度：客观60% + 主观40%，避免模型过度自谦
+            confidence = objective_confidence * 0.6 + llm_self_confidence * 0.4
+            confidence = round(min(1.0, max(0.0, confidence)), 3)
             
             # 提取校验错误
             validation_errors = data.get("validation_errors", [])
             
             # 提取会计建议
             accounting_notes = data.get("accounting_notes", "")
+            
+            logger.info(
+                f"LLM解析完成 - 文档类型: {document_type.value}, "
+                f"客观置信度: {objective_confidence:.3f}, "
+                f"模型自评估: {llm_self_confidence:.3f}, "
+                f"融合置信度: {confidence:.3f}"
+            )
             
             return ParseResult(
                 document_type=document_type,
@@ -449,9 +569,12 @@ def build_llm_prompt(document_type: DocumentType, extracted_text: str) -> str:
     功能描述：根据文档类型构建针对性的提示词
     业务逻辑：
         - 包含文档类型说明
-        - 包含会计准则要求
-        - 包含字段提取要求
+        - 包含字段提取要求（明确中英文对应）
+        - 包含返回格式示例
         - 包含置信度自评估要求
+    
+    会计口径：
+        - 字段名与规则引擎保持一致，便于后续对比
     
     Args:
         document_type: 文档类型
@@ -464,7 +587,7 @@ def build_llm_prompt(document_type: DocumentType, extracted_text: str) -> str:
     type_descriptions = {
         DocumentType.INVOICE: "增值税发票（可能为专用发票、普通发票、定额发票、电子发票）",
         DocumentType.BANK_STATEMENT: "银行流水单、银行对账单或银行回单",
-        DocumentType.CONTRACT: "合同协议（可能为标准合同、简易合同、手写合同、订单等）",
+        DocumentType.CONTRACT: "合同协议（可能为标准合同、简易合同、采购合同、销售合同、工程合同等）",
         DocumentType.INVENTORY_RECEIPT: "入库单、物流单、销售单或电商订单",
         DocumentType.SALARY_TABLE: "工资表或薪酬计算表",
         DocumentType.EXPENSE_DOCUMENT: "费用报销单据（可能为差旅报销、招待单、行程单等）",
@@ -473,69 +596,139 @@ def build_llm_prompt(document_type: DocumentType, extracted_text: str) -> str:
     
     doc_type_desc = type_descriptions.get(document_type, "财务文档")
     
-    # 字段提取要求（根据文档类型）
+    # 字段提取要求（中英文对照，确保LLM输出正确的英文key）
     field_requirements = {
         DocumentType.INVOICE: [
-            "发票号码", "发票代码", "开票日期", "购买方名称", "销售方名称",
-            "不含税金额", "税率", "税额", "价税合计", "发票类型"
+            ("invoice_no", "发票号码"),
+            ("invoice_code", "发票代码"),
+            ("invoice_date", "开票日期"),
+            ("buyer_name", "购买方名称"),
+            ("buyer_tax_id", "购买方税号"),
+            ("seller_name", "销售方名称"),
+            ("seller_tax_id", "销售方税号"),
+            ("amount_excl_tax", "不含税金额"),
+            ("tax_rate", "税率"),
+            ("tax_amount", "税额"),
+            ("total_amount", "价税合计"),
+            ("invoice_type", "发票类型"),
         ],
         DocumentType.BANK_STATEMENT: [
-            "银行名称", "账号", "交易日期", "交易金额", "对方账户",
-            "对方名称", "摘要", "余额", "单据类型"
+            ("bank_name", "银行名称"),
+            ("account_no", "账号"),
+            ("transaction_date", "交易日期"),
+            ("transaction_amount", "交易金额"),
+            ("counterparty_account", "对方账户"),
+            ("counterparty_name", "对方名称"),
+            ("summary", "摘要"),
+            ("balance", "余额"),
+            ("document_type", "单据类型"),
         ],
         DocumentType.CONTRACT: [
-            "合同编号", "甲方名称", "乙方名称", "签订日期", "合同金额",
-            "合同期限", "合同类型", "违约责任"
+            ("contract_no", "合同编号"),
+            ("contract_name", "合同名称"),
+            ("party_a_name", "甲方名称"),
+            ("party_a_tax_id", "甲方税号/统一社会信用代码"),
+            ("party_a_address", "甲方地址"),
+            ("party_b_name", "乙方名称"),
+            ("party_b_tax_id", "乙方税号/统一社会信用代码"),
+            ("party_b_address", "乙方地址"),
+            ("sign_date", "签订日期"),
+            ("contract_amount", "合同金额（含税总价）"),
+            ("contract_amount_cn", "合同金额大写"),
+            ("contract_term", "合同期限"),
+            ("contract_type", "合同类型（如采购合同、销售合同、工程合同、服务合同等）"),
+            ("project_name", "项目名称（如涉及）"),
+            ("payment_terms", "付款方式和条件"),
+            ("liability_clause", "违约责任简述"),
         ],
         DocumentType.INVENTORY_RECEIPT: [
-            "单据编号", "日期", "供应商/客户", "物品名称", "数量",
-            "单价", "金额", "单据类型"
+            ("document_no", "单据编号"),
+            ("date", "日期"),
+            ("counterparty_name", "供应商/客户名称"),
+            ("goods_name", "物品名称"),
+            ("quantity", "数量"),
+            ("unit_price", "单价"),
+            ("total_amount", "金额"),
+            ("document_type", "单据类型"),
         ],
         DocumentType.SALARY_TABLE: [
-            "工资期间", "员工数", "工资总额", "个税合计", "社保合计",
-            "公积金合计", "实发合计"
+            ("salary_period", "工资期间"),
+            ("employee_count", "员工数"),
+            ("total_salary", "工资总额"),
+            ("total_personal_income_tax", "个税合计"),
+            ("total_social_insurance", "社保合计"),
+            ("total_housing_fund", "公积金合计"),
+            ("total_net_pay", "实发合计"),
         ],
         DocumentType.EXPENSE_DOCUMENT: [
-            "报销日期", "报销人", "报销类型", "报销金额", "费用明细",
-            "审批状态"
+            ("reimbursement_date", "报销日期"),
+            ("reimburser_name", "报销人"),
+            ("expense_type", "报销类型"),
+            ("total_amount", "报销金额"),
+            ("expense_details", "费用明细"),
+            ("approval_status", "审批状态"),
         ],
         DocumentType.RECEIPT: [
-            "收据编号", "日期", "收款人", "付款人", "金额", "事由"
+            ("receipt_no", "收据编号"),
+            ("date", "日期"),
+            ("payee_name", "收款人"),
+            ("payer_name", "付款人"),
+            ("amount", "金额"),
+            ("reason", "事由"),
         ],
     }
     
-    required_fields = field_requirements.get(document_type, [])
+    fields_list = field_requirements.get(document_type, [])
     
-    json_format_example = '''
-{
-    "fields": {
-        "字段名": "字段值"
-    },
-    "confidence": 0.8,
-    "validation_errors": [],
-    "accounting_notes": ""
-}
-'''
+    # 构建字段说明文本
+    fields_desc = "\n".join([
+        f'  - "{en}": {cn}' for en, cn in fields_list
+    ])
     
-    prompt = f"""
-请解析以下{doc_type_desc}，提取关键字段信息。
+    # 构建JSON示例
+    example_fields = {}
+    for en, cn in fields_list[:3]:
+        example_fields[en] = f"示例值（{cn}）"
+    
+    json_format_example = json.dumps({
+        "fields": example_fields,
+        "confidence": 0.85,
+        "validation_errors": [],
+        "accounting_notes": "",
+    }, ensure_ascii=False, indent=2)
+    
+    # 文本长度：合同等长文档取前4000字，其他取前2500字
+    max_text_len = 4000 if document_type in (DocumentType.CONTRACT, DocumentType.BANK_STATEMENT) else 2500
+    truncated_text = extracted_text[:max_text_len]
+    if len(extracted_text) > max_text_len:
+        truncated_text += f"\n\n...（文本过长，已截断，共 {len(extracted_text)} 字符）"
+    
+    prompt = f"""请作为专业的财务审计助理，解析以下{doc_type_desc}，提取关键字段信息。
 
 【文档内容】
-{extracted_text[:2000]}
+{truncated_text}
 
 【提取要求】
-请提取以下字段（如果存在）：{', '.join(required_fields)}
+请提取以下字段（如果存在于文档中）：
+{fields_desc}
 
 【返回格式】
-请严格按照 JSON 格式返回结果：
+请严格按照以下 JSON 格式返回，不要包含任何其他文字：
 {json_format_example}
 
-【注意事项】
-1. 如果字段不存在，请填 null 或空字符串
-2. 金额字段请保留原始格式（不要转数字）
-3. 置信度请根据文本清晰度和字段完整性自评估（0-1之间）
-4. 如果发现会计勾稽关系错误，请在 validation_errors 中标注
-5. 如果能识别适用的会计准则，请在 accounting_notes 中说明
+【重要规则】
+1. fields中的key必须使用上面列出的英文名称，不能自己造新的key
+2. 字段不存在时填 null，不要填空字符串
+3. 金额字段请保留原始格式（如"¥123,456.78"或"123456.78元"）
+4. 日期字段统一格式为 YYYY-MM-DD（如2024-01-15）
+5. confidence是你对提取结果整体准确性的置信度（0-1之间）：
+   - 0.9以上：所有关键字段都清晰明确，完全确定
+   - 0.8-0.9：大部分字段明确，少量字段需推断
+   - 0.7-0.8：部分字段需要推断或存在模糊
+   - 0.6-0.7：较多字段不确定，仅提取了部分信息
+   - 0.6以下：信息严重不足，结果仅供参考
+6. 如果发现金额大小写不一致等问题，请在validation_errors中列出
+7. 如果能识别适用的会计准则或税务处理要点，请在accounting_notes中说明
 """
     
     return prompt
@@ -549,17 +742,20 @@ async def multi_llm_comparison(
     file_path: str,
     document_type: DocumentType,
     extracted_text: str,
+    file_format: FileFormat | None = None,
+    db=None,
 ) -> LLMComparisonResult:
     """
     多LLM引擎对比流程
     
     功能描述：并行调用多个LLM引擎，对比解析结果，选择最优
     业务逻辑：
-        1. 并行调用配置的所有LLM引擎
-        2. 收集各引擎解析结果
-        3. 进行字段一致性分析
-        4. 根据对比策略选择最优结果
-        5. 标注字段来源
+        1. 从数据库读取多LLM引擎配置
+        2. 并行调用配置的所有启用的LLM引擎
+        3. 收集各引擎解析结果
+        4. 进行字段一致性分析
+        5. 根据对比策略选择最优结果
+        6. 标注字段来源
     
     会计口径：
         - 字段一致性率用于判断结果可信度
@@ -570,45 +766,94 @@ async def multi_llm_comparison(
         file_path: 文件存储路径
         document_type: 文档类型
         extracted_text: 已提取的文本内容
+        file_format: 文件格式
+        db: 数据库会话
         
     Returns:
         LLMComparisonResult: 多LLM引擎对比结果
     """
-    settings = get_settings()
+    from app.services.llm_engine_config_service import get_llm_engines_config
     
-    # 解析配置参数
-    engines_list = settings.llm_comparison_engines.split(",")
-    weights_json = json.loads(settings.llm_engine_weights)
-    comparison_strategy = settings.llm_comparison_strategy
+    config = get_runtime_parser_engine_config(db)
+    
+    # 从数据库读取多LLM引擎配置
+    engines_config = []
+    comparison_strategy = config.get("llm_comparison_strategy", "weighted_vote")
+    weights = {}
+    
+    if db:
+        try:
+            llm_config = get_llm_engines_config(db)
+            engines_config = [e for e in llm_config.engines if e.enabled]
+            comparison_strategy = llm_config.comparison_strategy
+            weights = {e.id: e.weight for e in engines_config}
+        except Exception as e:
+            logger.warning(f"读取多LLM引擎配置失败，使用默认配置: {e}")
+    
+    # 如果数据库中没有配置，回退到settings
+    if not engines_config:
+        settings = get_settings()
+        engines_list = settings.llm_comparison_engines.split(",") if settings.llm_comparison_engines else []
+        try:
+            weights = json.loads(settings.llm_engine_weights) if settings.llm_engine_weights else {}
+        except Exception:
+            weights = {}
+        comparison_strategy = settings.llm_comparison_strategy
+        # 构造成引擎配置字典格式，保持后续逻辑一致
+        engines_config = [
+            {
+                "id": name.strip(),
+                "name": name.strip(),
+                "base_url": config.get("ai_base_url", ""),
+                "model": name.strip(),
+                "api_key": config.get("ai_api_key", ""),
+                "weight": weights.get(name.strip(), 0.3),
+            }
+            for name in engines_list if name.strip()
+        ]
     
     # 1. 并行调用所有引擎
     engine_tasks = []
-    for engine_name in engines_list:
+    for engine in engines_config:
+        engine_id = engine.get("id", "") if isinstance(engine, dict) else engine.id
+        engine_name = engine.get("name", engine_id) if isinstance(engine, dict) else engine.name
+        engine_model = engine.get("model", "") if isinstance(engine, dict) else engine.model
+        engine_base_url = engine.get("base_url", "") if isinstance(engine, dict) else engine.base_url
+        engine_api_key = engine.get("api_key", "") if isinstance(engine, dict) else engine.api_key
+        
+        engine_config_dict = {
+            "ai_base_url": engine_base_url,
+            "ai_model": engine_model,
+            "ai_api_key": engine_api_key,
+        }
+        
         task = asyncio.create_task(
             asyncio.to_thread(
                 parse_with_llm_engine,
                 file_path,
                 document_type,
                 extracted_text,
-                engine_name,
+                engine_model,
+                file_format,
+                engine_config_dict,
             )
         )
-        engine_tasks.append((engine_name, task))
+        engine_tasks.append((engine_id, engine_name, task))
     
     # 2. 收集结果（设置超时）
     engine_results = {}
-    timeout = settings.llm_timeout_seconds
+    timeout = config.get("llm_timeout_seconds", 30)
     
-    for engine_name, task in engine_tasks:
+    for engine_id, engine_name, task in engine_tasks:
         try:
             result = await asyncio.wait_for(task, timeout=timeout)
-            engine_results[engine_name] = result
+            engine_results[engine_id] = result
         except asyncio.TimeoutError:
             logger.warning(f"LLM 引擎 {engine_name} 超时")
-            engine_results[engine_name] = None
+            engine_results[engine_id] = None
         except Exception as e:
             logger.error(f"LLM 引擎 {engine_name} 调用失败: {e}")
-            engine_results[engine_name] = None
+            engine_results[engine_id] = None
     
     # 3. 字段一致性分析
     field_agreement = calculate_field_agreement(engine_results)
@@ -618,8 +863,15 @@ async def multi_llm_comparison(
     selection_reason = ""
     field_sources = {}
     
-    if comparison_strategy == "weighted_vote":
-        final_result = weighted_vote_selection(engine_results, weights_json)
+    # 兼容字段交叉验证策略（用户选择的C方案）
+    if comparison_strategy in ("field_consensus", "intersection"):
+        # 字段一致/交叉验证：一致的字段才采纳，不一致的取置信度最高的
+        final_result = field_consensus_selection(engine_results, weights)
+        selection_reason = "字段交叉验证"
+        field_sources = determine_field_sources(engine_results, final_result)
+    
+    elif comparison_strategy == "weighted_vote":
+        final_result = weighted_vote_selection(engine_results, weights)
         selection_reason = "加权投票"
         field_sources = determine_field_sources(engine_results, final_result)
     
@@ -630,12 +882,7 @@ async def multi_llm_comparison(
             selection_reason = "置信度最高"
             field_sources = {field: final_result.engine_name for field in final_result.data.keys()}
     
-    elif comparison_strategy == "intersection":
-        final_result = intersection_selection(engine_results)
-        selection_reason = "字段交集"
-        field_sources = {field: "intersection" for field in final_result.data.keys()}
-    
-    elif comparison_strategy == "user_review":
+    elif comparison_strategy in ("user_review", "user_choose"):
         # 返回所有结果，前端让用户选择
         return LLMComparisonResult(
             engine_results=engine_results,
@@ -840,6 +1087,100 @@ def intersection_selection(results: dict[str, ParseResult]) -> ParseResult:
     )
 
 
+def field_consensus_selection(
+    results: dict[str, ParseResult],
+    weights: dict[str, float] | None = None,
+) -> ParseResult:
+    """
+    字段交叉验证选择（C方案：一致的字段采纳，不一致选置信度最高的）
+
+    功能描述：字段级别的交叉验证策略
+    业务逻辑：
+        1. 对于每个字段，检查各引擎的值是否一致
+        2. 一致的直接采纳（置信度高）
+        3. 不一致的，选择置信度最高引擎的值
+        4. 综合计算最终置信度
+
+    会计口径：
+        - 一致字段可信度高，不一致字段取最优
+        - 平衡准确性和完整性
+
+    Args:
+        results: 各引擎的解析结果
+        weights: 引擎权重（可选）
+
+    Returns:
+        ParseResult: 字段交叉验证后的结果
+    """
+    if not results:
+        return ParseResult(document_type=DocumentType.UNKNOWN, confidence=0.0)
+
+    first_result = next((r for r in results.values() if r), None)
+    if not first_result:
+        return ParseResult(document_type=DocumentType.UNKNOWN, confidence=0.0)
+
+    document_type = first_result.document_type
+    final_data = {}
+    weights = weights or {}
+
+    # 获取所有字段名
+    all_fields = set()
+    for result in results.values():
+        if result and result.data:
+            all_fields.update(result.data.keys())
+
+    # 对每个字段进行交叉验证
+    total_confidence = 0.0
+    field_count = 0
+
+    for field in all_fields:
+        values_and_confidence = []
+        for engine_id, result in results.items():
+            if result and result.data and field in result.data:
+                weight = weights.get(engine_id, 1.0)
+                values_and_confidence.append({
+                    "value": result.data[field],
+                    "confidence": result.confidence * weight,
+                    "engine_id": engine_id,
+                })
+
+        if not values_and_confidence:
+            continue
+
+        # 检查是否所有值都一致
+        str_values = [str(v["value"]) for v in values_and_confidence]
+        unique_values = set(str_values)
+
+        if len(unique_values) == 1:
+            # 完全一致，直接采纳
+            final_data[field] = values_and_confidence[0]["value"]
+            # 一致字段置信度取平均
+            avg_conf = sum(v["confidence"] for v in values_and_confidence) / len(values_and_confidence)
+            total_confidence += min(1.0, avg_conf * 1.2)  # 一致有加成
+        else:
+            # 不一致，选置信度最高的
+            best = max(values_and_confidence, key=lambda v: v["confidence"])
+            final_data[field] = best["value"]
+            total_confidence += best["confidence"] * 0.8  # 不一致有折扣
+
+        field_count += 1
+
+    # 计算综合置信度
+    final_confidence = total_confidence / field_count if field_count > 0 else 0.0
+    final_confidence = min(1.0, final_confidence)
+
+    return ParseResult(
+        document_type=document_type,
+        data=final_data,
+        confidence=final_confidence,
+        engine=EngineType.FUSED,
+        engine_name="field_consensus",
+        raw_text="",
+        validation_errors=[],
+        accounting_notes="",
+    )
+
+
 def determine_field_sources(
     results: dict[str, ParseResult],
     final_result: ParseResult,
@@ -878,21 +1219,138 @@ def determine_field_sources(
 # 双引擎并行解析
 # =============================================================================
 
+def _normalize_comparison_value(value: Any) -> str:
+    """将字段值标准化，便于比较规则引擎和LLM结果是否一致。"""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    return (
+        text.replace(" ", "")
+        .replace("，", ",")
+        .replace("。", ".")
+        .replace("￥", "")
+        .replace("¥", "")
+        .replace("元", "")
+        .lower()
+    )
+
+
+def _build_engine_result_diagnosis(rule_result: Any, llm_result: Any) -> dict[str, Any]:
+    """
+    生成双引擎结果诊断。
+
+    业务含义：
+        置信度高不代表结论一定正确。审计场景更需要看到两个引擎
+        在关键字段上是否一致，以及哪些字段需要人工复核。
+    """
+    if not rule_result or not llm_result:
+        return {
+            "consistency_rate": 0.0,
+            "consistent_fields": [],
+            "conflict_fields": [],
+            "rule_only_fields": [],
+            "llm_only_fields": [],
+            "review_required": True,
+            "review_reason": "仅一个引擎返回结果，无法交叉验证",
+            "confidence_gap": abs(
+                (rule_result.confidence if rule_result else 0.0)
+                - (llm_result.confidence if llm_result else 0.0)
+            ),
+        }
+
+    rule_data = rule_result.data or {}
+    llm_data = llm_result.data or {}
+    all_fields = sorted(set(rule_data.keys()) | set(llm_data.keys()))
+
+    consistent_fields: list[dict[str, Any]] = []
+    conflict_fields: list[dict[str, Any]] = []
+    rule_only_fields: list[dict[str, Any]] = []
+    llm_only_fields: list[dict[str, Any]] = []
+
+    for field_name in all_fields:
+        rule_value = rule_data.get(field_name)
+        llm_value = llm_data.get(field_name)
+        rule_text = _normalize_comparison_value(rule_value)
+        llm_text = _normalize_comparison_value(llm_value)
+
+        if rule_text and llm_text:
+            if rule_text == llm_text:
+                consistent_fields.append({
+                    "field": field_name,
+                    "value": rule_value,
+                })
+            else:
+                conflict_fields.append({
+                    "field": field_name,
+                    "rule_value": rule_value,
+                    "llm_value": llm_value,
+                })
+        elif rule_text and not llm_text:
+            rule_only_fields.append({
+                "field": field_name,
+                "rule_value": rule_value,
+            })
+        elif llm_text and not rule_text:
+            llm_only_fields.append({
+                "field": field_name,
+                "llm_value": llm_value,
+            })
+
+    comparable_count = len(consistent_fields) + len(conflict_fields)
+    consistency_rate = (
+        round(len(consistent_fields) / comparable_count, 4)
+        if comparable_count > 0
+        else 0.0
+    )
+    confidence_gap = abs(rule_result.confidence - llm_result.confidence)
+    review_required = (
+        len(conflict_fields) > 0
+        or consistency_rate < 0.6
+        or confidence_gap >= 0.25
+        or llm_result.confidence < 0.7
+    )
+
+    review_reasons = []
+    if conflict_fields:
+        review_reasons.append(f"存在 {len(conflict_fields)} 个字段冲突")
+    if consistency_rate < 0.6:
+        review_reasons.append("两个引擎共同识别字段的一致率低于60%")
+    if confidence_gap >= 0.25:
+        review_reasons.append("规则引擎与LLM置信度差异较大")
+    if llm_result.confidence < 0.7:
+        review_reasons.append("LLM置信度低于70%，可能存在文本噪声或字段不完整")
+
+    return {
+        "consistency_rate": consistency_rate,
+        "consistent_fields": consistent_fields,
+        "conflict_fields": conflict_fields,
+        "rule_only_fields": rule_only_fields,
+        "llm_only_fields": llm_only_fields,
+        "review_required": review_required,
+        "review_reason": "；".join(review_reasons) if review_reasons else "两个引擎结果基本一致",
+        "confidence_gap": round(confidence_gap, 4),
+    }
+
+
 async def dual_engine_parallel_parse(
     file_path: str,
     document_type: DocumentType,
     extracted_text: str,
     file_format: FileFormat | None = None,
+    db=None,
 ) -> dict[str, Any]:
     """
     双引擎并行解析
     
     功能描述：规则引擎和LLM引擎并行解析，按置信度选择最优，返回完整对比信息
     业务逻辑：
-        1. 并行调用规则引擎和LLM引擎
-        2. 收集两个引擎的结果
-        3. 比较置信度，选择最优结果
-        4. 返回完整的对比信息，便于前端展示
+        1. 从数据库读取配置
+        2. 并行调用规则引擎和LLM引擎
+        3. 收集两个引擎的结果
+        4. 比较置信度，选择最优结果
+        5. 返回完整的对比信息，便于前端展示
     
     会计口径：
         - 置信度选择确保结果准确性
@@ -903,11 +1361,12 @@ async def dual_engine_parallel_parse(
         document_type: 文档类型
         extracted_text: 已提取的文本内容
         file_format: 文件格式
+        db: 数据库会话
         
     Returns:
         dict: 包含两个引擎结果和最终选择的对比信息
     """
-    config = get_runtime_parser_engine_config()
+    config = get_runtime_parser_engine_config(db)
     
     # 1. 并行调用两个引擎
     rule_task = asyncio.create_task(
@@ -926,8 +1385,9 @@ async def dual_engine_parallel_parse(
             file_path,
             document_type,
             extracted_text,
-            config.get("llm_preferred_model", "qwen2.5-14b-chat"),
+            config.get("ai_model") or config.get("llm_preferred_model", "qwen2.5-14b-chat"),
             file_format,
+            config,
         )
     )
     
@@ -977,6 +1437,8 @@ async def dual_engine_parallel_parse(
         )
         selection_reason = "两个引擎都失败"
     
+    diagnosis = _build_engine_result_diagnosis(rule_result, llm_result)
+    
     # 4. 返回完整的对比信息
     return {
         "rule_engine_result": rule_result.to_dict() if rule_result else None,
@@ -987,6 +1449,7 @@ async def dual_engine_parallel_parse(
             "rule_confidence": rule_result.confidence if rule_result else 0.0,
             "llm_confidence": llm_result.confidence if llm_result else 0.0,
             "selection_reason": selection_reason,
+            "diagnosis": diagnosis,
         },
     }
 
@@ -1075,6 +1538,7 @@ class ParserEngineDispatcher:
     
     def __init__(self, db=None):
         self.settings = get_settings()
+        self.db = db
         self.config = get_runtime_parser_engine_config(db)
     
     async def parse(
@@ -1143,6 +1607,7 @@ class ParserEngineDispatcher:
                 type_result.document_type,
                 extracted_text,
                 format_result.file_format,
+                self.db,
             )
         
         elif self.config.get("llm_enable_parallel_parsing", False):
@@ -1153,6 +1618,7 @@ class ParserEngineDispatcher:
                 type_result.document_type,
                 extracted_text,
                 format_result.file_format,
+                self.db,
             )
         
         else:
@@ -1162,8 +1628,9 @@ class ParserEngineDispatcher:
                     file_path,
                     type_result.document_type,
                     extracted_text,
-                    self.config.get("llm_preferred_model", ""),
+                    self.config.get("ai_model") or self.config.get("llm_preferred_model", ""),
                     format_result.file_format,
+                    self.config,
                 )
                 if llm_result.confidence > 0.5:
                     return llm_result
@@ -1184,6 +1651,7 @@ class ParserEngineDispatcher:
 async def parse_file(
     file_path: str,
     user_preselected_type: DocumentType | None = None,
+    db=None,
 ) -> ParseResult | LLMComparisonResult:
     """
     便捷函数：解析文件
@@ -1194,11 +1662,12 @@ async def parse_file(
     Args:
         file_path: 文件存储路径
         user_preselected_type: 用户预选的文档类型（可选）
+        db: 数据库会话（可选，传入后会从数据库读取配置）
         
     Returns:
         ParseResult 或 LLMComparisonResult: 解析结果
     """
-    dispatcher = ParserEngineDispatcher()
+    dispatcher = ParserEngineDispatcher(db)
     return await dispatcher.parse(file_path, user_preselected_type)
 
 

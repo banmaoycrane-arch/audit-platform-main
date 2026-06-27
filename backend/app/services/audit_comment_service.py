@@ -15,11 +15,51 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.db.models import AuditComment
+from app.db.models import AuditComment, AuditReviewRequest, AuditTask, AuditWorkBranch, WorkpaperVersion
 from app.schemas.audit_workflow import AuditCommentCreate
+from app.services import audit_notification_service
 
 
 VALID_TARGET_TYPES = {"task", "branch", "review_request", "workpaper_version"}
+
+
+def _get_notification_context(db: Session, target_type: str, target_id: int) -> tuple[int | None, int | None]:
+    if target_type == "task":
+        row = db.get(AuditTask, target_id)
+        return (row.project_id, row.ledger_id) if row else (None, None)
+    if target_type == "branch":
+        row = db.get(AuditWorkBranch, target_id)
+        return (row.project_id, row.ledger_id) if row else (None, None)
+    if target_type == "review_request":
+        row = db.get(AuditReviewRequest, target_id)
+        return (row.project_id, row.ledger_id) if row else (None, None)
+    if target_type == "workpaper_version":
+        version = db.get(WorkpaperVersion, target_id)
+        if version and version.workpaper_index:
+            return version.workpaper_index.project_id, version.workpaper_index.ledger_id
+    return None, None
+
+
+def _create_comment_notifications(db: Session, comment: AuditComment, creator_id: int) -> None:
+    mentioned_users = comment.mention_user_ids or []
+    if not mentioned_users:
+        return
+    project_id, ledger_id = _get_notification_context(db, comment.target_type, comment.target_id)
+    title = "审计评论提及你"
+    if comment.marker_type:
+        title = "底稿标记提及你"
+    audit_notification_service.create_notifications(
+        db,
+        recipient_user_ids=mentioned_users,
+        actor_user_id=creator_id,
+        event_type="comment_mentioned" if not comment.marker_type else "workpaper_marker_mentioned",
+        target_type=comment.target_type,
+        target_id=comment.target_id,
+        title=title,
+        content=comment.content,
+        project_id=project_id,
+        ledger_id=ledger_id,
+    )
 
 
 def _serialize(comment: AuditComment) -> dict[str, Any]:
@@ -30,6 +70,13 @@ def _serialize(comment: AuditComment) -> dict[str, Any]:
         "target_id": comment.target_id,
         "content": comment.content,
         "mention_user_ids": comment.mention_user_ids,
+        "marker_type": comment.marker_type,
+        "sheet_name": comment.sheet_name,
+        "cell_ref": comment.cell_ref,
+        "range_ref": comment.range_ref,
+        "severity": comment.severity,
+        "resolved_at": comment.resolved_at.isoformat() if comment.resolved_at else None,
+        "resolved_by": comment.resolved_by,
         "created_by": comment.created_by,
         "created_at": comment.created_at.isoformat() if comment.created_at else None,
         "updated_at": comment.updated_at.isoformat() if comment.updated_at else None,
@@ -95,11 +142,20 @@ def create_comment(
         target_id=comment_data.target_id,
         content=comment_data.content,
         mention_user_ids=comment_data.mention_user_ids,
+        marker_type=comment_data.marker_type,
+        sheet_name=comment_data.sheet_name,
+        cell_ref=comment_data.cell_ref,
+        range_ref=comment_data.range_ref,
+        severity=comment_data.severity,
         created_by=creator_id,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
     db.add(comment)
+    db.flush()
+
+    _create_comment_notifications(db, comment, creator_id)
+
     db.commit()
     db.refresh(comment)
     return _serialize(comment)

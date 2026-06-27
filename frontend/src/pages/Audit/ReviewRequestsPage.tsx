@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Button,
   Card,
@@ -43,7 +44,8 @@ const MY_FILTER_OPTIONS = [
 ]
 
 export function ReviewRequestsPage() {
-  const { user, currentLedgerId } = useAuthStore()
+  const navigate = useNavigate()
+  const { user } = useAuthStore()
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState<number | null>(null)
   const [reviewRequests, setReviewRequests] = useState<AuditReviewRequest[]>([])
@@ -107,12 +109,12 @@ export function ReviewRequestsPage() {
   }
 
   const handleViewDetail = (record: AuditReviewRequest) => {
-    message.info(`查看复核请求详情：${record.pr_no}`)
+    navigate(`/audit/review-requests/${record.id}`)
   }
 
   const handleCreate = async () => {
     try {
-      const values = await createForm.validateFields()
+      await createForm.validateFields()
       message.success('新建复核请求功能将从任务详情页提供')
       setModalVisible(false)
       createForm.resetFields()

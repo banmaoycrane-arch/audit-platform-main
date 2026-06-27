@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Button,
   Card,
@@ -16,7 +17,6 @@ import {
 import { PlusOutlined, ReloadOutlined, FileTextOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { api, type AuditTask, type Project } from '../../api/client'
-import { useAuthStore } from '../../stores/authStore'
 
 const { Title, Paragraph } = Typography
 const { TextArea } = Input
@@ -82,7 +82,7 @@ const TASK_TYPE_OPTIONS = [
 ]
 
 export function AuditTasksPage() {
-  const { currentLedgerId } = useAuthStore()
+  const navigate = useNavigate()
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState<number | null>(null)
   const [projectLedgers, setProjectLedgers] = useState<{ id: number; name: string }[]>([])
@@ -95,8 +95,6 @@ export function AuditTasksPage() {
   const [priorityFilter, setPriorityFilter] = useState<string | undefined>()
   const [taskTypeFilter, setTaskTypeFilter] = useState<string | undefined>()
   const [modalVisible, setModalVisible] = useState(false)
-  const [detailVisible, setDetailVisible] = useState(false)
-  const [selectedTask, setSelectedTask] = useState<AuditTask | null>(null)
   const [createForm] = Form.useForm()
 
   const loadProjects = () => {
@@ -170,8 +168,7 @@ export function AuditTasksPage() {
   }
 
   const handleViewDetail = (task: AuditTask) => {
-    setSelectedTask(task)
-    setDetailVisible(true)
+    navigate(`/audit/tasks/${task.id}`)
   }
 
   const columns = [
@@ -376,69 +373,6 @@ export function AuditTasksPage() {
         </Form>
       </Modal>
 
-      <Modal
-        title="任务详情"
-        open={detailVisible}
-        onCancel={() => {
-          setDetailVisible(false)
-          setSelectedTask(null)
-        }}
-        footer={[
-          <Button key="close" onClick={() => setDetailVisible(false)}>
-            关闭
-          </Button>,
-        ]}
-        width={600}
-      >
-        {selectedTask && (
-          <Space direction="vertical" style={{ width: '100%' }} size="middle">
-            <div>
-              <div style={{ color: '#8c8c8c', marginBottom: 4 }}>任务编号</div>
-              <div style={{ fontSize: 16, fontWeight: 500 }}>{selectedTask.task_no}</div>
-            </div>
-            <div>
-              <div style={{ color: '#8c8c8c', marginBottom: 4 }}>标题</div>
-              <div>{selectedTask.title}</div>
-            </div>
-            <Space wrap>
-              <div>
-                <div style={{ color: '#8c8c8c', marginBottom: 4 }}>类型</div>
-                <Tag>{TASK_TYPE_LABEL[selectedTask.task_type] || selectedTask.task_type}</Tag>
-              </div>
-              <div>
-                <div style={{ color: '#8c8c8c', marginBottom: 4 }}>状态</div>
-                <Tag color={STATUS_COLOR[selectedTask.status]}>
-                  {STATUS_LABEL[selectedTask.status] || selectedTask.status}
-                </Tag>
-              </div>
-              <div>
-                <div style={{ color: '#8c8c8c', marginBottom: 4 }}>优先级</div>
-                <Tag color={PRIORITY_COLOR[selectedTask.priority]}>
-                  {PRIORITY_LABEL[selectedTask.priority] || selectedTask.priority}
-                </Tag>
-              </div>
-            </Space>
-            {selectedTask.description && (
-              <div>
-                <div style={{ color: '#8c8c8c', marginBottom: 4 }}>描述</div>
-                <div>{selectedTask.description}</div>
-              </div>
-            )}
-            <Space wrap>
-              <div>
-                <div style={{ color: '#8c8c8c', marginBottom: 4 }}>创建时间</div>
-                <div>{dayjs(selectedTask.created_at).format('YYYY-MM-DD HH:mm')}</div>
-              </div>
-              {selectedTask.due_date && (
-                <div>
-                  <div style={{ color: '#8c8c8c', marginBottom: 4 }}>截止日期</div>
-                  <div>{dayjs(selectedTask.due_date).format('YYYY-MM-DD')}</div>
-                </div>
-              )}
-            </Space>
-          </Space>
-        )}
-      </Modal>
     </div>
   )
 }

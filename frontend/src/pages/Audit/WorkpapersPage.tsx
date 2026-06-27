@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -7,6 +9,7 @@ import {
   Row,
   Space,
   Statistic,
+  Steps,
   Table,
   Tag,
   Typography,
@@ -16,7 +19,7 @@ import { DownloadOutlined, FileProtectOutlined, ReloadOutlined, SyncOutlined } f
 import { api, type WorkpaperIndex } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
 
-const { Title, Paragraph } = Typography
+const { Title, Paragraph, Text } = Typography
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default',
@@ -25,8 +28,38 @@ const STATUS_COLOR: Record<string, string> = {
   superseded: 'warning',
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  draft: '草稿',
+  submitted: '已提交',
+  reviewed: '已复核',
+  superseded: '已替代',
+}
+
+const PACKAGE_STEPS = [
+  { title: '支持性文件', description: '合同、发票、回单等原始证据' },
+  { title: '底稿版本', description: '电子表格或文件快照' },
+  { title: '任务/分支', description: 'Issue 与 Branch 承接编制责任' },
+  { title: 'PR 复核', description: 'Review 意见旁路留痕' },
+  { title: '归档', description: '通过版本固化为 reviewed' },
+]
+
+const formatFileSize = (value?: number | null) => {
+  if (!value) return '-'
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / 1024 / 1024).toFixed(2)} MB`
+}
+
+const getWorkbookSheetsText = (metadata: unknown) => {
+  if (!metadata || typeof metadata !== 'object' || !('sheets' in metadata)) return '-'
+  const sheets = (metadata as { sheets?: unknown }).sheets
+  if (!Array.isArray(sheets) || sheets.length === 0) return '-'
+  return sheets.join('、')
+}
+
 export function WorkpapersPage() {
   const { currentLedgerId } = useAuthStore()
+  const [searchParams] = useSearchParams()
+  const highlightVersionId = searchParams.get('version_id')
   const [indexes, setIndexes] = useState<WorkpaperIndex[]>([])
   const [selected, setSelected] = useState<WorkpaperIndex | null>(null)
   const [loading, setLoading] = useState(false)
@@ -114,7 +147,7 @@ export function WorkpapersPage() {
       key: 'current_status',
       width: 100,
       render: (value: string | null) =>
-        value ? <Tag color={STATUS_COLOR[value] || 'default'}>{value}</Tag> : '-',
+        value ? <Tag color={STATUS_COLOR[value] || 'default'}>{STATUS_LABEL[value] || value}</Tag> : '-',
     },
     {
       title: '操作',
@@ -131,6 +164,36 @@ export function WorkpapersPage() {
   const versionColumns = [
     { title: '版本', dataIndex: 'version_no', key: 'version_no', width: 80 },
     { title: '文件名', dataIndex: 'filename', key: 'filename', ellipsis: true },
+    { title: '类型', dataIndex: 'file_ext', key: 'file_ext', width: 80, render: (value: string | null) => value || '-' },
+    {
+      title: '文件大小',
+      dataIndex: 'file_size',
+      key: 'file_size',
+      width: 100,
+      render: (value: number | null) => formatFileSize(value),
+    },
+    {
+      title: 'Sheet',
+      dataIndex: 'sheet_count',
+      key: 'sheet_count',
+      width: 80,
+      render: (value: number | null) => value ?? '-',
+    },
+    {
+      title: 'Sheet 名称',
+      dataIndex: 'workbook_metadata',
+      key: 'workbook_metadata',
+      width: 180,
+      ellipsis: true,
+      render: (value: unknown) => getWorkbookSheetsText(value),
+    },
+    {
+      title: '文件哈希',
+      dataIndex: 'file_hash',
+      key: 'file_hash',
+      width: 110,
+      render: (value: string | null) => (value ? value.slice(0, 10) : '-'),
+    },
     {
       title: '状态',
       dataIndex: 'status_label',
@@ -155,7 +218,8 @@ export function WorkpapersPage() {
               <FileProtectOutlined /> 工作底稿库
             </Title>
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              管理底稿索引号与版本历史；上传解析归档后自动挂接 v1.0，支持修订留痕与目录导出。
+              工作底稿是现场人员加工后的审计成果，不等同于合同、发票、回单等支持性文件原件；
+              完整底稿包含电子表格文件、版本、Issue、Branch、PR、复核意见、评论标记和归档状态。
             </Paragraph>
           </div>
           <Space>
@@ -170,6 +234,17 @@ export function WorkpapersPage() {
             </Button>
           </Space>
         </div>
+
+        <Alert
+          type="info"
+          showIcon
+          message="底稿协作包验收口径"
+          description="支持性文件是不可随意篡改的原始证据；审计工作底稿是加工成果。复核意见、评论和标记独立留痕，不覆盖现场人员编制的底稿版本。"
+        />
+
+        <Card title="完整底稿协作包流程" size="small">
+          <Steps size="small" current={selected?.current_status === 'reviewed' ? 4 : 1} items={PACKAGE_STEPS} />
+        </Card>
 
         <Row gutter={16}>
           <Col xs={12} md={8}>
@@ -196,7 +271,7 @@ export function WorkpapersPage() {
 
         {selected && (
           <Card
-            title={`底稿详情 · ${selected.index_no} ${selected.title}`}
+            title={`底稿首页 · ${selected.index_no} ${selected.title}`}
             extra={<Button type="link" onClick={() => setSelected(null)}>关闭</Button>}
           >
             <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
@@ -204,6 +279,19 @@ export function WorkpapersPage() {
               <Descriptions.Item label="归档路径">{selected.archive_path || '-'}</Descriptions.Item>
               <Descriptions.Item label="模块">{selected.source_module_key || '-'}</Descriptions.Item>
               <Descriptions.Item label="当前版本">{selected.current_version_no || '-'}</Descriptions.Item>
+              <Descriptions.Item label="协作包内容" span={2}>
+                电子表格/文件版本 + Issue 任务 + Branch 工作分支 + PR 复核请求 + Review 复核意见 + 评论标记 + 通知 + 归档状态
+              </Descriptions.Item>
+              <Descriptions.Item label="复核口径" span={2}>
+                复核人员认可的是下方明确版本；评论和标记旁路保存，不覆盖支持性文件原件或历史底稿版本。
+              </Descriptions.Item>
+              <Descriptions.Item label="版本提醒" span={2}>
+                {highlightVersionId ? (
+                  <Text type="warning">当前从通知跳转而来，请重点检查版本 ID：{highlightVersionId}</Text>
+                ) : (
+                  <Text type="secondary">如从通知进入，可通过通知中的版本 ID 核对下方版本记录。</Text>
+                )}
+              </Descriptions.Item>
             </Descriptions>
             <Table
               style={{ marginTop: 16 }}
@@ -211,7 +299,9 @@ export function WorkpapersPage() {
               size="small"
               columns={versionColumns}
               dataSource={selected.versions}
+              rowClassName={(record) => (String(record.id) === highlightVersionId ? 'ant-table-row-selected' : '')}
               pagination={false}
+              scroll={{ x: 1180 }}
             />
           </Card>
         )}

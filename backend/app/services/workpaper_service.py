@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
+from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 
 from app.db.models import SourceFile, WorkpaperIndex, WorkpaperVersion
@@ -34,6 +38,54 @@ STATUS_LABELS = {
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def _calculate_file_hash(storage_path: str) -> str | None:
+    """计算底稿文件哈希，用于证明复核版本没有被静默替换。"""
+    if not storage_path or not os.path.exists(storage_path):
+        return None
+    sha256_hash = hashlib.sha256()
+    with open(storage_path, "rb") as file_object:
+        for chunk in iter(lambda: file_object.read(1024 * 1024), b""):
+            sha256_hash.update(chunk)
+    return sha256_hash.hexdigest()
+
+
+def _read_workbook_metadata(storage_path: str, file_ext: str | None) -> tuple[int | None, dict[str, Any] | None]:
+    """读取 Excel 工作簿结构，不改写原始底稿文件。"""
+    if file_ext not in {"xlsx", "xlsm", "xltx", "xltm"}:
+        return None, None
+    if not storage_path or not os.path.exists(storage_path):
+        return None, None
+    try:
+        workbook = load_workbook(storage_path, read_only=True, data_only=False)
+        sheet_names = list(workbook.sheetnames)
+        workbook.close()
+        return len(sheet_names), {"sheets": sheet_names}
+    except Exception:
+        return None, None
+
+
+def _build_file_snapshot(source_file: SourceFile) -> dict[str, Any]:
+    """从支持性文件生成底稿版本快照，复核只认可该固定快照。"""
+    file_name = source_file.filename
+    path_ext = Path(file_name or source_file.storage_path).suffix.lower().lstrip(".")
+    file_ext = path_ext or source_file.file_type or None
+    file_size = os.path.getsize(source_file.storage_path) if os.path.exists(source_file.storage_path) else None
+    file_hash = _calculate_file_hash(source_file.storage_path)
+    sheet_count, workbook_metadata = _read_workbook_metadata(source_file.storage_path, file_ext)
+
+    return {
+        "file_name": file_name,
+        "file_ext": file_ext,
+        "mime_type": source_file.file_type,
+        "storage_path": source_file.storage_path,
+        "file_hash": file_hash,
+        "file_size": file_size,
+        "sheet_count": sheet_count,
+        "workbook_metadata": workbook_metadata,
+        "generated_from": "source_file",
+    }
 
 
 def _audit_area(module_key: str | None, archive_category: str | None = None) -> str:
@@ -70,7 +122,17 @@ def _serialize_version(version: WorkpaperVersion, db: Session) -> dict[str, Any]
         "id": version.id,
         "workpaper_index_id": version.workpaper_index_id,
         "source_file_id": version.source_file_id,
-        "filename": source_file.filename if source_file else None,
+        "filename": version.file_name or (source_file.filename if source_file else None),
+        "file_name": version.file_name,
+        "file_ext": version.file_ext,
+        "mime_type": version.mime_type,
+        "storage_path": version.storage_path,
+        "file_hash": version.file_hash,
+        "file_size": version.file_size,
+        "template_code": version.template_code,
+        "sheet_count": version.sheet_count,
+        "workbook_metadata": version.workbook_metadata,
+        "generated_from": version.generated_from,
         "version_no": version.version_no,
         "status": version.status,
         "status_label": STATUS_LABELS.get(version.status, version.status),
@@ -177,6 +239,7 @@ def _create_version(
 ) -> WorkpaperVersion:
     if supersedes is not None:
         supersedes.status = "superseded"
+    snapshot = _build_file_snapshot(source_file)
     version = WorkpaperVersion(
         workpaper_index_id=index.id,
         source_file_id=source_file.id,
@@ -185,6 +248,7 @@ def _create_version(
         prepared_by=prepared_by,
         change_reason=change_reason,
         supersedes_id=supersedes.id if supersedes else None,
+        **snapshot,
     )
     db.add(version)
     return version
