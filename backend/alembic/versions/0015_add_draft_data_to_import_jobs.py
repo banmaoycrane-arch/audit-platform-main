@@ -1,7 +1,7 @@
 """add_draft_data_to_import_jobs
 
 Revision ID: 0015_add_draft_data_to_import_jobs
-Revises: 0014_audit_task_ledger_required
+Revises: 0014_workpaper_collaboration_package
 Create Date: 2026-06-26 00:00:00.000000
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import sqlite
 
 # revision identifiers, used by Alembic.
 revision = '0015_add_draft_data_to_import_jobs'
-down_revision = '0014_audit_task_ledger_required'
+down_revision = '0014_workpaper_collaboration_package'
 branch_labels = None
 depends_on = None
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import {
   Button,
   Card,
@@ -33,8 +34,8 @@ const { TextArea } = Input
 const STATUS_COLOR: Record<string, string> = {
   draft: 'default',
   review: 'processing',
+  changes_requested: 'warning',
   approved: 'success',
-  rejected: 'error',
   merged: 'purple',
   closed: 'default',
 }
@@ -42,8 +43,8 @@ const STATUS_COLOR: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
   review: '复核中',
+  changes_requested: '需修改',
   approved: '已通过',
-  rejected: '已退回',
   merged: '已归档',
   closed: '已关闭',
 }
@@ -51,16 +52,18 @@ const STATUS_LABEL: Record<string, string> = {
 const ACTION_LABEL: Record<string, string> = {
   submit: '提交复核',
   approve: '通过',
-  reject: '退回修改',
+  request_changes: '退回修改',
   merge: '合并归档',
 }
 
 interface ReviewDetailPageProps {
-  reviewId: number
+  reviewId?: number
   onBack?: () => void
 }
 
-export function ReviewDetailPage({ reviewId, onBack }: ReviewDetailPageProps) {
+export function ReviewDetailPage({ reviewId, onBack }: ReviewDetailPageProps = {}) {
+  const params = useParams<{ reviewId: string }>()
+  const effectiveReviewId = reviewId || Number(params.reviewId)
   const { user } = useAuthStore()
   const [review, setReview] = useState<AuditReviewRequest | null>(null)
   const [actions, setActions] = useState<AuditReviewAction[]>([])
@@ -73,11 +76,12 @@ export function ReviewDetailPage({ reviewId, onBack }: ReviewDetailPageProps) {
   const [actionLoading, setActionLoading] = useState(false)
 
   const loadDetail = () => {
+    if (!effectiveReviewId) return
     setLoading(true)
     Promise.all([
-      api.getAuditReviewRequest(reviewId),
-      api.getAuditReviewActions(reviewId),
-      api.listAuditComments('review_request', reviewId),
+      api.getAuditReviewRequest(effectiveReviewId),
+      api.getAuditReviewActions(effectiveReviewId),
+      api.listAuditComments('review_request', effectiveReviewId),
     ])
       .then(([detail, actionList, commentList]) => {
         setReview(detail)
@@ -90,7 +94,7 @@ export function ReviewDetailPage({ reviewId, onBack }: ReviewDetailPageProps) {
 
   useEffect(() => {
     loadDetail()
-  }, [reviewId])
+  }, [effectiveReviewId])
 
   const isReviewer = () => {
     if (!review || !user) return false
@@ -140,7 +144,7 @@ export function ReviewDetailPage({ reviewId, onBack }: ReviewDetailPageProps) {
       const values = await rejectForm.validateFields()
       setActionLoading(true)
       await api.performAuditReview(review.id, {
-        action: 'reject',
+        action: 'request_changes',
         comment: values.comment,
       })
       message.success('已退回修改')
@@ -247,7 +251,7 @@ export function ReviewDetailPage({ reviewId, onBack }: ReviewDetailPageProps) {
                 title={
                   <Space>
                     <Text strong>{ACTION_LABEL[item.action] || item.action}</Text>
-                    <Tag color={item.action === 'approve' ? 'success' : item.action === 'reject' ? 'error' : 'default'}>
+                    <Tag color={item.action === 'approve' ? 'success' : item.action === 'request_changes' ? 'warning' : 'default'}>
                       第 {item.review_level} 级
                     </Tag>
                   </Space>
@@ -359,6 +363,15 @@ export function ReviewDetailPage({ reviewId, onBack }: ReviewDetailPageProps) {
                 </Descriptions.Item>
                 <Descriptions.Item label="分支 ID">
                   {review.branch_id || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="提交底稿版本">
+                  {review.submitted_version_id || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="通过底稿版本">
+                  {review.approved_version_id || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="归档底稿版本">
+                  {review.merged_version_id || '-'}
                 </Descriptions.Item>
                 <Descriptions.Item label="一级复核人">
                   {review.reviewer_level_1_id ? `用户 ${review.reviewer_level_1_id}` : '-'}

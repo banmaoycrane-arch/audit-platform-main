@@ -39,6 +39,7 @@ from app.api.routes_audit_branches import router as audit_branches_router
 from app.api.routes_audit_tasks import router as audit_tasks_router
 from app.api.routes_audit_review import router as audit_review_router
 from app.api.routes_audit_comments import router as audit_comments_router
+from app.api.routes_audit_notifications import router as audit_notifications_router
 from app.api.routes_audit_dashboard import router as audit_dashboard_router
 from app.api.routes_project import router as project_router
 from app.api.routes_lifecycle import router as lifecycle_router
@@ -346,6 +347,7 @@ app.include_router(audit_branches_router)
 app.include_router(audit_tasks_router)
 app.include_router(audit_review_router)
 app.include_router(audit_comments_router)
+app.include_router(audit_notifications_router)
 app.include_router(audit_dashboard_router)
 
 

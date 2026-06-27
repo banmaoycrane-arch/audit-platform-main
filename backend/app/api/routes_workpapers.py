@@ -21,6 +21,16 @@ class WorkpaperVersionResponse(BaseModel):
     workpaper_index_id: int
     source_file_id: int
     filename: str | None
+    file_name: str | None = None
+    file_ext: str | None = None
+    mime_type: str | None = None
+    storage_path: str | None = None
+    file_hash: str | None = None
+    file_size: int | None = None
+    template_code: str | None = None
+    sheet_count: int | None = None
+    workbook_metadata: dict | None = None
+    generated_from: str | None = None
     version_no: str
     status: str
     status_label: str

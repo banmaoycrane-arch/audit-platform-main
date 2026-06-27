@@ -83,7 +83,7 @@ export function LedgerFilesPage() {
       setFiles(fileResp)
       setCounterparties(counterpartyResp.filter((item) => item.is_active))
     } catch (error: any) {
-      message.error(error.message || '加载账套文件失败')
+      message.error(error.message || '加载支持性文件失败')
     } finally {
       setLoading(false)
     }
@@ -174,11 +174,11 @@ export function LedgerFilesPage() {
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <div>
           <Title level={4} style={{ margin: 0 }}>
-            <FileTextOutlined /> 账套文件
+            <FileTextOutlined /> 支持性文件
           </Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            按账套归集原始凭证、合同、发票、银行流水等资料；解析完成后系统会按项目/期间/模块自动归档，便于在项目中检索与管理底稿。
-            当前账套：{currentLedger ? currentLedger.name : currentLedgerId || '未选择'}
+            支持性文件是合同、发票、银行回单、客户供应商资料等原始证据，需先归属账簿；进入审计项目后再形成“账簿 + 项目”双绑定。
+            这里仅维护文件元数据和关联关系，不把复核意见写回原件。当前账套：{currentLedger ? currentLedger.name : currentLedgerId || '未选择'}
           </Paragraph>
         </div>
 
@@ -363,7 +363,7 @@ export function LedgerFilesPage() {
                   />
                   <Popconfirm
                     title="删除文件"
-                    description="确定要删除此文件吗？此操作不可恢复。"
+                    description="确定要删除此支持性文件记录吗？此操作不可恢复。"
                     onConfirm={() => handleDeleteFile(row.id)}
                     okText="删除"
                     cancelText="取消"

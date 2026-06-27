@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import {
   Avatar,
   Button,
@@ -36,81 +37,81 @@ const { Title, Paragraph, Text } = Typography
 const { TextArea } = Input
 
 const TASK_STATUS_COLOR: Record<string, string> = {
-  todo: 'default',
-  in_progress: 'processing',
+  open: 'default',
+  todo: 'processing',
+  in_progress: 'blue',
   review: 'gold',
-  completed: 'success',
-  closed: 'default',
-  cancelled: 'error',
+  closed: 'success',
+  rejected: 'error',
 }
 
 const TASK_STATUS_LABEL: Record<string, string> = {
-  todo: '待处理',
-  in_progress: '处理中',
+  open: '开放',
+  todo: '待办',
+  in_progress: '进行中',
   review: '复核中',
-  completed: '已完成',
   closed: '已关闭',
-  cancelled: '已取消',
+  rejected: '已拒绝',
 }
 
 const TASK_TYPE_LABEL: Record<string, string> = {
-  risk_response: '风险应对',
-  workpaper_preparation: '底稿编制',
-  review: '复核任务',
-  inquiry: '函证询问',
-  inspection: '检查程序',
-  analytical: '分析程序',
+  risk_assessment: '风险评估',
+  control_test: '控制测试',
+  substantive: '实质性程序',
+  review: '复核',
   other: '其他',
 }
 
 const TASK_TYPE_COLOR: Record<string, string> = {
-  risk_response: 'red',
-  workpaper_preparation: 'blue',
+  risk_assessment: 'red',
+  control_test: 'blue',
+  substantive: 'green',
   review: 'purple',
-  inquiry: 'cyan',
-  inspection: 'green',
-  analytical: 'orange',
   other: 'default',
 }
 
 const TASK_PRIORITY_COLOR: Record<string, string> = {
   high: 'red',
-  medium: 'orange',
+  normal: 'orange',
   low: 'green',
 }
 
 const TASK_PRIORITY_LABEL: Record<string, string> = {
   high: '高',
-  medium: '中',
+  normal: '中',
   low: '低',
 }
 
 const BRANCH_STATUS_COLOR: Record<string, string> = {
   active: 'processing',
+  review_pending: 'gold',
   merged: 'success',
   archived: 'default',
+  abandoned: 'error',
 }
 
 const BRANCH_STATUS_LABEL: Record<string, string> = {
   active: '进行中',
+  review_pending: '待复核',
   merged: '已合并',
   archived: '已归档',
+  abandoned: '已废弃',
 }
 
 const REVIEW_STATUS_COLOR: Record<string, string> = {
   draft: 'default',
-  submitted: 'processing',
+  review: 'processing',
+  changes_requested: 'warning',
   approved: 'success',
-  rejected: 'error',
   merged: 'success',
   closed: 'default',
 }
 
 const REVIEW_STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
-  submitted: '已提交',
+  review: '复核中',
+  changes_requested: '需修改',
   approved: '已通过',
-  rejected: '已拒绝',
   merged: '已合并',
   closed: '已关闭',
 }
@@ -119,8 +120,11 @@ interface AuditTaskDetailPageProps {
   taskId?: number
 }
 
-export function AuditTaskDetailPage({ taskId }: AuditTaskDetailPageProps) {
-  const { user, currentLedgerId } = useAuthStore()
+export function AuditTaskDetailPage({ taskId }: AuditTaskDetailPageProps = {}) {
+  const params = useParams<{ taskId: string }>()
+  const routeTaskId = Number(params.taskId)
+  const effectiveTaskId = taskId || (Number.isFinite(routeTaskId) ? routeTaskId : 0)
+  const { user } = useAuthStore()
   const [task, setTask] = useState<AuditTask | null>(null)
   const [loading, setLoading] = useState(false)
   const [branches, setBranches] = useState<AuditWorkBranch[]>([])
@@ -134,7 +138,7 @@ export function AuditTaskDetailPage({ taskId }: AuditTaskDetailPageProps) {
   const [assignModalVisible, setAssignModalVisible] = useState(false)
   const [selectedAssignee, setSelectedAssignee] = useState<number | null>(null)
 
-  const currentTaskId = taskId || 1
+  const currentTaskId = effectiveTaskId
 
   const loadTask = () => {
     if (!currentTaskId) return
@@ -363,7 +367,7 @@ export function AuditTaskDetailPage({ taskId }: AuditTaskDetailPageProps) {
               提交复核
             </Button>
           )}
-          {task.status !== 'closed' && task.status !== 'cancelled' && (
+          {task.status !== 'closed' && (
             <Button danger icon={<DeleteOutlined />} onClick={() => setCloseModalVisible(true)}>
               关闭任务
             </Button>
@@ -422,7 +426,7 @@ export function AuditTaskDetailPage({ taskId }: AuditTaskDetailPageProps) {
             title={
               <Space>
                 <Text strong>{item.pr_no}</Text>
-                <Text>{item.title}</Text>
+                <Link to={`/audit/review-requests/${item.id}`}>{item.title}</Link>
               </Space>
             }
             description={
@@ -508,6 +512,14 @@ export function AuditTaskDetailPage({ taskId }: AuditTaskDetailPageProps) {
     { key: 'reviews', label: '复核请求', children: renderReviewsTab() },
     { key: 'comments', label: '评论', children: renderCommentsTab() },
   ]
+
+  if (!currentTaskId) {
+    return (
+      <Card>
+        <Typography.Text type="danger">任务 ID 无效，请从任务列表重新进入。</Typography.Text>
+      </Card>
+    )
+  }
 
   return (
     <div>

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.db.models import AuditTask
 from app.models.project_ledger import ProjectLedger
 from app.schemas.audit_workflow import AuditTaskCreate, AuditTaskUpdate
+from app.services import audit_notification_service
 
 
 STATUS_LABELS = {
@@ -237,6 +238,20 @@ def create_task(
         task.status = "todo"
 
     db.add(task)
+    db.flush()
+    if task.assignee_id is not None:
+        audit_notification_service.create_notification(
+            db,
+            recipient_user_id=task.assignee_id,
+            actor_user_id=creator_id,
+            event_type="task_assigned",
+            target_type="task",
+            target_id=task.id,
+            title=f"新的审计任务：{task.title}",
+            content=f"任务 {task.task_no} 已分配给你",
+            project_id=task.project_id,
+            ledger_id=task.ledger_id,
+        )
     db.commit()
     db.refresh(task)
     return _serialize_task(task)
@@ -311,6 +326,18 @@ def assign_task(
     task.assignee_id = assignee_id
     task.status = "todo"
     task.updated_at = datetime.utcnow()
+    audit_notification_service.create_notification(
+        db,
+        recipient_user_id=assignee_id,
+        actor_user_id=None,
+        event_type="task_assigned",
+        target_type="task",
+        target_id=task.id,
+        title=f"审计任务已分配：{task.title}",
+        content=f"任务 {task.task_no} 已分配给你",
+        project_id=task.project_id,
+        ledger_id=task.ledger_id,
+    )
     db.commit()
     db.refresh(task)
     return _serialize_task(task)

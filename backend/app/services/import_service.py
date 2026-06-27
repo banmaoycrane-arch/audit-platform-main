@@ -64,13 +64,16 @@ from app.storage.local_storage import save_upload
 ACCOUNTING_FILE_TYPES = {".xlsx", ".xls", ".csv"}
 
 # 原始文件类型
-SOURCE_FILE_TYPES = {".pdf", ".txt", ".md", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
+SOURCE_FILE_TYPES = {".pdf", ".txt", ".md", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".xml", ".ofd"}
 
 DOCUMENT_TYPE_LABELS = {
     "invoice": "发票",
     "bank_statement": "银行流水",
     "contract": "合同",
     "inventory_receipt": "入库单",
+    "salary_table": "工资表",
+    "expense_document": "费用单据",
+    "receipt": "收据",
     "general": "通用资料",
 }
 
@@ -267,6 +270,24 @@ def _extract_source_summary(result: SourceDocumentResult) -> dict[str, Any]:
             "date": data.get("receipt_date"),
             "amount": data.get("total_amount"),
             "counterparty": data.get("supplier"),
+        }
+    elif result.document_type == "salary_table":
+        key_fields = {
+            "date": data.get("salary_period"),
+            "amount": data.get("total_amount") or data.get("gross_amount"),
+            "counterparty": None,
+        }
+    elif result.document_type == "expense_document":
+        key_fields = {
+            "date": data.get("expense_date") or data.get("reimbursement_date"),
+            "amount": data.get("total_amount") or data.get("expense_amount"),
+            "counterparty": data.get("reimbursement_person") or data.get("applicant"),
+        }
+    elif result.document_type == "receipt":
+        key_fields = {
+            "date": data.get("receipt_date"),
+            "amount": data.get("amount"),
+            "counterparty": data.get("payer") or data.get("payee"),
         }
 
     summary_parts = []
@@ -1039,7 +1060,43 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
                 # 合同解析失败不影响主流程，记录错误即可
                 print(f"合同解析失败: {e}")
 
-        result = classify_document(source_file.storage_path, source_file.filename)
+        # 选择解析引擎（从数据库读取配置，与解析引擎管理页面保持一致）
+        from app.services.parser_engine.config_service import get_runtime_parser_engine_config
+        parser_config = get_runtime_parser_engine_config(db)
+        use_new_engine = (
+            parser_config.get("llm_multi_engine_enabled", False) 
+            or parser_config.get("llm_enable_parallel_parsing", False)
+            or parser_config.get("ai_local_model_enabled", False)
+        )
+        
+        if use_new_engine:
+            try:
+                from app.services.parser_engine import parse_file
+                from app.services.parser_engine.parser_engine_dispatcher import parse_result_to_source_document_result
+                import asyncio
+                
+                # 安全的异步调用：避免在已有事件循环中调用 asyncio.run()
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop.is_running():
+                        parse_result = loop.run_until_complete(
+                            parse_file(source_file.storage_path, db=db)
+                        )
+                    else:
+                        parse_result = asyncio.run(
+                            parse_file(source_file.storage_path, db=db)
+                        )
+                except RuntimeError:
+                    parse_result = asyncio.run(
+                        parse_file(source_file.storage_path, db=db)
+                    )
+                
+                result = parse_result_to_source_document_result(parse_result, source_file.filename)
+            except Exception as e:
+                logger.warning(f"新解析引擎调用失败，降级到旧引擎: {e}")
+                result = classify_document(source_file.storage_path, source_file.filename)
+        else:
+            result = classify_document(source_file.storage_path, source_file.filename)
         feedback = _extract_source_summary(result)
 
         # 如果合同解析成功，增强反馈信息

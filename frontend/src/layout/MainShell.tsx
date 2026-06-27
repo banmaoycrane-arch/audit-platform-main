@@ -1,4 +1,5 @@
-import { Layout, Menu, Typography, Space, Input } from 'antd'
+import { useEffect, useState } from 'react'
+import { Layout, Menu, Typography, Space, Input, Badge, Button, Drawer, List, Tag, message } from 'antd'
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom'
 import {
   HomeOutlined,
@@ -23,8 +24,11 @@ import {
   CarOutlined,
   DashboardOutlined,
   CheckSquareOutlined,
+  BellOutlined,
 } from '@ant-design/icons'
 import { LedgerSelector } from '../components/LedgerSelector'
+import { RouteTabs } from '../components/RouteTabs'
+import { api, type AuditNotification } from '../api/client'
 
 const { Header, Sider, Content } = Layout
 const { Title } = Typography
@@ -38,7 +42,7 @@ const navItems = [
     label: '财务总账',
     children: [
       { key: '/ledger/workspace', icon: <HomeOutlined />, label: <Link to="/ledger/workspace">工作台</Link> },
-      { key: '/ledger/files', icon: <FileTextOutlined />, label: <Link to="/ledger/files">账套文件</Link> },
+      { key: '/ledger/files', icon: <FileTextOutlined />, label: <Link to="/ledger/files">支持性文件</Link> },
       {
         key: 'ledger-vouchers',
         icon: <FileTextOutlined />,
@@ -149,7 +153,7 @@ const navItems = [
       { key: '/scope-settings', icon: <SettingOutlined />, label: <Link to="/scope-settings">管理配置</Link> },
       { key: '/parser-engine', icon: <ExperimentOutlined />, label: <Link to="/parser-engine">解析引擎管理</Link> },
       { key: '/parser-engine/config', icon: <SettingOutlined />, label: <Link to="/parser-engine/config">解析引擎配置</Link> },
-      { key: '/ledger/files', icon: <FileTextOutlined />, label: <Link to="/ledger/files">账套文件</Link> },
+      { key: '/ledger/files', icon: <FileTextOutlined />, label: <Link to="/ledger/files">支持性文件</Link> },
       { key: '/projects', icon: <AppstoreOutlined />, label: <Link to="/projects">项目管理</Link> },
     ],
   },
@@ -169,6 +173,30 @@ const selectedKeyAliases: Record<string, string> = {
   '/entries': '/ledger/entries',
   '/fixed-assets': '/fixed-assets/workspace',
   '/inventory': '/inventory/workspace',
+}
+
+const NOTIFICATION_EVENT_LABEL: Record<string, string> = {
+  task_assigned: '任务分配',
+  review_submitted: '提交复核',
+  review_approved: '复核通过',
+  review_changes_requested: '退回修改',
+  review_merged: '合并归档',
+  comment_mentioned: '评论提及',
+  workpaper_marker_mentioned: '底稿标记',
+}
+
+function getNotificationTargetPath(notification: AuditNotification) {
+  if (notification.target_type === 'task') return `/audit/tasks/${notification.target_id}`
+  if (notification.target_type === 'review_request') return `/audit/review-requests/${notification.target_id}`
+  if (notification.target_type === 'workpaper_version') return `/audit/workpapers?version_id=${notification.target_id}`
+  return '/audit/dashboard'
+}
+
+function getNotificationTargetLabel(notification: AuditNotification) {
+  if (notification.target_type === 'task') return `任务 #${notification.target_id}`
+  if (notification.target_type === 'review_request') return `复核请求 #${notification.target_id}`
+  if (notification.target_type === 'workpaper_version') return `底稿版本 #${notification.target_id}`
+  return `${notification.target_type} #${notification.target_id}`
 }
 
 function getSelectedKey(pathname: string) {
@@ -191,6 +219,54 @@ export function MainShell() {
   const navigate = useNavigate()
   const location = useLocation()
   const selectedKey = getSelectedKey(location.pathname)
+  const [notificationOpen, setNotificationOpen] = useState(false)
+  const [notifications, setNotifications] = useState<AuditNotification[]>([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [notificationLoading, setNotificationLoading] = useState(false)
+
+  const loadNotifications = () => {
+    setNotificationLoading(true)
+    api
+      .listAuditNotifications({ limit: 30 })
+      .then((response) => {
+        setNotifications(response.items)
+        setUnreadCount(response.unread_count)
+      })
+      .catch(() => {})
+      .finally(() => setNotificationLoading(false))
+  }
+
+  useEffect(() => {
+    loadNotifications()
+  }, [])
+
+  const handleOpenNotifications = () => {
+    setNotificationOpen(true)
+    loadNotifications()
+  }
+
+  const handleReadNotification = async (notification: AuditNotification) => {
+    try {
+      if (!notification.is_read) {
+        await api.markAuditNotificationRead(notification.id)
+      }
+      setNotificationOpen(false)
+      navigate(getNotificationTargetPath(notification))
+      loadNotifications()
+    } catch (error: any) {
+      message.error(error.message || '通知处理失败')
+    }
+  }
+
+  const handleReadAllNotifications = async () => {
+    try {
+      await api.markAllAuditNotificationsRead()
+      loadNotifications()
+      message.success('审计通知已全部标记为已读')
+    } catch (error: any) {
+      message.error(error.message || '标记失败')
+    }
+  }
 
   const handleMenuClick = (e: { key: string; keyPath: string[] }) => {
     // 点击父菜单时默认导航到对应工作台
@@ -222,6 +298,12 @@ export function MainShell() {
         />
         <div style={{ flex: 1 }} />
         <Space style={{ color: '#fff' }}>
+          <Button type="text" style={{ color: '#fff' }} onClick={handleOpenNotifications}>
+            <Badge count={unreadCount} size="small">
+              <BellOutlined style={{ color: '#fff', fontSize: 18 }} />
+            </Badge>
+            <span style={{ marginLeft: 8 }}>审计通知</span>
+          </Button>
           <LedgerSelector />
           <span style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>首页</span>
         </Space>
@@ -256,12 +338,60 @@ export function MainShell() {
             onClick={handleMenuClick}
           />
         </Sider>
-        <Layout style={{ padding: '16px', height: '100%', overflowY: 'auto' }}>
-          <Content style={{ background: '#fff', padding: '16px', minHeight: 280 }}>
+        <Layout style={{ height: '100%', overflow: 'hidden', background: '#f5f7fb' }}>
+          <RouteTabs />
+          <Content
+            style={{
+              background: '#fff',
+              margin: 16,
+              padding: 16,
+              minHeight: 280,
+              overflow: 'auto',
+              borderRadius: 8,
+              boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
+            }}
+          >
             <Outlet />
           </Content>
         </Layout>
       </Layout>
+      <Drawer
+        title="审计协作通知"
+        open={notificationOpen}
+        onClose={() => setNotificationOpen(false)}
+        width={420}
+        extra={
+          <Button size="small" onClick={handleReadAllNotifications} disabled={unreadCount === 0}>
+            全部已读
+          </Button>
+        }
+      >
+        <List
+          loading={notificationLoading}
+          dataSource={notifications}
+          locale={{ emptyText: '暂无审计通知' }}
+          renderItem={(item) => (
+            <List.Item onClick={() => handleReadNotification(item)} style={{ cursor: 'pointer' }}>
+              <List.Item.Meta
+                title={
+                  <Space>
+                    {!item.is_read && <Badge status="processing" />}
+                    <span>{item.title}</span>
+                    <Tag>{NOTIFICATION_EVENT_LABEL[item.event_type] || item.event_type}</Tag>
+                  </Space>
+                }
+                description={
+                  <Space direction="vertical" size={2}>
+                    {item.content && <span>{item.content}</span>}
+                    <span>点击后进入：{getNotificationTargetLabel(item)}</span>
+                    <span>{item.created_at ? new Date(item.created_at).toLocaleString('zh-CN') : '-'}</span>
+                  </Space>
+                }
+              />
+            </List.Item>
+          )}
+        />
+      </Drawer>
     </Layout>
   )
 }

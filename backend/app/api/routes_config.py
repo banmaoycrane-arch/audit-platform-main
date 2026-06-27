@@ -307,6 +307,116 @@ def get_ollama_models(base_url: str = "http://localhost:11434"):
         }
 
 
+class LLMEngineCreateRequest(BaseModel):
+    name: str
+    provider: str
+    base_url: str
+    model: str
+    api_key: str | None = None
+    weight: float = 0.3
+    enabled: bool = True
+
+
+class LLMEngineUpdateRequest(BaseModel):
+    name: str | None = None
+    provider: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    weight: float | None = None
+    enabled: bool | None = None
+
+
+class LLMComparisonConfigRequest(BaseModel):
+    comparison_strategy: str = "field_consensus"
+    min_consensus_ratio: float = 0.5
+
+
+@router.get("/parser-engine/llm-engines")
+def get_llm_engines(db: Session = Depends(get_db)):
+    """获取多LLM引擎配置列表"""
+    from app.services.llm_engine_config_service import get_llm_engines_config
+    config = get_llm_engines_config(db)
+    return {
+        "success": True,
+        "engines": [e.to_dict() for e in config.engines],
+        "comparison_strategy": config.comparison_strategy,
+        "min_consensus_ratio": config.min_consensus_ratio,
+    }
+
+
+@router.post("/parser-engine/llm-engines")
+def add_llm_engine(engine: LLMEngineCreateRequest, db: Session = Depends(get_db)):
+    """添加一个LLM引擎"""
+    from app.services.llm_engine_config_service import (
+        add_llm_engine,
+        LLMEngineConfig,
+    )
+    new_engine = LLMEngineConfig(
+        id="",
+        name=engine.name,
+        provider=engine.provider,
+        base_url=engine.base_url,
+        model=engine.model,
+        api_key=engine.api_key or "",
+        weight=engine.weight,
+        enabled=engine.enabled,
+    )
+    config = add_llm_engine(db, new_engine)
+    return {
+        "success": True,
+        "message": "引擎添加成功",
+        "engines": [e.to_dict() for e in config.engines],
+    }
+
+
+@router.put("/parser-engine/llm-engines/{engine_id}")
+def update_llm_engine(engine_id: str, engine: LLMEngineUpdateRequest, db: Session = Depends(get_db)):
+    """更新一个LLM引擎"""
+    from app.services.llm_engine_config_service import update_llm_engine
+    result = update_llm_engine(db, engine_id, engine.model_dump(exclude_unset=True))
+    if result is None:
+        raise HTTPException(status_code=404, detail="引擎不存在")
+    return {
+        "success": True,
+        "message": "引擎更新成功",
+        "engines": [e.to_dict() for e in result.engines],
+    }
+
+
+@router.delete("/parser-engine/llm-engines/{engine_id}")
+def delete_llm_engine(engine_id: str, db: Session = Depends(get_db)):
+    """删除一个LLM引擎"""
+    from app.services.llm_engine_config_service import delete_llm_engine
+    result = delete_llm_engine(db, engine_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="引擎不存在")
+    return {
+        "success": True,
+        "message": "引擎删除成功",
+        "engines": [e.to_dict() for e in result.engines],
+    }
+
+
+@router.post("/parser-engine/llm-comparison-config")
+def update_llm_comparison_config(config: LLMComparisonConfigRequest, db: Session = Depends(get_db)):
+    """更新LLM对比配置"""
+    from app.services.llm_engine_config_service import (
+        get_llm_engines_config,
+        save_llm_engines_config,
+    )
+    current = get_llm_engines_config(db)
+    current.comparison_strategy = config.comparison_strategy
+    current.min_consensus_ratio = config.min_consensus_ratio
+    save_llm_engines_config(db, current)
+    return {
+        "success": True,
+        "message": "对比配置更新成功",
+        "comparison_strategy": current.comparison_strategy,
+        "min_consensus_ratio": current.min_consensus_ratio,
+    }
+
+
 @router.post("/parser-engine")
 def save_parser_engine_config(
     config: ParserEngineConfig,

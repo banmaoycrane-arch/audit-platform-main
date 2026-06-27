@@ -1746,6 +1746,16 @@ class WorkpaperVersion(Base):
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     change_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("workpaper_versions.id"), nullable=True)
+    file_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    file_ext: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    storage_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    file_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    template_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    sheet_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    workbook_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    generated_from: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     workpaper_index: Mapped["WorkpaperIndex"] = relationship(back_populates="versions")
@@ -1892,6 +1902,17 @@ class AuditReviewRequest(Base):
     reviewer_level_3_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     merged_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
+    # 复核绑定的底稿版本快照，避免复核对象在审核期间漂移
+    submitted_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workpaper_versions.id"), nullable=True, index=True
+    )
+    approved_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workpaper_versions.id"), nullable=True, index=True
+    )
+    merged_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workpaper_versions.id"), nullable=True, index=True
+    )
+
     # 时间
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -1936,12 +1957,38 @@ class AuditComment(Base):
     # 评论内容
     content: Mapped[str] = mapped_column(Text)
     mention_user_ids: Mapped[list | None] = mapped_column(JSON, default=list)
+    marker_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    sheet_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    cell_ref: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    range_ref: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    severity: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    resolved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     # 评论人
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuditNotification(Base):
+    """审计协作通知。"""
+    __tablename__ = "audit_notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    recipient_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    target_type: Mapped[str] = mapped_column(String(80), index=True)
+    target_id: Mapped[int] = mapped_column(Integer, index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class AuditMilestone(Base):

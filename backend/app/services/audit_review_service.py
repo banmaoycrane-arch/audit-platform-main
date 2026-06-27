@@ -16,7 +16,8 @@ from typing import Any
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.db.models import AuditReviewAction, AuditReviewRequest, AuditTask, AuditWorkBranch
+from app.db.models import AuditReviewAction, AuditReviewRequest, AuditTask, AuditWorkBranch, WorkpaperVersion
+from app.services import audit_notification_service
 
 VALID_STATUSES = {"draft", "review", "changes_requested", "approved", "merged", "closed"}
 
@@ -72,6 +73,9 @@ def _serialize_review(review: AuditReviewRequest) -> dict[str, Any]:
         "reviewer_level_1_id": review.reviewer_level_1_id,
         "reviewer_level_2_id": review.reviewer_level_2_id,
         "reviewer_level_3_id": review.reviewer_level_3_id,
+        "submitted_version_id": review.submitted_version_id,
+        "approved_version_id": review.approved_version_id,
+        "merged_version_id": review.merged_version_id,
         "merged_by": review.merged_by,
         "created_at": review.created_at.isoformat() if review.created_at else None,
         "submitted_at": review.submitted_at.isoformat() if review.submitted_at else None,
@@ -222,6 +226,15 @@ def create_review_request(
     if branch is None:
         raise ValueError(f"工作分支不存在: {review_data['branch_id']}")
 
+    submitted_version_id = review_data.get("submitted_version_id") or branch.latest_version_id
+    if submitted_version_id is None:
+        raise ValueError("提交复核必须绑定明确的底稿版本")
+    version = db.get(WorkpaperVersion, submitted_version_id)
+    if version is None:
+        raise ValueError("提交复核绑定的底稿版本不存在")
+    if branch.workpaper_index_id and version.workpaper_index_id != branch.workpaper_index_id:
+        raise ValueError("提交复核的底稿版本不属于当前工作分支的底稿索引")
+
     pr_no = _generate_pr_no(db, review_data["project_id"])
 
     review = AuditReviewRequest(
@@ -239,6 +252,7 @@ def create_review_request(
         reviewer_level_1_id=review_data.get("reviewer_level_1_id"),
         reviewer_level_2_id=review_data.get("reviewer_level_2_id"),
         reviewer_level_3_id=review_data.get("reviewer_level_3_id"),
+        submitted_version_id=submitted_version_id,
     )
 
     db.add(review)
@@ -279,6 +293,18 @@ def submit_review(
 
     review.status = "review"
     review.submitted_at = datetime.utcnow()
+    audit_notification_service.create_notification(
+        db,
+        recipient_user_id=review.reviewer_level_1_id,
+        actor_user_id=review.created_by,
+        event_type="review_submitted",
+        target_type="review_request",
+        target_id=review.id,
+        title=f"新的底稿复核请求：{review.title}",
+        content=f"复核请求 {review.pr_no} 已提交，请复核绑定底稿版本 {review.submitted_version_id}",
+        project_id=review.project_id,
+        ledger_id=review.ledger_id,
+    )
     db.commit()
     db.refresh(review)
     return _serialize_review(review)
@@ -331,6 +357,9 @@ def perform_review(
 
     target_status = "approved" if action == "approve" else "changes_requested"
     _validate_status_transition(review.status, target_status)
+    branch = db.get(AuditWorkBranch, review.branch_id)
+    if branch and branch.latest_version_id and branch.latest_version_id != review.submitted_version_id:
+        raise ValueError("底稿版本已变化，请重新提交复核请求")
 
     review_action = AuditReviewAction(
         review_request_id=review_id,
@@ -345,6 +374,32 @@ def perform_review(
     review.current_review_level = review_level
     if action == "approve":
         review.approved_at = datetime.utcnow()
+        review.approved_version_id = review.submitted_version_id
+        audit_notification_service.create_notification(
+            db,
+            recipient_user_id=review.created_by,
+            actor_user_id=reviewer_id,
+            event_type="review_approved",
+            target_type="review_request",
+            target_id=review.id,
+            title=f"底稿复核已通过：{review.title}",
+            content=f"复核请求 {review.pr_no} 已通过",
+            project_id=review.project_id,
+            ledger_id=review.ledger_id,
+        )
+    else:
+        audit_notification_service.create_notification(
+            db,
+            recipient_user_id=review.created_by,
+            actor_user_id=reviewer_id,
+            event_type="review_changes_requested",
+            target_type="review_request",
+            target_id=review.id,
+            title=f"底稿复核退回修改：{review.title}",
+            content=comment or f"复核请求 {review.pr_no} 已退回修改",
+            project_id=review.project_id,
+            ledger_id=review.ledger_id,
+        )
 
     db.commit()
     db.refresh(review)
@@ -377,6 +432,14 @@ def merge_review(
         raise ValueError("复核请求不存在")
 
     _validate_status_transition(review.status, "merged")
+    if review.approved_version_id is None:
+        raise ValueError("复核请求未绑定已通过的底稿版本，不能合并归档")
+
+    approved_version = db.get(WorkpaperVersion, review.approved_version_id)
+    if approved_version is None:
+        raise ValueError("已通过的底稿版本不存在，不能合并归档")
+    approved_version.status = "reviewed"
+    approved_version.reviewed_by = merged_by
 
     branch = db.query(AuditWorkBranch).filter(AuditWorkBranch.id == review.branch_id).first()
     if branch is not None:
@@ -390,7 +453,20 @@ def merge_review(
 
     review.status = "merged"
     review.merged_by = merged_by
+    review.merged_version_id = review.approved_version_id
     review.merged_at = datetime.utcnow()
+    audit_notification_service.create_notifications(
+        db,
+        recipient_user_ids=[review.created_by, task.assignee_id if task else None],
+        actor_user_id=merged_by,
+        event_type="review_merged",
+        target_type="review_request",
+        target_id=review.id,
+        title=f"底稿已合并归档：{review.title}",
+        content=f"复核请求 {review.pr_no} 已归档，版本 {review.merged_version_id} 已固化",
+        project_id=review.project_id,
+        ledger_id=review.ledger_id,
+    )
 
     db.commit()
     db.refresh(review)
