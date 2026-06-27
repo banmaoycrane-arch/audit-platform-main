@@ -95,9 +95,9 @@ def test_list_periods_can_filter_by_ledger_id(client):
         json={
             "organization_id": org_id,
             "ledger_id": ledger_id,
-            "period_code": "2026-06",
-            "start_date": "2026-06-01",
-            "end_date": "2026-06-30",
+            "period_code": "2026-07",
+            "start_date": "2026-07-01",
+            "end_date": "2026-07-31",
         },
         headers=headers,
     )
@@ -105,4 +105,4 @@ def test_list_periods_can_filter_by_ledger_id(client):
 
     listed = client.get(f"/api/accounting-periods?ledger_id={ledger_id}", headers=headers)
     assert listed.status_code == 200
-    assert any(item["period_code"] == "2026-06" for item in listed.json())
+    assert any(item["period_code"] == "2026-07" for item in listed.json())

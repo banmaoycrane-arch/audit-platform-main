@@ -891,6 +891,21 @@ async def multi_llm_comparison(
             selection_reason="等待用户选择",
             field_sources={},
         )
+
+    if (
+        config.get("ai_fallback_to_rules", True)
+        and (final_result is None or not final_result.data or final_result.confidence < 0.1)
+    ):
+        rule_result = parse_with_rule_engine(
+            file_path,
+            document_type,
+            extracted_text,
+            file_format,
+        )
+        if rule_result.confidence > 0:
+            final_result = rule_result
+            selection_reason = "LLM未配置或失败，规则引擎兜底"
+            field_sources = {field: "rule_engine" for field in rule_result.data.keys()}
     
     return LLMComparisonResult(
         engine_results=engine_results,

@@ -1,4 +1,5 @@
 import json
+import os
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -311,7 +312,11 @@ def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
             "id": sf.id,
             "filename": sf.filename,
             "file_type": sf.file_type,
-            "file_size": sf.file_size,
+            "file_size": (
+                os.path.getsize(sf.storage_path)
+                if sf.storage_path and os.path.exists(sf.storage_path)
+                else None
+            ),
             "created_at": sf.created_at.isoformat() if sf.created_at else None,
         }
         for sf in source_files
