@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [2026-06-27]
+
+### Added / 新增
+
+- **审计底稿协作包**：底稿版本记录文件哈希、工作簿结构与元数据快照，复核请求关联提交/批准/合并版本；审计批注支持工作表、单元格与范围定位及严重级别。（PR [#113](https://github.com/banmaoycrane-arch/audit-platform-main/pull/113)）
+- **审计协作通知**：新增 `audit_notifications` 表与 `/api/audit/notifications` 接口，支持列表查询、单条已读与全部已读；前端协作台展示通知中心。（PR [#113](https://github.com/banmaoycrane-arch/audit-platform-main/pull/113)）
+- **多 LLM 解析引擎配置**：新增 `/api/config/parser-engine/llm-engines` CRUD 与对比策略配置，支持多引擎加权共识解析。（PR [#113](https://github.com/banmaoycrane-arch/audit-platform-main/pull/113)）
+- **模块台账行级操作**：模块台账支持行级编辑、纠错、归档与删除（`PATCH/POST/DELETE /api/module-registers/{module_key}/{row_id}`）。（PR [#113](https://github.com/banmaoycrane-arch/audit-platform-main/pull/113)）
+
+### Changed / 变更
+
+- **解析引擎体验**：解析调度器增加分阶段耗时统计与性能监控；基于关键字段提取率计算客观置信度；解析引擎管理页支持多引擎配置与对比诊断展示。（PR [#113](https://github.com/banmaoycrane-arch/audit-platform-main/pull/113)）
+
 ## [2026-06-26]
 
 ### Added / 新增
