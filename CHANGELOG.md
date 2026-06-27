@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2026-06-27]
+
+### Added / 新增
+
+- **顶部多页签工作区**：新增 `RouteTabs` 组件，在主壳内容区顶部提供系统内页签栏；支持切换、关闭、首页固定，以及账套切换时自动清理账套相关业务标签，形成类似传统财务软件的多窗口工作区体验。（PR [#115](https://github.com/banmaoycrane-arch/audit-platform-main/pull/115)）
+
 ## [2026-06-26]
 
 ### Added / 新增
