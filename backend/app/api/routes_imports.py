@@ -3,14 +3,27 @@ import json
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user
+from app.models.user import User
 from app.db.models import ImportJob, SourceFile
+from app.models.project import Project
+from app.models.project_ledger import ProjectLedger
+from app.models.ledger import Ledger
+from app.models.team import Team
+from app.models.user_ledger_auth import UserLedgerAuth
 from app.db.session import SessionLocal, get_db
 from app.schemas.import_job import AuditScopeUpdate, DayBookReportRead, ImportJobCreate, ImportJobRead
-from app.services.import_service import attach_file, create_import_job, get_import_summary, process_import_job
+from app.services.import_service import attach_file, create_import_job
 from app.services.audit_day_book_service import DayBookReport, process_day_book_import
 from app.services.entry_generation_service import _normalize_evidence_type
 from app.services.import_routing_service import is_day_book_source_type
 from app.services.period_detection_service import suggest_period_for_job
+from app.services.parser_engine.unified_parser_service import (
+    get_latest_source_file,
+    mark_missing_source_file,
+    mark_parser_engine_failure,
+    parse_source_file_with_unified_engine,
+)
 
 router = APIRouter(prefix="/api/import-jobs", tags=["import-jobs"])
 
@@ -21,32 +34,110 @@ _import_reports: dict[int, dict] = {}
 _day_book_reports: dict[int, DayBookReport] = {}
 
 
+AUDIT_SOURCE_TYPES = {"audit_day_book"}
+
+
+def _requires_audit_project_context(source_type: str | None, audit_scope_type: str | None = None, project_id: int | None = None) -> bool:
+    return source_type in AUDIT_SOURCE_TYPES or bool(source_type and source_type.startswith("audit_")) or bool(audit_scope_type) or bool(project_id)
+
+
+def _is_enterprise_accountant_context(db: Session, *, user_id: int | None, ledger_id: int | None) -> bool:
+    if not user_id or not ledger_id:
+        return False
+    ledger = db.get(Ledger, ledger_id)
+    if not ledger:
+        return False
+    team = db.get(Team, ledger.team_id)
+    if not team or team.type != "enterprise":
+        return False
+    auth = (
+        db.query(UserLedgerAuth)
+        .filter(UserLedgerAuth.user_id == user_id, UserLedgerAuth.ledger_id == ledger_id)
+        .first()
+    )
+    return bool(auth and auth.role in {"accountant", "admin"})
+
+
+def _ensure_project_ledger_context(
+    db: Session,
+    *,
+    project_id: int | None,
+    ledger_id: int | None,
+    source_type: str | None,
+    audit_scope_type: str | None = None,
+    user_id: int | None = None,
+) -> None:
+    if not _requires_audit_project_context(source_type, audit_scope_type, project_id):
+        return
+    if not ledger_id:
+        raise HTTPException(status_code=400, detail="导入和解析文件前必须选择账簿，支持性文件需要归属到明确账簿。")
+    is_enterprise_accountant = _is_enterprise_accountant_context(db, user_id=user_id, ledger_id=ledger_id)
+    if is_enterprise_accountant:
+        return
+    if not project_id:
+        return
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=400, detail="审计项目不存在，请先创建或选择项目。")
+    if project.type != "audit":
+        raise HTTPException(status_code=400, detail="请选择审计类型项目后再实施审计导入。")
+    if project.status not in {"active", "draft"}:
+        raise HTTPException(status_code=400, detail="审计项目不是可实施状态，请先启动或重新打开项目。")
+    link = (
+        db.query(ProjectLedger)
+        .filter(ProjectLedger.project_id == project_id, ProjectLedger.ledger_id == ledger_id)
+        .first()
+    )
+    if not link:
+        raise HTTPException(status_code=400, detail="审计项目尚未绑定当前账簿，请先在账簿管理中完成项目-账簿绑定。")
+
+
+def _ensure_job_project_ledger_context(db: Session, job: ImportJob, user_id: int | None = None) -> None:
+    _ensure_project_ledger_context(
+        db,
+        project_id=job.project_id,
+        ledger_id=job.ledger_id,
+        source_type=job.source_type,
+        audit_scope_type=job.audit_scope_type,
+        user_id=user_id,
+    )
+
+
 def _process_job_background(job_id: int) -> None:
-    """后台任务：处理导入任务"""
+    """后台任务：统一委托 parser-engine 解析最新上传文件。"""
     db = SessionLocal()
     try:
         job = db.get(ImportJob, job_id)
         if job and job.status == "queued":
-            job.status = "processing"
-            db.commit()
-            report = process_import_job(db, job)
-            # 保存报告摘要
-            _import_reports[job_id] = get_import_summary(report)
+            _ensure_job_project_ledger_context(db, job)
+            source_file = get_latest_source_file(db, job_id)
+            if source_file is None:
+                mark_missing_source_file(db, job)
+                return
+            _, summary = parse_source_file_with_unified_engine(db, job, source_file)
+            _import_reports[job_id] = summary
     except Exception as exc:
         try:
             job = db.get(ImportJob, job_id)
-            if job:
+            source_file = get_latest_source_file(db, job_id)
+            if job and source_file:
+                mark_parser_engine_failure(db, job, source_file, str(exc))
+            elif job:
                 job.status = "failed"
                 job.error_message = str(exc)
                 db.commit()
-        except:
+        except Exception:
             pass
     finally:
         db.close()
 
 
 @router.post("", response_model=ImportJobRead)
-def create_job(payload: ImportJobCreate, db: Session = Depends(get_db)) -> ImportJob:
+def create_job(
+    payload: ImportJobCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ImportJob:
     """
     创建导入任务
 
@@ -59,6 +150,14 @@ def create_job(payload: ImportJobCreate, db: Session = Depends(get_db)) -> Impor
     Returns:
         ImportJob: 创建的导入任务
     """
+    _ensure_project_ledger_context(
+        db,
+        project_id=payload.project_id,
+        ledger_id=payload.ledger_id,
+        source_type=payload.source_type,
+        audit_scope_type=payload.audit_scope_type,
+        user_id=current_user.id,
+    )
     return create_import_job(
         db,
         payload.organization_name,
@@ -78,6 +177,7 @@ def update_audit_scope(
     job_id: int,
     payload: AuditScopeUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ImportJob:
     """保存或更新导入任务的审计范围（Step1）。"""
     job = db.get(ImportJob, job_id)
@@ -88,6 +188,15 @@ def update_audit_scope(
         raise HTTPException(status_code=400, detail="按科目审计时必须选择至少一个科目")
     if payload.audit_scope_type == "by_period" and not payload.audit_period_id:
         raise HTTPException(status_code=400, detail="按期间审计时必须选择会计期间")
+
+    _ensure_project_ledger_context(
+        db,
+        project_id=payload.project_id,
+        ledger_id=job.ledger_id,
+        source_type=job.source_type,
+        audit_scope_type=payload.audit_scope_type,
+        user_id=current_user.id,
+    )
 
     job.audit_scope_type = payload.audit_scope_type
     job.audit_period_id = payload.audit_period_id
@@ -172,14 +281,22 @@ def parse_uploaded_file(job_id: int, file_id: int, db: Session = Depends(get_db)
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
+    _ensure_job_project_ledger_context(db, job)
     source_file = db.get(SourceFile, file_id)
     if not source_file or source_file.import_job_id != job_id:
         raise HTTPException(status_code=404, detail="上传文件不存在")
 
-    report = process_import_job(db, job)
-    _import_reports[job_id] = get_import_summary(report)
-    db.refresh(source_file)
-    return _source_file_response(source_file)
+    try:
+        result_dict, summary = parse_source_file_with_unified_engine(db, job, source_file)
+        _import_reports[job.id] = summary
+        return {
+            **_source_file_response(source_file),
+            "parser_engine_result": result_dict,
+            "job_status": job.status,
+        }
+    except Exception as exc:
+        mark_parser_engine_failure(db, job, source_file, str(exc))
+        raise HTTPException(status_code=500, detail=f"统一解析引擎解析失败: {str(exc)}")
 
 
 @router.post("/{job_id}/process", response_model=ImportJobRead)
@@ -187,35 +304,38 @@ def process_job(
     job_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ImportJob:
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
-    
-    if job.status in ["processing", "completed"]:
-        raise HTTPException(status_code=400, detail=f"任务当前状态为 {job.status}，不能重复处理")
-    
-    job.status = "queued"
-    db.commit()
-    db.refresh(job)
-    
-    background_tasks.add_task(_process_job_background, job_id)
-    
+    _ensure_job_project_ledger_context(db, job, current_user.id)
+    source_file = get_latest_source_file(db, job_id)
+    if not source_file:
+        raise HTTPException(status_code=400, detail="导入任务尚未上传文件")
+    try:
+        _, summary = parse_source_file_with_unified_engine(db, job, source_file)
+        _import_reports[job.id] = summary
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"统一解析引擎解析失败: {str(exc)}") from exc
     return job
 
 
 @router.post("/{job_id}/process/sync")
 def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict:
-    """同步处理导入任务（用于调试或小文件），返回导入报告"""
+    """同步处理导入任务，统一委托 parser-engine 通用兼容引擎。"""
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
-    report = process_import_job(db, job)
-    # 保存报告
-    summary = get_import_summary(report)
-    _import_reports[job_id] = summary
-    if report.day_book_report is not None:
-        _day_book_reports[job_id] = report.day_book_report
+    _ensure_job_project_ledger_context(db, job)
+    source_file = get_latest_source_file(db, job_id)
+    if not source_file:
+        raise HTTPException(status_code=400, detail="导入任务尚未上传文件")
+    try:
+        result_dict, summary = parse_source_file_with_unified_engine(db, job, source_file)
+        _import_reports[job.id] = summary
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"统一解析引擎解析失败: {str(exc)}") from exc
     return {
         "job": ImportJobRead.model_validate(job).model_dump(mode="json"),
         "report": summary,
@@ -243,6 +363,11 @@ def get_job_draft(job_id: int, db: Session = Depends(get_db)) -> dict:
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
 
+    draft_data = job.draft_data or {}
+    if job.status == "processing" and not draft_data:
+        if get_latest_source_file(db, job_id) is None:
+            mark_missing_source_file(db, job)
+            draft_data = job.draft_data or {}
     return {
         "job_id": job.id,
         "status": job.status,
@@ -256,7 +381,11 @@ def get_job_draft(job_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/{job_id}/retry")
-def retry_job(job_id: int, db: Session = Depends(get_db)) -> dict:
+def retry_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
     """
     重试导入任务
 
@@ -275,6 +404,7 @@ def retry_job(job_id: int, db: Session = Depends(get_db)) -> dict:
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
+    _ensure_job_project_ledger_context(db, job)
     if job.status != "draft":
         raise HTTPException(status_code=400, detail="只有 draft 状态的任务可以重试")
 

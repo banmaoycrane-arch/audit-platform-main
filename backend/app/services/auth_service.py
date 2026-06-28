@@ -6,6 +6,7 @@ from sqlalchemy import or_
 from app.models.user import User
 from app.core.security import get_password_hash, verify_password
 from app.db.models import Entity, SmsVerificationCode
+from app.models.user_ledger_auth import UserLedgerAuth
 from app.services import ledger_management_service, project_service
 
 
@@ -123,9 +124,9 @@ def set_user_password(db: Session, user: User, password: str) -> User:
 
 def get_auth_context(db: Session, user: User) -> dict:
     """
-    功能描述：汇总用户进入系统前必须确认的团队、账套、项目和会计主体上下文。
-    业务逻辑：用真实团队、账套、项目授权关系判断当前用户是否已完成首次登录引导。
-    会计口径：账套和会计主体决定凭证、报表、审计证据的归属，未确认前不得自动合并历史资料。
+    功能描述：汇总用户进入系统前必须确认的团队、账簿、项目和会计主体上下文。
+    业务逻辑：用真实团队、账簿、项目授权关系判断当前用户是否已完成首次登录引导。
+    会计口径：账簿和会计主体决定凭证、报表、审计证据的归属，未确认前不得自动合并历史资料。
 
     Args:
         db: 数据库会话。
@@ -135,7 +136,7 @@ def get_auth_context(db: Session, user: User) -> dict:
         dict: 用户上下文、缺失绑定项、下一步动作和开发占位边界。
 
     注意事项：
-        1. historical_candidates 仅返回占位结构，不自动认领或并入当前账套。
+        1. historical_candidates 仅返回占位结构，不自动认领或并入当前账簿。
     """
     teams = ledger_management_service.get_teams_by_user(db, user.id)
     ledgers = ledger_management_service.get_ledgers_by_user(db, user.id)
@@ -176,6 +177,24 @@ def get_auth_context(db: Session, user: User) -> dict:
         next_action = "confirm_accounting_entity"
     else:
         next_action = "workspace"
+
+    current_ledger_role = None
+    current_team_type = None
+    can_use_ledger_without_project = False
+    if current_ledger_id:
+        current_ledger = next((ledger for ledger in ledgers if ledger.id == current_ledger_id), None)
+        current_team = next((team for team in teams if current_ledger and team.id == current_ledger.team_id), None)
+        current_auth = (
+            db.query(UserLedgerAuth)
+            .filter(UserLedgerAuth.user_id == user.id, UserLedgerAuth.ledger_id == current_ledger_id)
+            .first()
+        )
+        current_ledger_role = current_auth.role if current_auth else None
+        current_team_type = current_team.type if current_team else None
+        can_use_ledger_without_project = (
+            current_team_type == "enterprise"
+            and current_ledger_role in {"accountant", "admin"}
+        )
 
     return {
         "user": {
@@ -224,6 +243,9 @@ def get_auth_context(db: Session, user: User) -> dict:
             for project in projects
         ],
         "current_ledger_id": current_ledger_id,
+        "current_ledger_role": current_ledger_role,
+        "current_team_type": current_team_type,
+        "can_use_ledger_without_project": can_use_ledger_without_project,
         "missing_bindings": missing_bindings,
         "requires_onboarding": next_action != "workspace",
         "next_action": next_action,

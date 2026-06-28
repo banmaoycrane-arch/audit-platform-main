@@ -16,7 +16,8 @@ type ImportKind = 'voucher' | 'audit_day_book'
 export function Step3ImportEntries() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { currentLedgerId } = useAuthStore()
+  const { currentLedgerId, authContext } = useAuthStore()
+  const canUseLedgerWithoutProject = Boolean(authContext?.can_use_ledger_without_project)
   const urlJobId = Number(searchParams.get('jobId') || 0)
   const currentStep = 2
   const [entries, setEntries] = useState<AccountingEntry[]>([])
@@ -27,6 +28,7 @@ export function Step3ImportEntries() {
   const [reportLoading, setReportLoading] = useState(false)
   const [jobId, setJobId] = useState<number>(urlJobId)
   const [jobSourceType, setJobSourceType] = useState<string | null>(null)
+  const [jobProjectId, setJobProjectId] = useState<number | null>(null)
 
   const refreshEntries = async () => {
     if (!jobId) return
@@ -64,11 +66,18 @@ export function Step3ImportEntries() {
   useEffect(() => {
     if (!jobId) {
       setJobSourceType(null)
+      setJobProjectId(null)
       return
     }
     api.getImportJob(jobId)
-      .then((job) => setJobSourceType(job.source_type))
-      .catch(() => setJobSourceType(null))
+      .then((job) => {
+        setJobSourceType(job.source_type)
+        setJobProjectId(job.project_id ?? null)
+      })
+      .catch(() => {
+        setJobSourceType(null)
+        setJobProjectId(null)
+      })
   }, [jobId])
 
   useEffect(() => {
@@ -84,7 +93,15 @@ export function Step3ImportEntries() {
     if (!currentJobId) {
       if (kind === 'audit_day_book') {
         try {
-          const job = await api.createImportJob('审计项目', 'audit_day_book', currentLedgerId)
+          if (!jobProjectId && !canUseLedgerWithoutProject) {
+            message.warning('未关联项目时请注意资料不可外泄，本次资料将暂按账簿归集。')
+          }
+          const job = await api.createImportJob('审计项目', 'audit_day_book', currentLedgerId, {
+            audit_scope_type: 'all',
+            audit_period_id: null,
+            audit_account_codes: null,
+            project_id: jobProjectId ?? null,
+          })
           currentJobId = job.id
           setJobId(currentJobId)
           setJobSourceType(job.source_type)
@@ -102,11 +119,11 @@ export function Step3ImportEntries() {
     }
     setUploading(true)
     try {
-      await api.uploadFile(currentJobId, file)
+      const sourceFile = await api.uploadFile(currentJobId, file)
       const kindLabel = kind === 'audit_day_book' ? '序时簿' : '凭证'
-      message.success(`${file.name}（${kindLabel}）上传成功，开始解析`)
-      await api.processImportJobSync(currentJobId)
-      message.success('解析完成')
+      message.success(`${file.name}（${kindLabel}）上传成功，开始调用统一解析引擎`)
+      await api.parseSourceFileWithEngine(currentJobId, sourceFile.id)
+      message.success('统一解析引擎解析完成')
       await refreshEntries()
       if (kind === 'audit_day_book') {
         await fetchDayBookReport()

@@ -58,6 +58,7 @@ export function AuditWorkspace() {
   const [risks, setRisks] = useState<AuditRisk[]>([])
   const [jobs, setJobs] = useState<ImportJob[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
+  const [projectLedgerMap, setProjectLedgerMap] = useState<Record<number, number[]>>({})
   const [testReport, setTestReport] = useState<AuditTestReport | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -65,20 +66,31 @@ export function AuditWorkspace() {
     setLoading(true)
     Promise.all([
       api.listProjects(),
-      currentLedgerId ? api.listRisks(undefined, currentLedgerId) : Promise.resolve([]),
-      currentLedgerId ? api.listImportJobs(currentLedgerId) : api.listImportJobs(),
-      currentLedgerId ? api.getDashboardSummary(currentLedgerId) : api.getDashboardSummary(),
+      currentLedgerId ? api.listRisks(undefined, currentLedgerId).catch(() => []) : Promise.resolve([]),
+      currentLedgerId ? api.listImportJobs(currentLedgerId).catch(() => []) : api.listImportJobs().catch(() => []),
+      currentLedgerId ? api.getDashboardSummary(currentLedgerId).catch(() => null) : api.getDashboardSummary().catch(() => null),
     ])
-      .then(([projectList, riskList, jobList]) => {
-        setProjects(projectList)
+      .then(async ([projectList, riskList, jobList]) => {
+        const ledgerPairs = await Promise.all(
+          projectList.map(async (project) => [project.id, (await api.listProjectLedgers(project.id)).map((ledger) => ledger.id)] as const)
+        )
+        const ledgerMap = Object.fromEntries(ledgerPairs)
+        const boundProjectList = currentLedgerId
+          ? projectList.filter((project) => (ledgerMap[project.id] || []).includes(currentLedgerId))
+          : projectList
+        setProjectLedgerMap(ledgerMap)
+        setProjects(boundProjectList.length ? boundProjectList : projectList)
         setRisks(riskList)
         setJobs(jobList)
-        if (projectList.length > 0) {
+        if (boundProjectList.length > 0) {
+          setSelectedProjectId(boundProjectList[0].id)
+        } else if (projectList.length > 0) {
           setSelectedProjectId(projectList[0].id)
         }
       })
       .catch(() => {
         setProjects([])
+        setProjectLedgerMap({})
         setRisks([])
         setJobs([])
       })
@@ -103,6 +115,9 @@ export function AuditWorkspace() {
     : risks.filter((r) => r.status === 'pending_review').length
   const currentStep = deriveCurrentStep(latestJob, testReport, risks.length)
   const selectedProject = projects.find((p) => p.id === selectedProjectId)
+  const selectedProjectBoundToCurrentLedger = Boolean(
+    selectedProject && currentLedgerId && (projectLedgerMap[selectedProject.id] || []).includes(currentLedgerId)
+  )
 
   const testProgressData = useMemo(() => {
     if (!testReport) {
@@ -162,11 +177,19 @@ export function AuditWorkspace() {
                 onChange={setSelectedProjectId}
                 style={{ width: 220 }}
                 placeholder="选择审计项目"
-                options={projects.map((p) => ({ value: p.id, label: p.name }))}
+                options={projects.map((p) => {
+                  const bound = Boolean(currentLedgerId && (projectLedgerMap[p.id] || []).includes(currentLedgerId))
+                  return { value: p.id, label: `${p.name}${currentLedgerId ? (bound ? '（已绑定当前账簿）' : '（未绑定当前账簿）') : ''}` }
+                })}
               />
               {selectedProject && (
-                <Tag icon={<ClockCircleOutlined />} color="processing">
+                <Tag icon={<ClockCircleOutlined />} color={selectedProject.status === 'completed' ? 'success' : 'processing'}>
                   {selectedProject.status === 'completed' ? '已完成' : '进行中'}
+                </Tag>
+              )}
+              {selectedProject && currentLedgerId && (
+                <Tag color={selectedProjectBoundToCurrentLedger ? 'green' : 'orange'}>
+                  {selectedProjectBoundToCurrentLedger ? '已绑定当前账簿' : '未绑定当前账簿'}
                 </Tag>
               )}
             </Space>

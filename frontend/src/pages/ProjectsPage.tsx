@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Typography, Button, Space, Tag, message, Row, Col, Statistic, Modal, Input, Empty, Dropdown, Form, Select } from 'antd'
+import { Card, Typography, Button, Space, Tag, message, Row, Col, Statistic, Modal, Input, Empty, Dropdown, Form, Select, Alert } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import {
   PlusOutlined,
@@ -15,7 +15,8 @@ import {
   UserOutlined,
   DollarOutlined,
 } from '@ant-design/icons'
-import { api, type Team } from '../api/client'
+import { api, type Ledger, type Team } from '../api/client'
+import { useAuthStore } from '../stores/authStore'
 
 const { Title, Paragraph, Text } = Typography
 
@@ -61,6 +62,7 @@ const statusFilters = [
 
 export function ProjectsPage() {
   const navigate = useNavigate()
+  const { refreshAuthContext } = useAuthStore()
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<number, boolean>>({})
@@ -73,17 +75,28 @@ export function ProjectsPage() {
   }>({ open: false, projectId: null, action: '', title: '' })
   const [reason, setReason] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [teams, setTeams] = useState<Team[]>([])
+  const [ledgers, setLedgers] = useState<Ledger[]>([])
+  const [projectLedgerMap, setProjectLedgerMap] = useState<Record<number, number[]>>({})
   const [createForm] = Form.useForm()
+  const [editForm] = Form.useForm()
 
   const filteredProjects = statusFilter === 'all' ? projects : projects.filter(p => p.status === statusFilter)
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([api.listProjects(), api.listTeams()])
-      .then(([projectRes, teamRes]) => {
+    Promise.all([api.listProjects(), api.listTeams(), api.listLedgers()])
+      .then(async ([projectRes, teamRes, ledgerRes]) => {
+        const ledgerPairs = await Promise.all(
+          projectRes.map(async (project) => [project.id, (await api.listProjectLedgers(project.id)).map((ledger) => ledger.id)] as const)
+        )
+        const ledgerMap = Object.fromEntries(ledgerPairs)
         setProjects(projectRes)
         setTeams(teamRes)
+        setLedgers(ledgerRes)
+        setProjectLedgerMap(ledgerMap)
       })
       .catch(() => {
         message.error('加载项目列表失败')
@@ -94,6 +107,7 @@ export function ProjectsPage() {
   const handleCreateProject = async () => {
     const values = await createForm.validateFields()
     try {
+      const selectedLedgerIds = values.ledger_ids || []
       const created = await api.createProject({
         team_id: values.team_id,
         name: values.name,
@@ -102,12 +116,65 @@ export function ProjectsPage() {
         start_date: values.start_date || null,
         end_date: values.end_date || null,
       })
+      await Promise.all(selectedLedgerIds.map((ledgerId: number) => api.associateProjectLedger(created.id, ledgerId)))
       setProjects((prev) => [created, ...prev])
-      message.success('项目创建成功')
+      setProjectLedgerMap((prev) => ({ ...prev, [created.id]: selectedLedgerIds }))
+      await refreshAuthContext()
+      message.success(selectedLedgerIds.length ? '项目创建并绑定账簿成功' : '项目创建成功')
       setCreateOpen(false)
       createForm.resetFields()
     } catch (error: any) {
       message.error(error.message || '项目创建失败')
+    }
+  }
+
+  const openEditProject = (project: Project) => {
+    setEditingProject(project)
+    editForm.setFieldsValue({
+      team_id: project.team_id,
+      name: project.name,
+      project_type: project.type || 'audit',
+      status: project.status,
+      start_date: project.start_date || undefined,
+      end_date: project.end_date || undefined,
+      ledger_ids: projectLedgerMap[project.id] || [],
+    })
+    setEditOpen(true)
+  }
+
+  const syncProjectLedgers = async (projectId: number, nextLedgerIds: number[]) => {
+    const previousLedgerIds = projectLedgerMap[projectId] || []
+    const toAdd = nextLedgerIds.filter((id) => !previousLedgerIds.includes(id))
+    const toRemove = previousLedgerIds.filter((id) => !nextLedgerIds.includes(id))
+    await Promise.all([
+      ...toAdd.map((ledgerId) => api.associateProjectLedger(projectId, ledgerId)),
+      ...toRemove.map((ledgerId) => api.removeProjectLedger(projectId, ledgerId)),
+    ])
+    setProjectLedgerMap((prev) => ({ ...prev, [projectId]: nextLedgerIds }))
+  }
+
+  const handleUpdateProject = async () => {
+    if (!editingProject) return
+    const values = await editForm.validateFields()
+    try {
+      const selectedLedgerIds = values.ledger_ids || []
+      const updated = await api.updateProject(editingProject.id, {
+        team_id: values.team_id,
+        name: values.name,
+        project_type: values.project_type,
+        status: values.status,
+        start_date: values.start_date || null,
+        end_date: values.end_date || null,
+      })
+      await syncProjectLedgers(editingProject.id, selectedLedgerIds)
+      setProjects((prev) => prev.map((project) => project.id === updated.id ? updated : project))
+      await refreshAuthContext()
+      message.success('项目已更新')
+      setEditOpen(false)
+      setEditingProject(null)
+      editForm.resetFields()
+    } catch (error: any) {
+      message.error(error.message || '项目更新失败')
     }
   }
 
@@ -183,10 +250,11 @@ export function ProjectsPage() {
     const statusConfig = statusMap[project.status] || statusMap.draft
     const actions = getAvailableActions(project.status)
     const teamName = teams.find((team) => team.id === project.team_id)?.name
+    const linkedLedgers = ledgers.filter((ledger) => (projectLedgerMap[project.id] || []).includes(ledger.id))
     
     const menuItems = [
-      { key: 'view', label: '查看项目', onClick: () => message.info(`查看项目 ${project.name}`) },
-      { key: 'edit', label: '编辑项目', onClick: () => message.info(`编辑项目 ${project.name}`) },
+      { key: 'view', label: '查看项目', onClick: () => openEditProject(project) },
+      { key: 'edit', label: '编辑项目', onClick: () => openEditProject(project) },
       ...actions.map(action => ({
         key: action,
         label: actionButtonMap[action]?.label || action,
@@ -237,6 +305,10 @@ export function ProjectsPage() {
               {project.manager}
             </div>
           )}
+          <div>
+            <ProjectOutlined style={{ marginRight: 4 }} />
+            绑定账簿：{linkedLedgers.length ? linkedLedgers.map((ledger) => ledger.name).join('、') : '未绑定'}
+          </div>
           {project.budget != null && (
             <div>
               <DollarOutlined style={{ marginRight: 4 }} />
@@ -344,7 +416,7 @@ export function ProjectsPage() {
         okText="创建"
         cancelText="取消"
       >
-        <Form form={createForm} layout="vertical" initialValues={{ project_type: 'audit' }}>
+        <Form form={createForm} layout="vertical" initialValues={{ project_type: 'audit', ledger_ids: [] }}>
           <Form.Item name="team_id" label="所属团队" rules={[{ required: true, message: '请选择团队' }]}>
             <Select
               options={teams.map((team) => ({ value: team.id, label: team.name }))}
@@ -363,6 +435,85 @@ export function ProjectsPage() {
               ]}
             />
           </Form.Item>
+          <Form.Item name="ledger_ids" label="绑定账簿">
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder={ledgers.length ? '请选择项目要绑定的账簿' : '暂无可绑定账簿'}
+              options={ledgers.map((ledger) => ({ value: ledger.id, label: ledger.name }))}
+            />
+          </Form.Item>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="项目绑定账簿后，审计工作台和解析资料会按项目范围归集。"
+          />
+          <Form.Item name="start_date" label="开始日期">
+            <Input placeholder="2026-01-01" />
+          </Form.Item>
+          <Form.Item name="end_date" label="结束日期">
+            <Input placeholder="2026-12-31" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={editingProject ? `编辑项目：${editingProject.name}` : '编辑项目'}
+        open={editOpen}
+        onOk={handleUpdateProject}
+        onCancel={() => {
+          setEditOpen(false)
+          setEditingProject(null)
+          editForm.resetFields()
+        }}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={editForm} layout="vertical">
+          <Form.Item name="team_id" label="所属团队" rules={[{ required: true, message: '请选择团队' }]}> 
+            <Select
+              options={teams.map((team) => ({ value: team.id, label: team.name }))}
+              placeholder={teams.length ? '请选择团队' : '请先在团队管理中创建团队'}
+            />
+          </Form.Item>
+          <Form.Item name="name" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}> 
+            <Input placeholder="例如：XX公司2026年度审计" />
+          </Form.Item>
+          <Form.Item name="project_type" label="项目类型">
+            <Select
+              options={[
+                { value: 'audit', label: '审计项目' },
+                { value: 'accounting', label: '核算项目' },
+                { value: 'tax', label: '税务项目' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="status" label="项目状态">
+            <Select
+              options={[
+                { value: 'active', label: '进行中' },
+                { value: 'draft', label: '草稿' },
+                { value: 'paused', label: '已暂停' },
+                { value: 'completed', label: '已完成' },
+                { value: 'cancelled', label: '已取消' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="ledger_ids" label="绑定账簿">
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder={ledgers.length ? '请选择项目要绑定的账簿' : '暂无可绑定账簿'}
+              options={ledgers.map((ledger) => ({ value: ledger.id, label: ledger.name }))}
+            />
+          </Form.Item>
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="调整项目账簿绑定会影响审计工作台下拉清单和后续资料归集范围。"
+          />
           <Form.Item name="start_date" label="开始日期">
             <Input placeholder="2026-01-01" />
           </Form.Item>

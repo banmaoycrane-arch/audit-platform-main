@@ -1,4 +1,4 @@
-import { Card, Radio, Button, Steps, Typography, Select, Space, message, Spin } from 'antd'
+import { Card, Radio, Button, Steps, Typography, Select, Space, message, Spin, Alert } from 'antd'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { FlowNav } from '../../components/FlowNav'
@@ -13,7 +13,8 @@ type ScopeType = AuditScopePayload['audit_scope_type']
 export function Step1SelectScope() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { currentLedgerId } = useAuthStore()
+  const { currentLedgerId, authContext } = useAuthStore()
+  const canUseLedgerWithoutProject = Boolean(authContext?.can_use_ledger_without_project)
   const existingJobId = Number(searchParams.get('jobId') || 0) || null
 
   const [scopeType, setScopeType] = useState<ScopeType | undefined>(undefined)
@@ -21,6 +22,7 @@ export function Step1SelectScope() {
   const [selectedAccountCodes, setSelectedAccountCodes] = useState<string[]>([])
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | undefined>(undefined)
   const [projects, setProjects] = useState<Project[]>([])
+  const [projectLedgers, setProjectLedgers] = useState<Record<number, number[]>>({})
   const [periods, setPeriods] = useState<AccountingPeriod[]>([])
   const [accounts, setAccounts] = useState<ChartOfAccount[]>([])
   const [loading, setLoading] = useState(true)
@@ -39,6 +41,24 @@ export function Step1SelectScope() {
         ])
         if (cancelled) return
         setProjects(projectList)
+        const ledgerPairs = await Promise.all(
+          projectList
+            .filter(project => project.type === 'audit' && project.status === 'active')
+            .map(async project => [project.id, (await api.listProjectLedgers(project.id)).map(ledger => ledger.id)] as const)
+        )
+        if (cancelled) return
+        const ledgerMap = Object.fromEntries(ledgerPairs) as Record<number, number[]>
+        setProjectLedgers(ledgerMap)
+        setProjectId(current => {
+          if (current) return current
+          const defaultProject = projectList.find(project =>
+            project.type === 'audit' &&
+            project.status === 'active' &&
+            currentLedgerId != null &&
+            ledgerMap[project.id]?.includes(currentLedgerId)
+          )
+          return defaultProject?.id
+        })
         setPeriods(periodList)
         setAccounts(accountList.filter(item => item.is_terminal && item.status === 'active'))
       } catch (error) {
@@ -56,7 +76,15 @@ export function Step1SelectScope() {
     }
   }, [currentLedgerId])
 
+  const auditProjectOptions = projects.filter(project =>
+    project.type === 'audit' &&
+    project.status === 'active' &&
+    currentLedgerId != null &&
+    projectLedgers[project.id]?.includes(currentLedgerId)
+  )
+
   const buildScopePayload = (): AuditScopePayload | null => {
+    if (!canUseLedgerWithoutProject && !projectId) return null
     if (!scopeType) return null
     if (scopeType === 'by_account' && selectedAccountCodes.length === 0) return null
     if (scopeType === 'by_period' && !selectedPeriodId) return null
@@ -71,7 +99,7 @@ export function Step1SelectScope() {
   const handleNext = async () => {
     const scopePayload = buildScopePayload()
     if (!scopePayload) {
-      message.warning('请完整选择审计范围')
+      message.warning(canUseLedgerWithoutProject ? '请完整选择审计范围' : '请先选择已绑定当前账簿的审计项目，并完整选择审计范围')
       return
     }
 
@@ -94,6 +122,7 @@ export function Step1SelectScope() {
   }
 
   const nextDisabled =
+    (!canUseLedgerWithoutProject && !projectId) ||
     !scopeType ||
     (scopeType === 'by_account' && selectedAccountCodes.length === 0) ||
     (scopeType === 'by_period' && !selectedPeriodId)
@@ -125,14 +154,66 @@ export function Step1SelectScope() {
       <Spin spinning={loading}>
         <Card style={{ marginBottom: '24px' }}>
           <Space direction="vertical" style={{ width: '100%', marginBottom: '16px' }}>
-            <Typography.Text type="secondary">关联项目（可选）</Typography.Text>
+            <Typography.Text type="secondary">
+              {canUseLedgerWithoutProject ? '关联项目（可选，企业会计可直接按当前账簿归集资料）' : '关联项目（必选，且项目必须已绑定当前账簿）'}
+            </Typography.Text>
+            {canUseLedgerWithoutProject && (
+              <Alert
+                type="info"
+                showIcon
+                message="企业内部会计模式"
+                description="当前用户可直接基于账簿处理财务总账和企业内部审计资料；如属于专项审计项目，也可以选择已绑定项目。"
+              />
+            )}
+            {currentLedgerId == null && (
+              <Alert
+                type="warning"
+                showIcon
+                message="请先选择账簿"
+                description="审计项目实施前必须有明确账簿。请到用户设置申请账簿访问，或到账簿管理选择/创建账簿。"
+                action={(
+                  <Space wrap>
+                    <Button size="small" type="primary" onClick={() => navigate('/user-settings?focus=binding')}>申请账簿绑定</Button>
+                    <Button size="small" onClick={() => navigate('/ledger-management')}>账簿管理</Button>
+                  </Space>
+                )}
+              />
+            )}
+            {currentLedgerId != null && !canUseLedgerWithoutProject && !projectId && (
+              <Alert
+                type="warning"
+                showIcon
+                message="未关联项目时请注意资料不可外泄"
+                description="当前资料会暂按账簿归集，不进入项目底稿范围；涉及客户、项目组或外部服务资料时，请先绑定项目，避免资料外泄或串项目使用。"
+                action={(
+                  <Space wrap>
+                    <Button size="small" type="primary" onClick={() => navigate('/user-settings?focus=binding')}>申请项目绑定</Button>
+                    <Button size="small" onClick={() => navigate('/projects')}>项目管理</Button>
+                  </Space>
+                )}
+              />
+            )}
+            {currentLedgerId != null && !canUseLedgerWithoutProject && auditProjectOptions.length === 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                message="当前账簿尚未绑定可实施的审计项目"
+                description="请先在用户设置申请参与项目，或到项目管理创建/维护项目并完成项目-账簿绑定。"
+                action={(
+                  <Space wrap>
+                    <Button size="small" type="primary" onClick={() => navigate('/user-settings?focus=binding')}>申请项目绑定</Button>
+                    <Button size="small" onClick={() => navigate('/projects')}>项目管理</Button>
+                  </Space>
+                )}
+              />
+            )}
             <Select
               allowClear
-              placeholder="选择审计项目"
+              placeholder={canUseLedgerWithoutProject ? '可选：选择已绑定当前账簿的审计项目' : '建议选择已绑定当前账簿的审计项目'}
               style={{ width: '100%' }}
               value={projectId}
               onChange={value => setProjectId(value)}
-              options={projects.map(project => ({
+              options={auditProjectOptions.map(project => ({
                 value: project.id,
                 label: project.name,
               }))}

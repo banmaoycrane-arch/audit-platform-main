@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 模块功能：项目管理数据库操作服务
-业务场景：创建项目、关联账套、分配人员、查询项目列表
+业务场景：创建项目、关联账簿、分配人员、查询项目列表
 政策依据：会计师事务所质量控制准则——项目立项、范围界定与人员分派
-输入数据：项目信息、账套ID列表、用户ID与角色
+输入数据：项目信息、账簿ID列表、用户ID与角色
 输出结果：项目记录、关联记录、成员记录
 创建日期：2026-06-18
 更新记录：
@@ -31,7 +31,7 @@ def create_project(
     """
     创建新项目。
 
-    业务逻辑：在指定团队下创建项目，用于归集账套与人员
+    业务逻辑：在指定团队下创建项目，用于归集账簿与人员
     会计口径：项目对应审计或核算任务，需明确范围与负责人
 
     Args:
@@ -86,6 +86,52 @@ def get_project_by_id(db: Session, project_id: int) -> Project | None:
     )
 
 
+def update_project(
+    db: Session,
+    project_id: int,
+    *,
+    team_id: int | None = None,
+    name: str | None = None,
+    project_type: str | None = None,
+    status: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    manager_id: int | None = None,
+) -> Project | None:
+    from datetime import date
+
+    project = get_project_by_id(db, project_id)
+    if not project:
+        return None
+    if team_id is not None:
+        project.team_id = team_id
+    if name is not None:
+        project.name = name
+    if project_type is not None:
+        project.type = project_type
+    if status is not None:
+        project.status = status
+    if start_date is not None:
+        project.start_date = date.fromisoformat(start_date) if start_date else None
+    if end_date is not None:
+        project.end_date = date.fromisoformat(end_date) if end_date else None
+    if manager_id is not None:
+        project.manager_id = manager_id
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+def remove_ledger_from_project(db: Session, project_id: int, ledger_id: int) -> int:
+    deleted = (
+        db.query(ProjectLedger)
+        .filter(ProjectLedger.project_id == project_id, ProjectLedger.ledger_id == ledger_id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return deleted
+
+
 def list_projects_by_team(db: Session, team_id: int) -> list[Project]:
     """
     获取指定团队的项目列表。
@@ -125,20 +171,20 @@ def list_projects_by_user(db: Session, user_id: int) -> list[Project]:
 
 def associate_ledger_to_project(db: Session, project_id: int, ledger_id: int) -> ProjectLedger:
     """
-    关联账套到项目。
+    关联账簿到项目。
 
     业务逻辑：在 project_ledgers 表中新增关联记录
     会计口径：明确项目审计/核算范围，防止遗漏或越界
 
     Args:
         project_id: 项目ID
-        ledger_id: 账套ID
+        ledger_id: 账簿ID
 
     Returns:
         ProjectLedger: 关联记录
 
     注意事项：
-        1. 同一账套重复关联时，返回已有记录
+        1. 同一账簿重复关联时，返回已有记录
     """
     existing = (
         db.query(ProjectLedger)
@@ -204,13 +250,13 @@ def get_team_by_id(db: Session, team_id: int) -> Team | None:
 
 def get_ledger_by_id(db: Session, ledger_id: int) -> Ledger | None:
     """
-    根据ID获取账套。
+    根据ID获取账簿。
 
     Args:
-        ledger_id: 账套ID
+        ledger_id: 账簿ID
 
     Returns:
-        Ledger | None: 账套对象或 None
+        Ledger | None: 账簿对象或 None
     """
     return db.query(Ledger).filter(Ledger.id == ledger_id).first()
 
@@ -374,14 +420,14 @@ def cancel_project(db: Session, project_id: int, reason: str | None = None) -> P
 
 def get_project_ledgers(db: Session, project_id: int) -> list[Ledger]:
     """
-    获取项目关联的所有账套。
+    获取项目关联的所有账簿。
 
     Args:
         db: 数据库会话
         project_id: 项目ID
 
     Returns:
-        list[Ledger]: 账套列表
+        list[Ledger]: 账簿列表
     """
     project = get_project_by_id(db, project_id)
     if not project:
@@ -391,16 +437,16 @@ def get_project_ledgers(db: Session, project_id: int) -> list[Ledger]:
 
 def get_consolidated_report(db: Session, project_id: int, period_start: str | None = None, period_end: str | None = None) -> dict:
     """
-    获取项目跨账套汇总数据。
+    获取项目跨账簿汇总数据。
 
     功能描述：
-        1. 获取项目关联的所有账套
-        2. 汇总各账套的会计分录数据
+        1. 获取项目关联的所有账簿
+        2. 汇总各账簿的会计分录数据
         3. 按科目分类汇总借贷方发生额
         4. 识别潜在的内部交易
 
     会计口径：
-        - 跨账套数据汇总用于集团层面的分析
+        - 跨账簿数据汇总用于集团层面的分析
         - 内部交易识别基于往来单位+金额+日期的匹配
 
     Args:
@@ -452,7 +498,7 @@ def get_consolidated_report(db: Session, project_id: int, period_start: str | No
 
     entries = query.all()
 
-    # 按账套分组汇总
+    # 按账簿分组汇总
     by_ledger = {}
     for ledger in ledgers:
         ledger_entries = [e for e in entries if e.ledger_id == ledger.id]

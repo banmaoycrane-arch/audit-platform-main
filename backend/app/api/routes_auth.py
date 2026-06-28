@@ -61,6 +61,9 @@ class AuthContextResponse(BaseModel):
     ledgers: list[dict]
     projects: list[dict]
     current_ledger_id: int | None
+    current_ledger_role: str | None = None
+    current_team_type: str | None = None
+    can_use_ledger_without_project: bool = False
     missing_bindings: list[str]
     requires_onboarding: bool
     next_action: str

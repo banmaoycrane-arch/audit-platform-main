@@ -452,6 +452,9 @@ export type AuthContext = {
   ledgers: Ledger[]
   projects: Project[]
   current_ledger_id: number | null
+  current_ledger_role?: string | null
+  current_team_type?: string | null
+  can_use_ledger_without_project?: boolean
   missing_bindings: string[]
   requires_onboarding: boolean
   next_action: 'create_team' | 'select_or_create_ledger' | 'select_or_create_project' | 'confirm_accounting_entity' | 'workspace'
@@ -1369,8 +1372,10 @@ export const api = {
     }
     return request<SourceFileRead>(`/api/import-jobs/${jobId}/files`, { method: 'POST', body: form })
   },
-  parseUploadedFile: (jobId: number, fileId: number) =>
+  parseSourceFileWithEngine: (jobId: number, fileId: number) =>
     request<SourceFileRead>(`/api/import-jobs/${jobId}/files/${fileId}/parse`, { method: 'POST' }),
+  parseUploadedFile: (jobId: number, fileId: number) =>
+    api.parseSourceFileWithEngine(jobId, fileId),
   listImportFiles: (jobId: number) => request<SourceFileRead[]>(`/api/import-jobs/${jobId}/files`),
   processImportJob: (jobId: number) => request<ImportJob>(`/api/import-jobs/${jobId}/process`, { method: 'POST' }),
   processImportJobSync: (jobId: number) =>
@@ -1754,6 +1759,12 @@ export const api = {
   },
   listProjects: () => request<Project[]>('/api/projects'),
   listProjectLedgers: (projectId: number) => request<{ id: number; name: string }[]>(`/api/projects/${projectId}/ledgers`),
+  associateProjectLedger: (projectId: number, ledgerId: number) =>
+    request<{ id: number; project_id: number; ledger_id: number }>(`/api/projects/${projectId}/ledgers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ledger_id: ledgerId }),
+    }),
   createProject: (payload: {
     team_id: number
     name: string
@@ -1769,11 +1780,15 @@ export const api = {
       body: JSON.stringify(payload)
     }),
   getProject: (id: number) => request<Project>(`/api/projects/${id}`),
-  updateProject: (id: number, payload: Partial<Project>) =>
+  updateProject: (id: number, payload: Partial<Project> & { project_type?: string }) =>
     request<Project>(`/api/projects/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
+    }),
+  removeProjectLedger: (projectId: number, ledgerId: number) =>
+    request<{ deleted: number; project_id: number; ledger_id: number }>(`/api/projects/${projectId}/ledgers/${ledgerId}`, {
+      method: 'DELETE',
     }),
   deleteProject: (id: number) =>
     request<{ deleted: number }>(`/api/projects/${id}`, { method: 'DELETE' }),

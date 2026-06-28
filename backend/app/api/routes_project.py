@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 模块功能：项目管理 API 路由
-业务场景：前端调用创建项目、关联账套、分配人员、查询项目列表
+业务场景：前端调用创建项目、关联账簿、分配人员、查询项目列表
 政策依据：会计师事务所质量控制准则——项目立项与人员分派
 输入数据：HTTP 请求（JSON 或路径参数）
 输出结果：项目 JSON 数据
@@ -32,8 +32,19 @@ class CreateProjectRequest(BaseModel):
     manager_id: int | None = None
 
 
+class UpdateProjectRequest(BaseModel):
+    """更新项目请求体"""
+    team_id: int | None = None
+    name: str | None = None
+    project_type: str | None = None
+    status: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    manager_id: int | None = None
+
+
 class AssociateLedgerRequest(BaseModel):
-    """关联账套请求体"""
+    """关联账簿请求体"""
     ledger_id: int
 
 
@@ -73,7 +84,7 @@ class ProjectMemberResponse(BaseModel):
 
 
 class ProjectLedgerResponse(BaseModel):
-    """项目账套关联响应体"""
+    """项目账簿关联响应体"""
     id: int
     project_id: int
     ledger_id: int
@@ -164,6 +175,52 @@ def list_projects(
     ]
 
 
+@router.patch("/{project_id}", response_model=ProjectResponse)
+def update_project(
+    project_id: int,
+    payload: UpdateProjectRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProjectResponse:
+    """
+    更新项目信息。
+
+    支持部分更新项目名称、类型、状态、起止日期、负责人等字段。
+    """
+    project = project_service.get_project_by_id(db, project_id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+
+    update_data = payload.model_dump(exclude_unset=True)
+
+    if "team_id" in update_data and update_data["team_id"] is not None:
+        team = project_service.get_team_by_id(db, update_data["team_id"])
+        if not team:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="团队不存在")
+
+    if "manager_id" in update_data and update_data["manager_id"] is not None:
+        manager = project_service.get_user_by_id(db, update_data["manager_id"])
+        if not manager:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="负责人不存在")
+
+    updated = project_service.update_project(db, project_id, **update_data)
+    return ProjectResponse(
+        id=updated.id,
+        name=updated.name,
+        team_id=updated.team_id,
+        type=updated.type,
+        status=updated.status,
+        completed_at=str(updated.completed_at) if updated.completed_at else None,
+        cancelled_at=str(updated.cancelled_at) if updated.cancelled_at else None,
+        lifecycle_reason=updated.lifecycle_reason,
+        start_date=str(updated.start_date) if updated.start_date else None,
+        end_date=str(updated.end_date) if updated.end_date else None,
+        manager_id=updated.manager_id,
+        created_at=str(updated.created_at) if updated.created_at else None,
+        updated_at=str(updated.updated_at) if updated.updated_at else None,
+    )
+
+
 @router.get("/{project_id}/ledgers", response_model=list[dict])
 def list_project_ledgers(
     project_id: int,
@@ -171,7 +228,7 @@ def list_project_ledgers(
     current_user: User = Depends(get_current_user),
 ) -> list[dict]:
     """
-    查询项目关联的账套列表。
+    查询项目关联的账簿列表。
     """
     project = project_service.get_project_by_id(db, project_id)
     if not project:
@@ -192,7 +249,7 @@ def associate_ledger(
     current_user: User = Depends(get_current_user),
 ) -> ProjectLedgerResponse:
     """
-    关联账套到项目。
+    关联账簿到项目。
 
     需要 ledger_id。
     """
@@ -202,7 +259,7 @@ def associate_ledger(
 
     ledger = project_service.get_ledger_by_id(db, payload.ledger_id)
     if not ledger:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="账簿不存在")
 
     link = project_service.associate_ledger_to_project(db, project_id, payload.ledger_id)
     return ProjectLedgerResponse(
@@ -210,6 +267,23 @@ def associate_ledger(
         project_id=link.project_id,
         ledger_id=link.ledger_id,
     )
+
+
+@router.delete("/{project_id}/ledgers/{ledger_id}")
+def remove_ledger(
+    project_id: int,
+    ledger_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    解除项目与账簿关联。
+    """
+    project = project_service.get_project_by_id(db, project_id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+    deleted = project_service.remove_ledger_from_project(db, project_id, ledger_id)
+    return {"deleted": deleted, "project_id": project_id, "ledger_id": ledger_id}
 
 
 @router.post("/{project_id}/members", response_model=ProjectMemberResponse)
@@ -422,16 +496,16 @@ def get_consolidated_report(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """
-    获取项目跨账套汇总报告。
+    获取项目跨账簿汇总报告。
 
     功能描述：
-        1. 获取项目关联的所有账套
-        2. 汇总各账套的会计分录数据
+        1. 获取项目关联的所有账簿
+        2. 汇总各账簿的会计分录数据
         3. 按科目分类汇总借贷方发生额
         4. 识别潜在的内部交易
 
     会计口径：
-        - 跨账套数据汇总用于集团层面的分析
+        - 跨账簿数据汇总用于集团层面的分析
         - 仅汇总 entry_source='auto' 的分录
 
     Args:
@@ -440,7 +514,7 @@ def get_consolidated_report(
         period_end: 可选，汇总结束日期 (YYYY-MM-DD)
 
     Returns:
-        dict: 包含汇总数据、项目账套列表、科目发生额汇总、内部交易识别
+        dict: 包含汇总数据、项目账簿列表、科目发生额汇总、内部交易识别
     """
     return project_service.get_consolidated_report(db, project_id, period_start, period_end)
 

@@ -22,6 +22,10 @@ interface AuthContextState {
   temporary_status: 'onboarding_pending' | 'ready'
   next_action: string
   teams: Array<{ id: number; name: string }>
+  projects: Array<{ id: number; name: string; team_id?: number; status?: string; type?: string }>
+  current_ledger_role?: string | null
+  current_team_type?: string | null
+  can_use_ledger_without_project?: boolean
 }
 
 interface AuthState {
@@ -102,6 +106,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       temporary_status: context.temporary_status,
       next_action: context.next_action,
       teams: context.teams.map((team) => ({ id: team.id, name: team.name })),
+      projects: context.projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        team_id: project.team_id,
+        status: project.status,
+        type: project.type,
+      })),
+      current_ledger_role: context.current_ledger_role,
+      current_team_type: context.current_team_type,
+      can_use_ledger_without_project: context.can_use_ledger_without_project,
     })
     if (nextLedgerId !== null) {
       localStorage.setItem('current_ledger_id', String(nextLedgerId))
