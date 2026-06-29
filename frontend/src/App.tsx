@@ -66,6 +66,7 @@ import { ParserEngineManagementPage } from './pages/ParserEngineManagementPage'
 import { ParserEngineConfigPage } from './pages/ParserEngineConfigPage'
 import { UserSettingsPage } from './pages/UserSettingsPage'
 import { SuperAdminPage } from './pages/SuperAdminPage'
+import { GeneralLedgerPage, SubsidiaryLedgerPage } from './pages/Ledger/LedgerBookPages'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -204,26 +205,8 @@ function AppRoutes() {
         <Route path="/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
         <Route path="/ledger/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
         <Route path="/ledger/books" element={<LedgerDataGuard><LedgerBooksPage /></LedgerDataGuard>} />
-        <Route
-          path="/ledger/general-ledger"
-          element={(
-            <PlaceholderModulePage
-              title="总账"
-              description="总账按会计科目汇总借贷发生额和余额，是试算平衡、财务报表和审计分析的核心数据来源。"
-              items={['科目期初余额', '本期借贷发生额', '期末余额与报表取数']}
-            />
-          )}
-        />
-        <Route
-          path="/ledger/subsidiary-ledger"
-          element={(
-            <PlaceholderModulePage
-              title="明细账"
-              description="明细账展示每个科目的分录流水，便于追查凭证、往来单位、银行流水和业务单据之间的勾稽关系。"
-              items={['按科目查看流水', '按往来单位筛选', '追溯凭证与附件']}
-            />
-          )}
-        />
+        <Route path="/ledger/general-ledger" element={<LedgerDataGuard><GeneralLedgerPage /></LedgerDataGuard>} />
+        <Route path="/ledger/subsidiary-ledger" element={<LedgerDataGuard><SubsidiaryLedgerPage /></LedgerDataGuard>} />
         <Route path="/risks" element={<RisksPageRoute />} />
         <Route path="/periods" element={<AccountingPeriodsPage />} />
         <Route path="/accounting-periods" element={<AccountingPeriodsPage />} />

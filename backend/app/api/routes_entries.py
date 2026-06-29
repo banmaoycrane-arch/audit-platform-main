@@ -1,5 +1,5 @@
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -86,6 +86,38 @@ class VoucherQueryResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class EntryFieldUpdate(BaseModel):
+    voucher_no: str | None = None
+    voucher_date: date | None = None
+    summary: str | None = None
+    account_code: str | None = None
+    account_name: str | None = None
+    debit_amount: Decimal | None = None
+    credit_amount: Decimal | None = None
+    counterparty: str | None = None
+
+
+def _normalize_money(value: Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        amount = Decimal(str(value)).quantize(Decimal("0.00"))
+    except (InvalidOperation, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="金额格式不正确") from exc
+    if amount < 0:
+        raise HTTPException(status_code=400, detail="借方或贷方金额不能为负数")
+    return amount
+
+
+def _validate_entry_amounts(debit_amount: Decimal | None, credit_amount: Decimal | None) -> None:
+    debit = debit_amount or Decimal("0.00")
+    credit = credit_amount or Decimal("0.00")
+    if debit > 0 and credit > 0:
+        raise HTTPException(status_code=400, detail="同一分录不能同时填写借方和贷方金额")
+    if debit == 0 and credit == 0:
+        raise HTTPException(status_code=400, detail="分录至少需要填写借方或贷方金额")
 
 
 def _tag_to_dict(tag: EntryTag) -> dict:
@@ -298,6 +330,46 @@ def list_voucher_cards(
         limit=limit,
         offset=offset,
     )
+
+
+@router.patch("/{entry_id}", response_model=AccountingEntryRead)
+def update_entry_fields(
+    entry_id: int,
+    payload: EntryFieldUpdate,
+    db: Session = Depends(get_db),
+) -> AccountingEntry:
+    entry = db.get(AccountingEntry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="分录不存在")
+    if entry.review_status in {"verified", "ready"}:
+        raise HTTPException(status_code=400, detail="已复核分录不能直接修改，请先取消复核")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    if "summary" in update_data and not str(update_data["summary"] or "").strip():
+        raise HTTPException(status_code=400, detail="摘要不能为空")
+    if "account_code" in update_data and not str(update_data["account_code"] or "").strip():
+        raise HTTPException(status_code=400, detail="科目代码不能为空")
+    if "account_name" in update_data and not str(update_data["account_name"] or "").strip():
+        raise HTTPException(status_code=400, detail="科目名称不能为空")
+
+    debit_amount = _normalize_money(update_data.get("debit_amount", entry.debit_amount))
+    credit_amount = _normalize_money(update_data.get("credit_amount", entry.credit_amount))
+    _validate_entry_amounts(debit_amount, credit_amount)
+
+    for field, value in update_data.items():
+        if field in {"debit_amount", "credit_amount"}:
+            setattr(entry, field, _normalize_money(value))
+        elif isinstance(value, str):
+            setattr(entry, field, value.strip() or None)
+        else:
+            setattr(entry, field, value)
+    entry.normalized_text = " ".join(
+        str(part or "")
+        for part in [entry.voucher_no, entry.voucher_date, entry.summary, entry.account_code, entry.account_name, entry.counterparty]
+    ).strip()
+    db.commit()
+    db.refresh(entry)
+    return entry
 
 
 @router.get("/{entry_id}", response_model=AccountingEntryRead)
