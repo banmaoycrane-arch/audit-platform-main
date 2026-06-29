@@ -22,7 +22,7 @@ const { Title, Paragraph, Text } = Typography
  * - 展示申请进度和审批状态
  * 
  * 与 OnboardingPage 的区别：
- * - OnboardingPage：侧重于创建新实体（创建团队/账套/项目）
+ * - OnboardingPage：侧重于创建新实体（创建团队/账簿/项目）
  * - OnboardingRequestPage：侧重于申请访问现有实体（申请加入已有团队）
  */
 export function OnboardingRequestPage() {
@@ -149,7 +149,7 @@ export function OnboardingRequestPage() {
           status="success"
           icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
           title="您已完成授权"
-          subTitle="已成功绑定团队、账套和项目，可以正常使用系统功能。"
+          subTitle="已成功绑定团队、账簿和项目，可以正常使用系统功能。"
           extra={[
             <Button type="primary" icon={<HomeOutlined />} onClick={handleGoToWorkspace} key="workspace">
               进入工作台
@@ -181,7 +181,7 @@ export function OnboardingRequestPage() {
             <Col flex="auto">
               <Title level={3} style={{ margin: 0 }}>访客授权申请</Title>
               <Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
-                您需要完成团队、账套、项目和会计主体的授权绑定，方可正常使用系统功能。
+                您需要完成团队、账簿、项目和会计主体的授权绑定，方可正常使用系统功能。
               </Paragraph>
             </Col>
             <Col flex="none">
@@ -197,7 +197,7 @@ export function OnboardingRequestPage() {
             size="small"
             items={[
               { title: '申请团队', icon: <TeamOutlined /> },
-              { title: '申请账套', icon: <BookOutlined /> },
+              { title: '申请账簿', icon: <BookOutlined /> },
               { title: '申请项目', icon: <AuditOutlined /> },
               { title: '确认主体', icon: <SafetyCertificateOutlined /> },
             ]}
@@ -222,7 +222,7 @@ export function OnboardingRequestPage() {
                   }
                   const labels: Record<string, string> = {
                     team: '团队',
-                    ledger: '账套',
+                    ledger: '账簿',
                     project: '项目',
                     accounting_entity: '会计主体',
                   }
@@ -243,7 +243,7 @@ export function OnboardingRequestPage() {
           <Col xs={24} lg={14}>
             <Card title="申请授权" style={{ borderRadius: 16, marginBottom: 16 }}>
               <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-                选择您需要加入的团队（必选），以及需要访问的账套和项目（可选）。管理员审批通过后，系统将自动写入相应的访问权限。
+                选择您需要加入的团队（必选），以及需要访问的账簿和项目（可选）。管理员审批通过后，系统将自动写入相应的访问权限。
               </Paragraph>
               <Space direction="vertical" style={{ width: '100%' }} size="middle">
                 <Card size="small" style={{ background: '#fafafa' }}>
@@ -258,7 +258,7 @@ export function OnboardingRequestPage() {
                     <Col xs={24} sm={8}>
                       <div style={{ textAlign: 'center', padding: '12px 0' }}>
                         <BookOutlined style={{ fontSize: 32, color: '#52c41a', marginBottom: 8 }} />
-                        <div style={{ fontWeight: 500 }}>申请账套</div>
+                        <div style={{ fontWeight: 500 }}>申请账簿</div>
                         <Text type="secondary" style={{ fontSize: 12 }}>可选项</Text>
                       </div>
                     </Col>
@@ -302,7 +302,7 @@ export function OnboardingRequestPage() {
               <Title level={5}>授权说明</Title>
               <ul style={{ margin: 0, paddingLeft: 20, color: '#666' }}>
                 <li><Text>选择团队是必选项，申请后将成为该团队的成员</Text></li>
-                <li><Text>账套和项目为可选项，可同时申请或稍后单独申请</Text></li>
+                <li><Text>账簿和项目为可选项，可同时申请或稍后单独申请</Text></li>
                 <li><Text>审批通过后会自动写入对应的访问权限</Text></li>
                 <li><Text>审批结果会通过申请记录展示，请关注审批状态</Text></li>
               </ul>
@@ -341,7 +341,7 @@ export function OnboardingRequestPage() {
                         <div>
                           <Text strong>{request.team_name || `团队 #${request.team_id}`}</Text>
                           {request.ledger_name && (
-                            <div><Text type="secondary">账套：{request.ledger_name}</Text></div>
+                            <div><Text type="secondary">账簿：{request.ledger_name}</Text></div>
                           )}
                           {request.project_name && (
                             <div><Text type="secondary">项目：{request.project_name}</Text></div>
@@ -405,7 +405,7 @@ export function OnboardingRequestPage() {
         title={
           <Space>
             <SafetyCertificateOutlined style={{ color: '#1890ff' }} />
-            <span>申请授权（团队 / 账套 / 项目）</span>
+            <span>申请授权（团队 / 账簿 / 项目）</span>
           </Space>
         }
         open={requestModalOpen}
@@ -424,7 +424,7 @@ export function OnboardingRequestPage() {
             description={
               <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
                 <li>选择团队是必选项，申请后将成为该团队的成员</li>
-                <li>账套和项目为可选项，可同时申请或稍后单独申请</li>
+                <li>账簿和项目为可选项，可同时申请或稍后单独申请</li>
                 <li>审批通过后会自动写入对应的访问权限</li>
               </ul>
             }
@@ -451,13 +451,13 @@ export function OnboardingRequestPage() {
 
           <Form.Item
             name="ledger_id"
-            label="申请访问账套"
-            tooltip="选择后将获得该账套的访问权限"
+            label="申请访问账簿"
+            tooltip="选择后将获得该账簿的访问权限"
           >
             <Select
               allowClear
               showSearch
-              placeholder={bindingOptions.ledgers.length > 0 ? "请选择账套（可选）" : "请先选择团队"}
+              placeholder={bindingOptions.ledgers.length > 0 ? "请选择账簿（可选）" : "请先选择团队"}
               optionFilterProp="label"
               disabled={!requestForm.getFieldValue('team_id')}
               options={bindingOptions.ledgers.map((ledger) => ({ value: ledger.id, label: ledger.name }))}
@@ -496,7 +496,7 @@ export function OnboardingRequestPage() {
           <Form.Item name="reason" label="申请说明">
             <Input.TextArea
               rows={3}
-              placeholder="请简要说明申请原因，例如：我是本项目记账人员，需要访问该账套处理本期凭证。"
+              placeholder="请简要说明申请原因，例如：我是本项目记账人员，需要访问该账簿处理本期凭证。"
               showCount
               maxLength={200}
             />
@@ -524,7 +524,7 @@ export function OnboardingRequestPage() {
             type="info"
             showIcon
             title="创建团队后将自动成为管理员"
-            description="创建团队后，您可以继续申请授权或直接创建账套和项目。"
+            description="创建团队后，您可以继续申请授权或直接创建账簿和项目。"
             style={{ marginBottom: 16 }}
           />
           <Form.Item name="name" label="团队名称" rules={[{ required: true, message: '请输入团队名称' }]}>

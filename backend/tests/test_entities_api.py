@@ -72,7 +72,7 @@ def test_list_entities_filter(client):
 
 
 def test_create_entity_keeps_ledger_binding(client):
-    response = _create_entity(client, entity_name="账套会计主体", ledger_id=99)
+    response = _create_entity(client, entity_name="账簿会计主体", ledger_id=99)
     assert response.status_code == 200
     body = response.json()
     assert body["ledger_id"] == 99

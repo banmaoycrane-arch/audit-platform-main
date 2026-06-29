@@ -64,6 +64,8 @@ class AuthContextResponse(BaseModel):
     current_ledger_role: str | None = None
     current_team_type: str | None = None
     can_use_ledger_without_project: bool = False
+    platform_role: str | None = None
+    is_super_admin: bool = False
     missing_bindings: list[str]
     requires_onboarding: bool
     next_action: str

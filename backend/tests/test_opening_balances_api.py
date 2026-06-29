@@ -190,7 +190,7 @@ def test_opening_balances_scoped_by_ledger_period(client):
         db.add(team)
         db.flush()
         ledger_a = Ledger(name="山西尚德鑫", team_id=team.id)
-        ledger_b = Ledger(name="新建账套", team_id=team.id)
+        ledger_b = Ledger(name="新建账簿", team_id=team.id)
         db.add_all([ledger_a, ledger_b])
         db.flush()
         org = Organization(name="期初测试", fiscal_year=2026)

@@ -50,17 +50,17 @@ export function LedgerLifecyclePage() {
         setLedgers(res)
       })
       .catch(() => {
-        message.error('加载账套列表失败')
+        message.error('加载账簿列表失败')
       })
       .finally(() => setLoading(false))
   }, [])
 
   const handleLifecycleAction = async (ledgerId: number, action: string) => {
     const titles: Record<string, string> = {
-      activate: '激活账套',
-      suspend: '暂停账套',
-      archive: '归档账套',
-      restore: '恢复账套',
+      activate: '激活账簿',
+      suspend: '暂停账簿',
+      archive: '归档账簿',
+      restore: '恢复账簿',
     }
     setReasonModal({ open: true, ledgerId, action, title: titles[action] || action })
   }
@@ -118,7 +118,7 @@ export function LedgerLifecyclePage() {
   }
 
   const columns = [
-    { title: '账套名称', dataIndex: 'name', key: 'name' },
+    { title: '账簿名称', dataIndex: 'name', key: 'name' },
     {
       title: '状态',
       dataIndex: 'status',
@@ -181,31 +181,31 @@ export function LedgerLifecyclePage() {
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
         <Col>
           <Title level={4} style={{ margin: 0 }}>
-            <BookOutlined /> 账套生命周期管理
+            <BookOutlined /> 账簿生命周期管理
           </Title>
-          <Paragraph type="secondary">管理账套的生命周期状态：激活、暂停、归档、恢复</Paragraph>
+          <Paragraph type="secondary">管理账簿的生命周期状态：激活、暂停、归档、恢复</Paragraph>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col span={6}>
           <Card>
-            <Statistic title="活跃账套" value={activeCount} valueStyle={{ color: '#52c41a' }} />
+            <Statistic title="活跃账簿" value={activeCount} valueStyle={{ color: '#52c41a' }} />
           </Card>
         </Col>
         <Col span={6}>
           <Card>
-            <Statistic title="草稿账套" value={draftCount} valueStyle={{ color: '#8c8c8c' }} />
+            <Statistic title="草稿账簿" value={draftCount} valueStyle={{ color: '#8c8c8c' }} />
           </Card>
         </Col>
         <Col span={6}>
           <Card>
-            <Statistic title="暂停账套" value={suspendedCount} valueStyle={{ color: '#faad14' }} />
+            <Statistic title="暂停账簿" value={suspendedCount} valueStyle={{ color: '#faad14' }} />
           </Card>
         </Col>
         <Col span={6}>
           <Card>
-            <Statistic title="归档账套" value={archivedCount} valueStyle={{ color: '#ff4d4f' }} />
+            <Statistic title="归档账簿" value={archivedCount} valueStyle={{ color: '#ff4d4f' }} />
           </Card>
         </Col>
       </Row>
@@ -217,7 +217,7 @@ export function LedgerLifecyclePage() {
           dataSource={ledgers}
           loading={loading}
           pagination={{ pageSize: 10 }}
-          locale={{ emptyText: '暂无账套数据' }}
+          locale={{ emptyText: '暂无账簿数据' }}
         />
       </Card>
 
@@ -236,7 +236,7 @@ export function LedgerLifecyclePage() {
         <Input.TextArea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="例如：年度审计结束，归档账套..."
+          placeholder="例如：年度审计结束，归档账簿..."
           rows={3}
         />
       </Modal>

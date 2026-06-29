@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 模块功能：用户绑定申请服务
-业务场景：访客用户提交绑定申请，管理员审批后写入团队、账套、项目授权关系
+业务场景：访客用户提交绑定申请，管理员审批后写入团队、账簿、项目授权关系
 政策依据：会计信息系统内部控制规范——权限申请、审批、授权三步分离
-输入数据：申请人、团队ID、账套ID、项目ID、角色、审批意见
+输入数据：申请人、团队ID、账簿ID、项目ID、角色、审批意见
 输出结果：绑定申请记录和正式授权关系
 创建日期：2026-06-20
 更新记录：
@@ -21,7 +21,7 @@ from app.models.project_member import ProjectMember
 from app.models.team import Team
 from app.models.user import User
 from app.models.user_ledger_auth import UserLedgerAuth
-from app.services import ledger_management_service, project_service
+from app.services import ledger_management_service, project_service, platform_permission_service
 
 VALID_REQUEST_ROLES = {"viewer", "accountant", "admin"}
 PROJECT_ROLE_BY_REQUEST_ROLE = {
@@ -34,7 +34,7 @@ PROJECT_ROLE_BY_REQUEST_ROLE = {
 def get_visible_teams(db: Session) -> list[Team]:
     """
     功能描述：返回可供用户申请加入的团队清单。
-    业务逻辑：团队名称属于公共申请入口信息，不返回账套、项目等隔离数据。
+    业务逻辑：团队名称属于公共申请入口信息，不返回账簿、项目等隔离数据。
     会计口径：未获授权用户只能看到可申请对象，不能看到团队内部财务数据。
     """
     return db.query(Team).order_by(Team.created_at.desc()).all()
@@ -42,9 +42,9 @@ def get_visible_teams(db: Session) -> list[Team]:
 
 def get_visible_ledgers(db: Session, team_id: int) -> list[Ledger]:
     """
-    功能描述：返回指定团队下可申请访问的账套名称清单。
-    业务逻辑：仅用于提交申请，不返回凭证、期间、报表等账套数据。
-    会计口径：账套名称可作为授权申请对象，账套内容仍保持隔离。
+    功能描述：返回指定团队下可申请访问的账簿名称清单。
+    业务逻辑：仅用于提交申请，不返回凭证、期间、报表等账簿数据。
+    会计口径：账簿名称可作为授权申请对象，账簿内容仍保持隔离。
     """
     return db.query(Ledger).filter(Ledger.team_id == team_id).order_by(Ledger.created_at.desc()).all()
 
@@ -61,10 +61,12 @@ def get_visible_projects(db: Session, team_id: int) -> list[Project]:
 def user_can_review_team(db: Session, reviewer_user_id: int, team_id: int) -> bool:
     """
     功能描述：判断当前用户是否可审批指定团队的绑定申请。
-    业务逻辑：团队创建者/归属用户或团队下任一账套 admin 可审批。
-    会计口径：审批人必须已在该团队或账套权限范围内，避免越权授权。
+    业务逻辑：团队创建者/归属用户或团队下任一账簿 admin 可审批。
+    会计口径：审批人必须已在该团队或账簿权限范围内，避免越权授权。
     """
     reviewer = db.query(User).filter(User.id == reviewer_user_id).first()
+    if platform_permission_service.is_super_admin(reviewer):
+        return True
     if reviewer and reviewer.team_id == team_id:
         return True
 
@@ -94,7 +96,7 @@ def create_binding_request(
 ) -> BindingRequest:
     """
     功能描述：提交绑定申请。
-    业务逻辑：校验团队、账套、项目归属一致；同一目标已有待审批申请时复用并更新。
+    业务逻辑：校验团队、账簿、项目归属一致；同一目标已有待审批申请时复用并更新。
     会计口径：申请不会直接授予数据访问权，必须等待管理员审批。
     """
     if requested_role not in VALID_REQUEST_ROLES:
@@ -107,7 +109,7 @@ def create_binding_request(
     if ledger_id:
         ledger = db.query(Ledger).filter(Ledger.id == ledger_id).first()
         if not ledger or ledger.team_id != team_id:
-            raise ValueError("申请账套不属于所选团队")
+            raise ValueError("申请账簿不属于所选团队")
 
     if project_id:
         project = db.query(Project).filter(Project.id == project_id).first()
@@ -154,7 +156,7 @@ def list_binding_requests(db: Session, current_user_id: int, scope: str) -> list
     """
     功能描述：查询绑定申请。
     业务逻辑：scope=mine 返回本人申请；scope=reviewable 返回本人可审批的团队申请。
-    会计口径：申请单属于权限资料，不展示账套内业务数据。
+    会计口径：申请单属于权限资料，不展示账簿内业务数据。
     """
     if scope == "mine":
         return (
@@ -165,6 +167,9 @@ def list_binding_requests(db: Session, current_user_id: int, scope: str) -> list
         )
 
     requests = db.query(BindingRequest).order_by(BindingRequest.created_at.desc()).all()
+    reviewer = db.query(User).filter(User.id == current_user_id).first()
+    if platform_permission_service.is_super_admin(reviewer):
+        return requests
     return [request for request in requests if user_can_review_team(db, current_user_id, request.team_id)]
 
 
@@ -176,8 +181,8 @@ def approve_binding_request(
 ) -> BindingRequest:
     """
     功能描述：审批通过绑定申请并写入正式授权关系。
-    业务逻辑：通过后写入用户团队、账套授权、项目成员；最后更新申请状态。
-    会计口径：只有审批通过后，用户刷新上下文才可看到对应账套隔离数据。
+    业务逻辑：通过后写入用户团队、账簿授权、项目成员；最后更新申请状态。
+    会计口径：只有审批通过后，用户刷新上下文才可看到对应账簿隔离数据。
     """
     binding_request = db.query(BindingRequest).filter(BindingRequest.id == request_id).first()
     if not binding_request:

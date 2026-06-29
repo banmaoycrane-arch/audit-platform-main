@@ -97,9 +97,9 @@ export function LedgerSelector() {
       await refreshAuthContext()
       setCreateOpen(false)
       form.resetFields()
-      message.success('账套创建成功，已切换到新账套')
+      message.success('账簿创建成功，已切换到新账簿')
     } catch (error: any) {
-      message.error(error.message || '账套创建失败')
+      message.error(error.message || '账簿创建失败')
     } finally {
       setCreating(false)
     }
@@ -112,9 +112,9 @@ export function LedgerSelector() {
     try {
       await api.switchLedger(value)
       setCurrentLedger(value)
-      message.success('账套已切换')
+      message.success('账簿已切换')
     } catch (error: any) {
-      message.error(error.message || '切换账套失败')
+      message.error(error.message || '切换账簿失败')
     } finally {
       setLoading(false)
     }
@@ -124,13 +124,13 @@ export function LedgerSelector() {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ color: '#fff', fontSize: 14 }}>账套：</span>
+      <span style={{ color: '#fff', fontSize: 14 }}>账簿：</span>
       <Select
         value={currentLedgerId || undefined}
         onChange={handleChange}
         loading={loading}
         style={{ minWidth: 180 }}
-        placeholder="选择账套"
+        placeholder="选择账簿"
         optionLabelProp="label"
         dropdownMatchSelectWidth={false}
         popupRender={(menu) => (
@@ -139,7 +139,7 @@ export function LedgerSelector() {
             <Divider style={{ margin: '8px 0' }} />
             <div style={{ padding: '0 8px 8px' }}>
               <Button type="link" icon={<PlusOutlined />} block onClick={openCreateModal}>
-                新建账套
+                新建账簿
               </Button>
             </div>
           </>
@@ -170,7 +170,7 @@ export function LedgerSelector() {
         </Tag>
       )}
       <Modal
-        title="新建账套"
+        title="新建账簿"
         open={createOpen}
         onOk={handleCreateLedger}
         onCancel={() => setCreateOpen(false)}
@@ -179,14 +179,14 @@ export function LedgerSelector() {
         cancelText="取消"
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="team_id" label="所属团队" rules={[{ required: true, message: '请选择账套所属团队' }]}>
+          <Form.Item name="team_id" label="所属团队" rules={[{ required: true, message: '请选择账簿所属团队' }]}>
             <Select
               placeholder="请选择团队"
               options={teams.map((team) => ({ value: team.id, label: team.name }))}
             />
           </Form.Item>
-          <Form.Item name="name" label="账套名称" rules={[{ required: true, message: '请输入账套名称' }]}>
-            <Input placeholder="例如：XX公司2026账套" />
+          <Form.Item name="name" label="账簿名称" rules={[{ required: true, message: '请输入账簿名称' }]}>
+            <Input placeholder="例如：XX公司2026账簿" />
           </Form.Item>
           <Form.Item
             name="accounting_start_date"
@@ -197,7 +197,7 @@ export function LedgerSelector() {
             <DatePicker style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="entity_name" label="会计主体名称">
-            <Input placeholder="默认使用账套名称；建议填写真实甲方/核算主体名称" />
+            <Input placeholder="默认使用账簿名称；建议填写真实甲方/核算主体名称" />
           </Form.Item>
           <Form.Item name="entity_code" label="统一社会信用代码 / 主体编码">
             <Input placeholder="可选，用于合同、发票、审计证据匹配" />

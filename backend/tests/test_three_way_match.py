@@ -57,7 +57,7 @@ def _create_ledger(client: TestClient, headers: dict) -> tuple[dict, int]:
     team = client.post("/api/teams", json={"name": "三单匹配团队", "type": "company"}, headers=headers)
     ledger = client.post(
         "/api/ledgers",
-        json={"team_id": team.json()["id"], "name": "三单匹配账套"},
+        json={"team_id": team.json()["id"], "name": "三单匹配账簿"},
         headers=headers,
     )
     ledger_id = ledger.json()["id"]

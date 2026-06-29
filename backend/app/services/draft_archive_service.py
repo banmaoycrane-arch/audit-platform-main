@@ -81,6 +81,14 @@ def resolve_project_for_ledger(db: Session, ledger_id: int | None) -> Project | 
     return db.get(Project, link.project_id)
 
 
+def resolve_project_for_job_or_ledger(db: Session, job: ImportJob | None, ledger_id: int | None) -> Project | None:
+    if job and job.project_id:
+        project = db.get(Project, job.project_id)
+        if project:
+            return project
+    return resolve_project_for_ledger(db, ledger_id)
+
+
 def _sanitize_segment(value: str) -> str:
     cleaned = re.sub(r'[\\/:*?"<>|]', "_", value.strip())
     return cleaned or "未命名"
@@ -197,7 +205,7 @@ def auto_archive_draft(
 
     feedback = dict(parse_feedback)
     feedback["ledger_id"] = ledger_id
-    project = resolve_project_for_ledger(db, ledger_id)
+    project = resolve_project_for_job_or_ledger(db, job, ledger_id)
     archive = build_archive_context(
         project=project,
         parse_feedback=feedback,
@@ -242,8 +250,14 @@ def list_project_archived_files(db: Session, project_id: int, ledger_id: int | N
         .filter(
             (SourceFile.ledger_id.in_(ledger_ids)) | (ImportJob.ledger_id.in_(ledger_ids)),
         )
+        .filter((ImportJob.project_id == project_id) | (ImportJob.project_id.is_(None)))
         .order_by(SourceFile.id.desc())
         .limit(500)
         .all()
     )
-    return [item for item in files if load_archive_metadata(item)]
+    result: list[SourceFile] = []
+    for item in files:
+        archive = load_archive_metadata(item)
+        if archive and archive.get("project_id") == project_id:
+            result.append(item)
+    return result

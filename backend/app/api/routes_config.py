@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.global_settings import GlobalSettings
+from app.services.parser_engine.config_service import get_runtime_parser_engine_config
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -93,94 +94,95 @@ def get_parser_engine_config(db: Session = Depends(get_db)):
 @router.post("/parser-engine/test-connection")
 def test_ai_connection(request: TestConnectionRequest):
     """
-    测试AI模型连接是否可用
-    
-    自动识别服务类型：
-    - Ollama（端口11434）：使用原生 /api/chat 端点
-    - 其他 OpenAI 兼容服务：使用 /v1/chat/completions 端点
+    测试AI模型连接是否可用。
+
+    连接测试只做轻量级探活和模型存在性检查，避免触发 Ollama 加载大模型导致长时间无响应。
     """
     import json
     import time
     from urllib import request as url_request
-    
-    base_url = request.ai_base_url.rstrip("/").rstrip("/v1")
-    
-    # 判断是否为 Ollama 服务（通过端口或 URL 特征）
-    is_ollama = ":11434" in base_url or "ollama" in base_url.lower()
-    
+    from urllib.error import HTTPError, URLError
+
+    normalized_input_url = request.ai_base_url.rstrip("/")
+    ollama_root_url = normalized_input_url[:-3] if normalized_input_url.endswith("/v1") else normalized_input_url
+    is_ollama = ":11434" in normalized_input_url or "ollama" in normalized_input_url.lower()
+
     headers = {"Content-Type": "application/json"}
     if request.ai_api_key:
         headers["Authorization"] = f"Bearer {request.ai_api_key}"
-    
+
+    def fetch_json(url: str, timeout: int = 5) -> dict[str, Any]:
+        req = url_request.Request(url, headers=headers, method="GET")
+        with url_request.urlopen(req, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def normalize_model_name(name: str) -> str:
+        return name.removesuffix(":latest")
+
+    def model_exists(models: list[str]) -> bool:
+        expected = normalize_model_name(request.ai_model)
+        return any(model == request.ai_model or normalize_model_name(model) == expected for model in models)
+
+    start_time = time.time()
+    errors: list[str] = []
+
     try:
-        start_time = time.time()
-        
         if is_ollama:
-            # Ollama 原生 API: /api/chat
-            url = f"{base_url}/api/chat"
-            body = {
-                "model": request.ai_model,
-                "messages": [{"role": "user", "content": "请用一个字回答：测"}],
-                "stream": False,
-            }
-        else:
-            # OpenAI 兼容 API: /v1/chat/completions
-            url = f"{base_url}/v1/chat/completions"
-            body = {
-                "model": request.ai_model,
-                "messages": [{"role": "user", "content": "请用一个字回答：测"}],
-                "temperature": 0.0,
-                "max_tokens": 5,
-            }
-        
-        payload = json.dumps(body).encode("utf-8")
-        req = url_request.Request(url, data=payload, headers=headers, method="POST")
-        with url_request.urlopen(req, timeout=30) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        response_time = round(time.time() - start_time, 2)
-        
-        # 处理不同 API 的返回格式
-        content = None
-        usage = {}
-        
-        if is_ollama:
-            # Ollama 原生 API 返回格式
-            if "message" in data:
-                content = data["message"].get("content", "").strip()
-                # Ollama 使用不同的统计字段
-                usage = {
-                    "prompt_tokens": data.get("prompt_eval_count"),
-                    "completion_tokens": data.get("eval_count"),
-                    "total_tokens": (data.get("prompt_eval_count") or 0) + (data.get("eval_count") or 0),
+            try:
+                tags_url = f"{ollama_root_url}/api/tags"
+                data = fetch_json(tags_url, timeout=5)
+                models = [model.get("name", "") for model in data.get("models", []) if model.get("name")]
+                elapsed_ms = round((time.time() - start_time) * 1000)
+                if model_exists(models):
+                    return {
+                        "success": True,
+                        "message": "连接成功！Ollama 服务可达，模型已存在。",
+                        "model": request.ai_model,
+                        "base_url": request.ai_base_url,
+                        "api_type": "ollama-tags",
+                        "response_content": "模型列表探活成功",
+                        "response_time_ms": elapsed_ms,
+                    }
+                return {
+                    "success": False,
+                    "message": f"Ollama 服务可达，但未找到模型 {request.ai_model}。请先获取模型列表并选择已安装模型。",
+                    "model": request.ai_model,
+                    "base_url": request.ai_base_url,
+                    "api_type": "ollama-tags",
+                    "available_models": models,
+                    "response_time_ms": elapsed_ms,
                 }
-        else:
-            # OpenAI 兼容 API 返回格式
-            if "choices" in data and len(data["choices"]) > 0:
-                content = data["choices"][0]["message"]["content"].strip()
-                usage = data.get("usage", {})
-        
-        if content:
+            except (HTTPError, URLError, TimeoutError, OSError) as exc:
+                errors.append(f"Ollama /api/tags 探活失败: {exc}")
+
+        models_url = f"{normalized_input_url}/models" if normalized_input_url.endswith("/v1") else f"{normalized_input_url}/v1/models"
+        data = fetch_json(models_url, timeout=5)
+        models = [item.get("id", "") for item in data.get("data", []) if item.get("id")]
+        elapsed_ms = round((time.time() - start_time) * 1000)
+        if not models or model_exists(models):
             return {
                 "success": True,
-                "message": f"连接成功！模型已正常响应",
+                "message": "连接成功！模型服务可达。",
                 "model": request.ai_model,
                 "base_url": request.ai_base_url,
-                "api_type": "ollama-native" if is_ollama else "openai-compatible",
-                "response_content": content,
-                "response_time_ms": response_time * 1000,
-                "usage": {
-                    "prompt_tokens": usage.get("prompt_tokens"),
-                    "completion_tokens": usage.get("completion_tokens"),
-                    "total_tokens": usage.get("total_tokens"),
-                },
+                "api_type": "openai-compatible-models",
+                "response_content": "模型列表探活成功",
+                "response_time_ms": elapsed_ms,
             }
-        else:
-            return {"success": False, "message": "连接成功但返回格式异常", "raw_response": str(data)}
-            
-    except Exception as e:
         return {
             "success": False,
-            "message": f"连接失败: {str(e)}",
+            "message": f"模型服务可达，但未找到模型 {request.ai_model}。请检查模型名称。",
+            "model": request.ai_model,
+            "base_url": request.ai_base_url,
+            "api_type": "openai-compatible-models",
+            "available_models": models,
+            "response_time_ms": elapsed_ms,
+        }
+    except Exception as exc:
+        errors.append(f"OpenAI兼容 /models 探活失败: {exc}")
+        return {
+            "success": False,
+            "message": "连接失败: " + "; ".join(errors),
             "model": request.ai_model,
             "base_url": request.ai_base_url,
         }
@@ -427,7 +429,7 @@ def save_parser_engine_config(
         GlobalSettings.settings_key == "parser_engine"
     ).first()
     
-    config_dict = config.dict()
+    config_dict = {**get_runtime_parser_engine_config(db), **config.dict()}
     
     if db_config:
         db_config.settings_value = config_dict

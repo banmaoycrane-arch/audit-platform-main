@@ -47,7 +47,7 @@ def main() -> int:
 
     ledgers = client.get("/api/ledgers", headers=h).json()
     if len(ledgers) >= 2:
-        print(f"账号 {USERNAME} 已存在，账套数={len(ledgers)}，跳过创建")
+        print(f"账号 {USERNAME} 已存在，账簿数={len(ledgers)}，跳过创建")
         return 0
 
     team = client.post(
@@ -60,7 +60,7 @@ def main() -> int:
         return 1
     team_id = team.json()["id"]
 
-    ledger_names = ["2026山西尚德鑫", "新建账套"]
+    ledger_names = ["2026山西尚德鑫", "新建账簿"]
     ledger_ids: list[int] = []
     for name in ledger_names:
         resp = client.post(
@@ -69,7 +69,7 @@ def main() -> int:
             json={"name": name, "team_id": team_id},
         )
         if resp.status_code != 200:
-            print(f"创建账套失败 {name}: {resp.text}")
+            print(f"创建账簿失败 {name}: {resp.text}")
             return 1
         ledger_ids.append(resp.json()["id"])
 
@@ -109,7 +109,7 @@ def main() -> int:
     print("测试账号已就绪:")
     print(f"  用户名: {USERNAME}")
     print(f"  密码:   {PASSWORD}")
-    print(f"  账套:   {ledger_names[0]} (id={ledger_ids[0]}, 1002借方=11111)")
+    print(f"  账簿:   {ledger_names[0]} (id={ledger_ids[0]}, 1002借方=11111)")
     print(f"          {ledger_names[1]} (id={ledger_ids[1]}, 1002借方=22222)")
     print("  页面:   http://127.0.0.1:5173/basic/opening-balances")
     return 0

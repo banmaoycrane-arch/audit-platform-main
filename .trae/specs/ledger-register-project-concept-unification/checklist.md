@@ -6,7 +6,7 @@
 - [x] 数据库自动建表成功
 - [x] POST /api/projects 可创建项目
 - [x] GET /api/projects 返回项目列表
-- [x] POST /api/projects/{id}/ledgers 可关联账套
+- [x] POST /api/projects/{id}/ledgers 可关联账簿
 - [x] POST /api/projects/{id}/members 可分配人员
 - [x] 银行模块工作台增加台账入口
 - [x] 税务模块工作台增加台账入口

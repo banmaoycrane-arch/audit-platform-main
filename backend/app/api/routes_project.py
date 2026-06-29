@@ -92,6 +92,17 @@ class ProjectLedgerResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ProjectTaskAssigneeResponse(BaseModel):
+    """审计任务负责人候选人响应体"""
+    id: int
+    username: str | None
+    email: str | None
+    phone: str | None
+    team_id: int | None
+    project_role: str | None
+    ledger_roles: list[str] = []
+
+
 class LifecycleReasonRequest(BaseModel):
     """生命周期变更原因请求体"""
     reason: str | None = None
@@ -121,7 +132,7 @@ def create_project(
         status=payload.status,
         start_date=payload.start_date,
         end_date=payload.end_date,
-        manager_id=payload.manager_id,
+        manager_id=current_user.id,
     )
 
     # 自动将创建者加入项目成员，角色为 manager
@@ -284,6 +295,20 @@ def remove_ledger(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
     deleted = project_service.remove_ledger_from_project(db, project_id, ledger_id)
     return {"deleted": deleted, "project_id": project_id, "ledger_id": ledger_id}
+
+
+@router.get("/{project_id}/task-assignees", response_model=list[ProjectTaskAssigneeResponse])
+def list_project_task_assignees(
+    project_id: int,
+    ledger_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ProjectTaskAssigneeResponse]:
+    """返回当前项目下可作为审计任务负责人的成员。"""
+    project = project_service.get_project_by_id(db, project_id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+    return [ProjectTaskAssigneeResponse(**item) for item in project_service.list_project_task_assignees(db, project_id, ledger_id)]
 
 
 @router.post("/{project_id}/members", response_model=ProjectMemberResponse)

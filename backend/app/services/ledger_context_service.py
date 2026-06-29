@@ -1,4 +1,4 @@
-"""账套上下文解析：统一 organization 与 ledger 的绑定关系。"""
+"""账簿上下文解析：统一 organization 与 ledger 的绑定关系。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from app.models.ledger import Ledger
 
 
 def resolve_organization_id_for_ledger(db: Session, ledger_id: int) -> int | None:
-    """查找账套已绑定的 organization_id，不存在则返回 None。"""
+    """查找账簿已绑定的 organization_id，不存在则返回 None。"""
     job = (
         db.query(ImportJob)
         .filter(ImportJob.ledger_id == ledger_id)
@@ -47,7 +47,7 @@ def resolve_or_create_organization_for_ledger(
     industry: str | None = None,
     fiscal_year: int | None = None,
 ) -> int:
-    """为账套解析或创建唯一 organization，避免每次导入都新建临时组织。"""
+    """为账簿解析或创建唯一 organization，避免每次导入都新建临时组织。"""
     existing_id = resolve_organization_id_for_ledger(db, ledger_id)
     if existing_id is not None:
         return existing_id

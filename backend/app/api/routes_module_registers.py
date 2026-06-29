@@ -142,7 +142,7 @@ def list_module_definitions() -> list[dict]:
 
 @router.get("/summary")
 def module_register_summary(
-    ledger_id: int = Query(..., description="账套 ID"),
+    ledger_id: int = Query(..., description="账簿 ID"),
     db: Session = Depends(get_db),
 ) -> dict:
     return get_module_register_summary(db, ledger_id)
@@ -159,7 +159,7 @@ def list_execution_statuses() -> list[dict]:
 @router.get("/{module_key}")
 def get_module_registers(
     module_key: str,
-    ledger_id: int = Query(..., description="账套 ID"),
+    ledger_id: int = Query(..., description="账簿 ID"),
     execution_status: str | None = Query(None, description="合同执行状态（合同类模块）"),
     contract_type: str | None = Query(None, description="合同类型"),
     limit: int = Query(200, ge=1, le=500),

@@ -29,6 +29,7 @@ def list_tasks(
     status: str | None = Query(default=None),
     assignee_id: int | None = Query(default=None),
     task_type: str | None = Query(default=None),
+    priority: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -40,6 +41,7 @@ def list_tasks(
         status=status,
         assignee_id=assignee_id,
         task_type=task_type,
+        priority=priority,
         page=page,
         page_size=page_size,
     )
@@ -64,7 +66,10 @@ def create_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AuditTaskRead:
-    task = audit_task_service.create_task(db, payload, creator_id=current_user.id)
+    try:
+        task = audit_task_service.create_task(db, payload, creator_id=current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return AuditTaskRead.model_validate(task)
 
 

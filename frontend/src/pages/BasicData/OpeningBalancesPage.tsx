@@ -182,15 +182,15 @@ export function OpeningBalancesPage() {
         <Alert
           type="warning"
           showIcon
-          title="请先选择账套"
-          description="期初余额按当前账套隔离，请在顶部选择账套后再录入。"
+          title="请先选择账簿"
+          description="期初余额按当前账簿隔离，请在顶部选择账簿后再录入。"
           style={{ marginBottom: 16 }}
         />
       )}
 
       <Card style={{ marginBottom: 16 }}>
         <Space wrap>
-          <Text>当前账套：{currentLedger?.name || '未选择'}</Text>
+          <Text>当前账簿：{currentLedger?.name || '未选择'}</Text>
           <Text>会计期间：</Text>
           <Select
             value={periodId ?? undefined}
@@ -221,8 +221,8 @@ export function OpeningBalancesPage() {
           <Alert
             type="info"
             showIcon
-            title="当前账套暂无会计期间"
-            description="请先在「会计期间」页面为当前账套创建期间，再录入期初余额。"
+            title="当前账簿暂无会计期间"
+            description="请先在「会计期间」页面为当前账簿创建期间，再录入期初余额。"
             style={{ marginTop: 16 }}
           />
         )}

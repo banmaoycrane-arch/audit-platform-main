@@ -1,5 +1,5 @@
-import { Card, Typography, Row, Col, Button, Statistic, List } from 'antd'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Card, Row, Col, Statistic, Empty } from 'antd'
+import { useNavigate } from 'react-router-dom'
 import {
   ExperimentOutlined,
   FileTextOutlined,
@@ -8,8 +8,7 @@ import {
   FileSearchOutlined,
   CheckCircleOutlined,
 } from '@ant-design/icons'
-
-const { Title, Paragraph } = Typography
+import { WorkspaceShell } from '../../components/WorkspaceShell'
 
 const functionsList = [
   { key: 'invoices', icon: <FileTextOutlined />, label: '发票管理', path: '/tax/invoices' },
@@ -20,57 +19,34 @@ const functionsList = [
 ]
 
 export function TaxWorkspace() {
-  const location = useLocation()
   const navigate = useNavigate()
 
   return (
-    <div>
-      <Title level={4}>税务工作台</Title>
-      <Paragraph type="secondary">管理发票、涉税助手与税务知识库</Paragraph>
-
-      <Row gutter={16}>
-        <Col span={6}>
-          <Card title="功能导航" size="small">
-            <List
-              dataSource={functionsList}
-              renderItem={(item) => (
-                <List.Item>
-                  <Button
-                    type={location.pathname === item.path ? 'primary' : 'text'}
-                    block
-                    icon={item.icon}
-                    onClick={() => navigate(item.path)}
-                  >
-                    {item.label}
-                  </Button>
-                </List.Item>
-              )}
-            />
+    <WorkspaceShell
+      title="税务工作台"
+      description="管理发票、涉税助手与税务知识库"
+      functionsList={functionsList}
+    >
+      <Row gutter={[16, 16]}>
+        <Col span={8}>
+          <Card>
+            <Statistic title="待处理发票" value={0} />
           </Card>
         </Col>
-        <Col span={18}>
-          <Row gutter={[16, 16]}>
-            <Col span={8}>
-              <Card>
-                <Statistic title="待处理发票" value={8} valueStyle={{ color: '#cf1322' }} />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card>
-                <Statistic title="涉税风险" value={0} />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card>
-                <Statistic title="本月已认证" value={24} valueStyle={{ color: '#3f8600' }} />
-              </Card>
-            </Col>
-          </Row>
-          <Card title="发票状态概览" style={{ marginTop: 16 }}>
-            <Paragraph type="secondary">暂无发票数据（占位）</Paragraph>
+        <Col span={8}>
+          <Card>
+            <Statistic title="涉税风险" value={0} />
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card>
+            <Statistic title="本月已认证" value={0} />
           </Card>
         </Col>
       </Row>
-    </div>
+      <Card title="发票状态概览" style={{ marginTop: 16 }}>
+        <Empty description="暂无发票数据，请先通过发票管理导入发票" />
+      </Card>
+    </WorkspaceShell>
   )
 }

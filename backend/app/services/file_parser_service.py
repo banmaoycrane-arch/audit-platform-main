@@ -202,6 +202,16 @@ def _map_row(row: pd.Series, mapping: dict[str, str]) -> dict[str, Any]:
     return result
 
 
+def _split_account(value: Any) -> tuple[str, str]:
+    text = _normalize_text(value)
+    if not text:
+        return "", ""
+    parts = text.split(maxsplit=1)
+    if len(parts) == 2 and parts[0].replace(".", "").isdigit():
+        return parts[0], parts[1]
+    return "", text
+
+
 def _transform_row(row: dict[str, Any], has_debit: bool, has_credit: bool) -> dict[str, Any]:
     """转换行数据"""
     # 处理金额
@@ -209,12 +219,18 @@ def _transform_row(row: dict[str, Any], has_debit: bool, has_credit: bool) -> di
 
     # 处理日期
     voucher_date = _date(row.get("voucher_date"))
+    account_code = _normalize_text(row.get("account_code", ""))
+    account_name = _normalize_text(row.get("account_name", ""))
+    if account_name and not account_code:
+        split_code, split_name = _split_account(account_name)
+        account_code = split_code
+        account_name = split_name
 
     # 构建 normalized_text
     parts = [
         _normalize_text(row.get("summary", "")),
-        _normalize_text(row.get("account_name", "")),
-        _normalize_text(row.get("account_code", "")),
+        account_name,
+        account_code,
     ]
     if debit_amount > 0:
         parts.append(f"借{debit_amount}")
@@ -228,8 +244,8 @@ def _transform_row(row: dict[str, Any], has_debit: bool, has_credit: bool) -> di
         "voucher_no": _normalize_text(row.get("voucher_no")),
         "voucher_date": voucher_date,
         "summary": _normalize_text(row.get("summary", "")),
-        "account_code": _normalize_text(row.get("account_code", "")),
-        "account_name": _normalize_text(row.get("account_name", "")),
+        "account_code": account_code,
+        "account_name": account_name,
         "debit_amount": debit_amount,
         "credit_amount": credit_amount,
         "counterparty": _normalize_text(row.get("counterparty", "")),
@@ -312,6 +328,8 @@ def parse_entries(path: str) -> ParseResult:
     entries: list[dict[str, Any]] = []
     success_rows = 0
     error_rows = 0
+    last_voucher_no = ""
+    last_voucher_date: date | None = None
 
     for idx, row in frame.iterrows():
         try:
@@ -320,6 +338,14 @@ def parse_entries(path: str) -> ParseResult:
 
             # 转换格式
             transformed = _transform_row(mapped, has_debit, has_credit)
+            if transformed.get("voucher_no"):
+                last_voucher_no = transformed["voucher_no"]
+            elif last_voucher_no:
+                transformed["voucher_no"] = last_voucher_no
+            if transformed.get("voucher_date"):
+                last_voucher_date = transformed["voucher_date"]
+            elif last_voucher_date:
+                transformed["voucher_date"] = last_voucher_date
 
             # 验证必填字段
             is_valid, missing = _validate_row(transformed, required_fields)

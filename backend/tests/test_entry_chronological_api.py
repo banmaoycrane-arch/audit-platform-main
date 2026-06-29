@@ -144,7 +144,7 @@ def test_chronological_entries_filter_by_account_and_voucher_word(client):
     ).json()
     ledger = test_client.post(
         "/api/ledgers",
-        json={"team_id": team["id"], "name": "序时簿账套"},
+        json={"team_id": team["id"], "name": "序时簿账簿"},
         headers=headers,
     ).json()
     ledger_id = ledger["id"]
@@ -212,7 +212,7 @@ def test_chronological_entries_requires_ledger_access(client):
     ).json()
     ledger = test_client.post(
         "/api/ledgers",
-        json={"team_id": team["id"], "name": "隔离账套"},
+        json={"team_id": team["id"], "name": "隔离账簿"},
         headers=headers_a,
     ).json()
 

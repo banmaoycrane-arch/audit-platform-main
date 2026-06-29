@@ -345,7 +345,7 @@ def test_sms_login_preserves_existing_user_context() -> None:
     team_id = team_response.json()["id"]
     ledger_response = client.post(
         "/api/ledgers",
-        json={"team_id": team_id, "name": "短信上下文账套"},
+        json={"team_id": team_id, "name": "短信上下文账簿"},
         headers=headers,
     )
     ledger_id = ledger_response.json()["id"]
@@ -403,7 +403,7 @@ def test_auth_context_for_bound_user_can_enter_workspace() -> None:
 
     ledger_response = client.post(
         "/api/ledgers",
-        json={"team_id": team_id, "name": "上下文测试账套"},
+        json={"team_id": team_id, "name": "上下文测试账簿"},
         headers=headers,
     )
     assert ledger_response.status_code == 200

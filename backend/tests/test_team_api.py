@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-模块功能：团队与账套授权 API 测试
-业务场景：验证团队创建、团队成员维护、账套授权查询与撤销接口
-政策依据：会计信息系统内部控制规范——团队隔离、账套授权与权限撤销管理
+模块功能：团队与账簿授权 API 测试
+业务场景：验证团队创建、团队成员维护、账簿授权查询与撤销接口
+政策依据：会计信息系统内部控制规范——团队隔离、账簿授权与权限撤销管理
 输入数据：HTTP 请求（JSON、路径参数、Bearer Token）
 输出结果：测试断言结果
 创建日期：2026-06-18
 更新记录：
-    2026-06-18  初始创建团队与账套授权 API 测试
+    2026-06-18  初始创建团队与账簿授权 API 测试
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -22,9 +22,9 @@ from app.main import app
 @pytest.fixture
 def client():
     """
-    功能描述：创建测试客户端，隔离团队与账套授权 API 测试数据。
-    业务逻辑：每个测试使用独立内存数据库，避免不同测试之间的用户、团队、账套互相影响。
-    会计口径：权限测试需要独立账套环境，确保授权列表和撤销结果可准确核对。
+    功能描述：创建测试客户端，隔离团队与账簿授权 API 测试数据。
+    业务逻辑：每个测试使用独立内存数据库，避免不同测试之间的用户、团队、账簿互相影响。
+    会计口径：权限测试需要独立账簿环境，确保授权列表和撤销结果可准确核对。
 
     Returns:
         TestClient: 已覆盖数据库依赖的 FastAPI 测试客户端。
@@ -59,7 +59,7 @@ def client():
 def _register_user(client: TestClient, username: str, phone: str | None = None) -> tuple[dict, int]:
     """
     功能描述：注册测试用户并返回认证头和用户 ID。
-    业务逻辑：团队和账套接口均要求登录用户，通过注册接口获得 Bearer Token。
+    业务逻辑：团队和账簿接口均要求登录用户，通过注册接口获得 Bearer Token。
     会计口径：每个权限动作都应明确操作人，测试中用用户 ID 验证授权归属。
 
     Args:
@@ -97,7 +97,7 @@ def test_team_create_list_members_and_add_member(client):
     """
     功能描述：验证团队创建、当前用户团队列表、成员列表、添加成员接口。
     业务逻辑：创建团队后创建者自动成为团队成员，再将第二个用户加入同一团队。
-    会计口径：团队对应协作组织，成员列表应反映当前可参与同一账套/项目工作的人员范围。
+    会计口径：团队对应协作组织，成员列表应反映当前可参与同一账簿/项目工作的人员范围。
     """
     owner_headers, owner_id = _register_user(client, "team_owner", "13800138100")
     _, member_id = _register_user(client, "team_member", "13800138101")
@@ -150,26 +150,26 @@ def test_team_create_list_members_and_add_member(client):
 
 def test_ledger_auths_list_and_revoke(client):
     """
-    功能描述：验证账套授权列表查询与授权撤销接口。
-    业务逻辑：创建团队和账套后，管理员给第二个用户授权，再查询和撤销该授权。
-    会计口径：账套授权列表对应权限分配表，撤销后该用户不应继续出现在授权清单中。
+    功能描述：验证账簿授权列表查询与授权撤销接口。
+    业务逻辑：创建团队和账簿后，管理员给第二个用户授权，再查询和撤销该授权。
+    会计口径：账簿授权列表对应权限分配表，撤销后该用户不应继续出现在授权清单中。
     """
     admin_headers, admin_id = _register_user(client, "ledger_admin", "13800138110")
     _, viewer_id = _register_user(client, "ledger_viewer", "13800138111")
 
-    # 创建团队，确保账套有明确的团队归属。
+    # 创建团队，确保账簿有明确的团队归属。
     team_response = client.post(
         "/api/teams",
-        json={"name": "客户账套管理团队", "type": "firm"},
+        json={"name": "客户账簿管理团队", "type": "firm"},
         headers=admin_headers,
     )
     assert team_response.status_code == 200
     team_id = team_response.json()["id"]
 
-    # 创建账套：创建者自动获得 admin 授权。
+    # 创建账簿：创建者自动获得 admin 授权。
     ledger_response = client.post(
         "/api/ledgers",
-        json={"team_id": team_id, "name": "A客户2026年账套"},
+        json={"team_id": team_id, "name": "A客户2026年账簿"},
         headers=admin_headers,
     )
     assert ledger_response.status_code == 200

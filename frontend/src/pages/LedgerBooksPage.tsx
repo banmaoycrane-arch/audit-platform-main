@@ -178,7 +178,7 @@ function DayBookTab() {
   if (!currentLedgerId) {
     return (
       <Card>
-        <Text type="secondary">请先在顶部切换账套，再查看序时簿。</Text>
+        <Text type="secondary">请先在顶部切换账簿，再查看序时簿。</Text>
       </Card>
     )
   }

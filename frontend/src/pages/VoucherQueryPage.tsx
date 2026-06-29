@@ -211,7 +211,7 @@ export function VoucherQueryPage() {
     return (
       <div style={{ padding: 24 }}>
         <Title level={4}>凭证查询</Title>
-        <Text type="secondary">请先在顶部切换账套。</Text>
+        <Text type="secondary">请先在顶部切换账簿。</Text>
       </div>
     )
   }

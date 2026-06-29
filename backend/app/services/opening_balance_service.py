@@ -48,7 +48,7 @@ def upsert(
 ) -> OpeningBalance:
     period = _period_for_ledger(db, period_id, ledger_id)
     if not period or period.organization_id != organization_id:
-        raise ValueError("会计期间与账套不匹配")
+        raise ValueError("会计期间与账簿不匹配")
     effective_ledger_id = ledger_id or period.ledger_id
 
     record = (

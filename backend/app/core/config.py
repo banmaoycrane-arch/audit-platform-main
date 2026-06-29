@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     ai_fallback_to_rules: bool = True
     embedding_dimension: int = 384
     secret_key: str | None = None
+    super_admin_usernames: str = ""
+    super_admin_phones: str = ""
     
     # === LLM 性能参数 ===
     llm_max_concurrent_models: int = 1          # 最大并发模型数（同时运行的LLM数量）

@@ -221,7 +221,7 @@ def query_chronological_entries(
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[AccountingEntry], int]:
-    """按时间顺序查询账套分录，支持常见序时簿筛选条件。"""
+    """按时间顺序查询账簿分录，支持常见序时簿筛选条件。"""
     query = db.query(AccountingEntry).filter(AccountingEntry.ledger_id == ledger_id)
 
     query = _apply_scope_filters(

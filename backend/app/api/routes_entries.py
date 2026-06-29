@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
@@ -37,6 +38,25 @@ class EntryReviewUpdate(BaseModel):
 class EntryBatchReviewUpdate(BaseModel):
     entry_ids: list[int]
     review_status: str
+
+
+class EntryJobReviewUpdate(BaseModel):
+    review_status: str
+
+
+class EntryReviewStatsResponse(BaseModel):
+    total: int
+    verified: int
+    ready: int
+    unreviewed: int
+    status_counts: dict[str, int]
+
+
+class EntryListResponse(BaseModel):
+    items: list[AccountingEntryRead]
+    total: int
+    limit: int
+    offset: int
 
 
 class ChronologicalEntryListResponse(BaseModel):
@@ -84,27 +104,72 @@ def _tag_to_dict(tag: EntryTag) -> dict:
     }
 
 
-@router.get("", response_model=list[AccountingEntryRead])
-def list_entries(
+@router.get("/review-stats", response_model=EntryReviewStatsResponse)
+def get_entry_review_stats(
     import_job_id: int | None = None,
     ledger_id: int | None = None,
     db: Session = Depends(get_db),
-) -> list[AccountingEntry]:
-    query = db.query(AccountingEntry).order_by(
-        AccountingEntry.voucher_no.asc(),
-        AccountingEntry.entry_line_no.asc(),
-        AccountingEntry.id.asc(),
-    )
+) -> EntryReviewStatsResponse:
+    query = db.query(AccountingEntry.review_status, func.count(AccountingEntry.id))
     if import_job_id:
         query = query.filter(AccountingEntry.import_job_id == import_job_id)
     elif ledger_id is not None:
         query = query.filter(AccountingEntry.ledger_id == ledger_id)
-    return query.limit(200).all()
+    rows = query.group_by(AccountingEntry.review_status).all()
+    status_counts = {str(status or "draft"): int(count) for status, count in rows}
+    total = sum(status_counts.values())
+    verified = status_counts.get("verified", 0)
+    ready = status_counts.get("ready", 0)
+    return EntryReviewStatsResponse(
+        total=total,
+        verified=verified,
+        ready=ready,
+        unreviewed=total - verified - ready,
+        status_counts=status_counts,
+    )
+
+
+@router.get("", response_model=EntryListResponse)
+def list_entries(
+    import_job_id: int | None = None,
+    ledger_id: int | None = None,
+    review_status: str | None = Query(None, description="复核状态筛选：draft/verified/ready"),
+    date_from: date | None = Query(None, description="凭证日期起"),
+    date_to: date | None = Query(None, description="凭证日期止"),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> EntryListResponse:
+    query = db.query(AccountingEntry)
+    if import_job_id:
+        query = query.filter(AccountingEntry.import_job_id == import_job_id)
+    elif ledger_id is not None:
+        query = query.filter(AccountingEntry.ledger_id == ledger_id)
+    if review_status:
+        if review_status not in VALID_ENTRY_REVIEW_STATUSES:
+            raise HTTPException(status_code=400, detail="无效的复核状态")
+        query = query.filter(AccountingEntry.review_status == review_status)
+    if date_from:
+        query = query.filter(AccountingEntry.voucher_date >= date_from)
+    if date_to:
+        query = query.filter(AccountingEntry.voucher_date <= date_to)
+    total = query.count()
+    items = (
+        query.order_by(
+            AccountingEntry.voucher_no.asc(),
+            AccountingEntry.entry_line_no.asc(),
+            AccountingEntry.id.asc(),
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return EntryListResponse(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/chronological", response_model=ChronologicalEntryListResponse)
 def list_chronological_entries(
-    ledger_id: int = Query(..., description="账套 ID"),
+    ledger_id: int = Query(..., description="账簿 ID"),
     period_id: int | None = Query(None, description="会计期间 ID"),
     date_from: date | None = Query(None, description="凭证日期起"),
     date_to: date | None = Query(None, description="凭证日期止"),
@@ -122,7 +187,7 @@ def list_chronological_entries(
 ) -> ChronologicalEntryListResponse:
     """序时簿：按时间顺序查看分录，支持科目、摘要、金额、日期、记字号等筛选。"""
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
 
     items, total = query_chronological_entries(
         db,
@@ -177,7 +242,7 @@ def _voucher_card_from_group(group) -> VoucherCardRead:
 
 @router.get("/vouchers", response_model=VoucherQueryResponse)
 def list_voucher_cards(
-    ledger_id: int = Query(..., description="账套 ID"),
+    ledger_id: int = Query(..., description="账簿 ID"),
     period_id: int | None = Query(None, description="会计期间 ID"),
     date_from: date | None = Query(None, description="凭证日期起（按天）"),
     date_to: date | None = Query(None, description="凭证日期止（按天）"),
@@ -203,7 +268,7 @@ def list_voucher_cards(
     if filter_mode not in {"line", "voucher"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="filter_mode 必须为 line 或 voucher")
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
 
     groups, total = query_vouchers(
         db,
@@ -351,6 +416,23 @@ def batch_update_entry_review(payload: EntryBatchReviewUpdate, db: Session = Dep
     updated = (
         db.query(AccountingEntry)
         .filter(AccountingEntry.id.in_(payload.entry_ids))
+        .update({AccountingEntry.review_status: payload.review_status}, synchronize_session=False)
+    )
+    db.commit()
+    return {"updated": updated}
+
+
+@router.post("/jobs/{job_id}/review-all")
+def review_all_entries_for_job(
+    job_id: int,
+    payload: EntryJobReviewUpdate,
+    db: Session = Depends(get_db),
+) -> dict:
+    if payload.review_status not in VALID_ENTRY_REVIEW_STATUSES:
+        raise HTTPException(status_code=400, detail="无效的复核状态")
+    updated = (
+        db.query(AccountingEntry)
+        .filter(AccountingEntry.import_job_id == job_id)
         .update({AccountingEntry.review_status: payload.review_status}, synchronize_session=False)
     )
     db.commit()

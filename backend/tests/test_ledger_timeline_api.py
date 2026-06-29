@@ -1,4 +1,4 @@
-"""账套会计时间线起点与首期种子化测试。"""
+"""账簿会计时间线起点与首期种子化测试。"""
 from datetime import date
 
 import pytest
@@ -67,7 +67,7 @@ def test_create_ledger_defaults_timeline_to_today_and_seeds_open_period(client: 
 
     ledger_response = client.post(
         "/api/ledgers",
-        json={"team_id": team_id, "name": "默认时间线账套"},
+        json={"team_id": team_id, "name": "默认时间线账簿"},
         headers=headers,
     )
     assert ledger_response.status_code == 200
@@ -101,7 +101,7 @@ def test_create_ledger_accepts_custom_accounting_start_date(client: TestClient):
         "/api/ledgers",
         json={
             "team_id": team_id,
-            "name": "2025年补建账套",
+            "name": "2025年补建账簿",
             "accounting_start_date": "2025-03-15",
         },
         headers=headers,

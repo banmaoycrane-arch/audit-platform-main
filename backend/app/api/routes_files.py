@@ -27,9 +27,44 @@ class UpdateFileRequest(BaseModel):
     notes: str | None = None
 
 
+def _collect_object_names(value: Any) -> list[str]:
+    names: list[str] = []
+    keys = {
+        "counterparty", "counterparty_name", "customer", "customer_name", "client", "client_name",
+        "supplier", "supplier_name", "vendor", "vendor_name", "buyer", "buyer_name",
+        "seller", "seller_name", "purchaser", "party_a", "party_a_name", "party_b", "party_b_name",
+        "甲方", "乙方", "购货方", "销货方", "购买方", "销售方",
+    }
+
+    def add_name(raw: Any) -> None:
+        if raw is None:
+            return
+        if isinstance(raw, (list, tuple, set)):
+            for item in raw:
+                add_name(item)
+            return
+        text = str(raw).strip()
+        if text and text not in names:
+            names.append(text)
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, item in node.items():
+                if str(key) in keys:
+                    add_name(item)
+                if isinstance(item, (dict, list)):
+                    walk(item)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(value)
+    return names
+
+
 def _extract_parse_summary(item: SourceFile) -> dict[str, Any]:
     if not item.extracted_text:
-        return {"summary": None, "counterparty_hint": None, "raw_preview": None}
+        return {"summary": None, "counterparty_hint": None, "object_names": [], "raw_preview": None}
 
     try:
         parsed_text = json.loads(item.extracted_text)
@@ -37,20 +72,23 @@ def _extract_parse_summary(item: SourceFile) -> dict[str, Any]:
         return {
             "summary": item.extracted_text[:200],
             "counterparty_hint": None,
+            "object_names": [],
             "raw_preview": item.extracted_text[:1000],
         }
 
     if not isinstance(parsed_text, dict):
-        return {"summary": str(parsed_text)[:200], "counterparty_hint": None, "raw_preview": None}
+        return {"summary": str(parsed_text)[:200], "counterparty_hint": None, "object_names": [], "raw_preview": None}
 
     parse_feedback = parsed_text.get("parse_feedback")
     raw_preview = parsed_text.get("raw_text_preview")
+    object_names = _collect_object_names(parsed_text)
     if isinstance(parse_feedback, dict):
         summary = parse_feedback.get("summary") or raw_preview
         counterparty_hint = parse_feedback.get("counterparty")
         return {
             "summary": str(summary)[:200] if summary else None,
-            "counterparty_hint": str(counterparty_hint) if counterparty_hint else None,
+            "counterparty_hint": str(counterparty_hint) if counterparty_hint else (object_names[0] if object_names else None),
+            "object_names": object_names,
             "raw_preview": str(raw_preview)[:1000] if raw_preview else None,
         }
 
@@ -58,7 +96,8 @@ def _extract_parse_summary(item: SourceFile) -> dict[str, Any]:
     counterparty_hint = parsed_text.get("counterparty")
     return {
         "summary": str(summary)[:200] if summary else None,
-        "counterparty_hint": str(counterparty_hint) if counterparty_hint else None,
+        "counterparty_hint": str(counterparty_hint) if counterparty_hint else (object_names[0] if object_names else None),
+        "object_names": object_names,
         "raw_preview": str(raw_preview)[:1000] if raw_preview else None,
     }
 
@@ -69,6 +108,7 @@ def _find_counterparty_match(db: Session, item: SourceFile) -> tuple[Counterpart
     search_sources = [
         ("文件名", item.filename or ""),
         ("解析摘要", parsed.get("summary") or ""),
+        ("对象名称", " ".join(parsed.get("object_names") or [])),
         ("对方单位字段", parsed.get("counterparty_hint") or ""),
     ]
 
@@ -104,6 +144,13 @@ def _to_dict(db: Session, item: SourceFile) -> dict[str, Any]:
     parsed = _extract_parse_summary(item)
     counterparty = db.get(Counterparty, item.counterparty_id) if item.counterparty_id else None
     archive = load_archive_metadata(item)
+    object_names = list(parsed.get("object_names") or [])
+    archive_counterparty = archive.get("counterparty") if archive else None
+    if archive_counterparty and archive_counterparty not in object_names:
+        object_names.append(str(archive_counterparty))
+    if counterparty and counterparty.name not in object_names:
+        object_names.insert(0, counterparty.name)
+    object_name = object_names[0] if object_names else (parsed.get("counterparty_hint") or None)
     return {
         "id": item.id,
         "organization_id": item.organization_id,
@@ -118,6 +165,8 @@ def _to_dict(db: Session, item: SourceFile) -> dict[str, Any]:
         "raw_text_preview": parsed.get("raw_preview"),
         "counterparty_id": item.counterparty_id,
         "counterparty_name": counterparty.name if counterparty else None,
+        "object_name": object_name,
+        "object_names": object_names,
         "customer_context": {
             "counterparty_id": item.counterparty_id,
             "counterparty_name": counterparty.name if counterparty else None,
@@ -135,36 +184,74 @@ def _to_dict(db: Session, item: SourceFile) -> dict[str, Any]:
     }
 
 
+def _parse_id_list(value: str | None) -> list[int]:
+    if not value:
+        return []
+    ids: list[int] = []
+    for part in value.split(","):
+        text = part.strip()
+        if text.isdigit():
+            ids.append(int(text))
+    return ids
+
+
+def _effective_ledger_id(item: SourceFile) -> int | None:
+    if item.ledger_id is not None:
+        return item.ledger_id
+    if item.import_job_id and item.import_job:
+        return item.import_job.ledger_id
+    return None
+
+
 @router.get("")
 def list_source_files(
     import_job_id: int | None = None,
     ledger_id: int | None = None,
+    ledger_ids: str | None = None,
     project_id: int | None = None,
     counterparty_id: int | None = None,
     customer_id: int | None = None,
+    object_name: str | None = None,
     file_type: str | None = None,
     parse_status: str | None = None,
     text_extract_status: str | None = None,
     archive_category: str | None = None,
     db: Session = Depends(get_db),
 ) -> list[dict]:
+    selected_ledger_ids = _parse_id_list(ledger_ids)
+    if ledger_id is not None:
+        selected_ledger_ids.append(ledger_id)
+    selected_ledger_ids = sorted(set(selected_ledger_ids))
+
     if project_id:
         from app.services.draft_archive_service import list_project_archived_files
 
-        items = list_project_archived_files(db, project_id, ledger_id=ledger_id)
+        items = list_project_archived_files(db, project_id)
+        if selected_ledger_ids:
+            items = [item for item in items if _effective_ledger_id(item) in selected_ledger_ids]
         if archive_category:
             items = [
                 item
                 for item in items
                 if (load_archive_metadata(item) or {}).get("archive_category") == archive_category
             ]
+        selected_counterparty_id = counterparty_id or customer_id
+        if selected_counterparty_id:
+            items = [item for item in items if item.counterparty_id == selected_counterparty_id]
+        if file_type:
+            items = [item for item in items if item.file_type == file_type]
+        selected_status = parse_status or text_extract_status
+        if selected_status:
+            items = [item for item in items if item.text_extract_status == selected_status]
+        if object_name:
+            items = [item for item in items if object_name in (_to_dict(db, item).get("object_names") or [])]
         return [_to_dict(db, item) for item in items]
 
     query = db.query(SourceFile).outerjoin(ImportJob, SourceFile.import_job_id == ImportJob.id)
     if import_job_id:
         query = query.filter(SourceFile.import_job_id == import_job_id)
-    if ledger_id:
-        query = query.filter(or_(SourceFile.ledger_id == ledger_id, ImportJob.ledger_id == ledger_id))
+    if selected_ledger_ids:
+        query = query.filter(or_(SourceFile.ledger_id.in_(selected_ledger_ids), ImportJob.ledger_id.in_(selected_ledger_ids)))
     selected_counterparty_id = counterparty_id or customer_id
     if selected_counterparty_id:
         query = query.filter(SourceFile.counterparty_id == selected_counterparty_id)
@@ -181,6 +268,8 @@ def list_source_files(
             for item in items
             if (load_archive_metadata(item) or {}).get("archive_category") == archive_category
         ]
+    if object_name:
+        items = [item for item in items if object_name in (_to_dict(db, item).get("object_names") or [])]
     return [_to_dict(db, item) for item in items]
 
 
@@ -217,7 +306,7 @@ def bind_file_counterparty(file_id: int, payload: BindCounterpartyRequest, db: S
 
 @router.patch("/{file_id}/bind-ledger")
 def bind_file_ledger(file_id: int, payload: BindLedgerRequest, db: Session = Depends(get_db)) -> dict:
-    """将文件绑定到账套，或从账套解绑"""
+    """将文件绑定到账簿，或从账簿解绑"""
     item = db.get(SourceFile, file_id)
     if not item:
         raise HTTPException(status_code=404, detail="文件不存在")

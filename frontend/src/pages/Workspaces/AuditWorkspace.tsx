@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Typography, Row, Col, Button, Statistic, Table, Select, Space, Tag, Steps, Progress, Empty } from 'antd'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Card, Row, Col, Button, Statistic, Table, Select, Space, Tag, Steps, Progress, Empty } from 'antd'
+import { useNavigate } from 'react-router-dom'
 import {
   FileSearchOutlined,
   ExperimentOutlined,
@@ -15,8 +15,7 @@ import {
 } from '@ant-design/icons'
 import { api, type AuditRisk, type Project, type ImportJob, type AuditTestReport } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
-
-const { Title, Paragraph } = Typography
+import { WorkspaceShell } from '../../components/WorkspaceShell'
 
 const functionsList = [
   { key: 'projects', icon: <FileSearchOutlined />, label: '审计项目', path: '/audit/step/1' },
@@ -51,7 +50,6 @@ function deriveCurrentStep(job: ImportJob | null, report: AuditTestReport | null
 }
 
 export function AuditWorkspace() {
-  const location = useLocation()
   const navigate = useNavigate()
   const { currentLedgerId } = useAuthStore()
   const [projects, setProjects] = useState<Project[]>([])
@@ -164,10 +162,11 @@ export function AuditWorkspace() {
   ]
 
   return (
-    <div>
-      <Title level={4}>审计工作台</Title>
-      <Paragraph type="secondary">管理审计项目、执行测试、复核风险与导出报告</Paragraph>
-
+    <WorkspaceShell
+      title="审计工作台"
+      description="管理审计项目、执行测试、复核风险与导出报告"
+      functionsList={functionsList}
+    >
       <Card style={{ marginBottom: 16 }} loading={loading}>
         <Row justify="space-between" align="middle">
           <Col>
@@ -207,88 +206,66 @@ export function AuditWorkspace() {
         </Row>
       </Card>
 
-      <Row gutter={16}>
-        <Col span={6}>
-          <Card title="功能导航" size="small">
-            <Space direction="vertical" style={{ width: '100%' }}>
-              {functionsList.map((fn) => (
-                <Button
-                  key={fn.key}
-                  type={location.pathname === fn.path ? 'primary' : 'text'}
-                  block
-                  icon={fn.icon}
-                  onClick={() => navigate(fn.path)}
-                >
-                  {fn.label}
-                </Button>
-              ))}
-            </Space>
+      <Row gutter={[16, 16]}>
+        <Col span={8}>
+          <Card loading={loading}>
+            <Statistic title="活跃项目" value={activeProjects || projects.length} valueStyle={{ color: '#1890ff' }} />
           </Card>
         </Col>
-
-        <Col span={18}>
-          <Row gutter={[16, 16]}>
-            <Col span={8}>
-              <Card loading={loading}>
-                <Statistic title="活跃项目" value={activeProjects || projects.length} valueStyle={{ color: '#1890ff' }} />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card loading={loading}>
-                <Statistic title="待执行测试" value={pendingTests} valueStyle={{ color: '#cf1322' }} />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card loading={loading}>
-                <Statistic title="风险发现" value={risks.length} valueStyle={{ color: '#faad14' }} />
-              </Card>
-            </Col>
-          </Row>
-
-          <Card title="项目进度" style={{ marginTop: 16 }} loading={loading}>
-            <Steps
-              size="small"
-              current={currentStep}
-              items={[
-                { title: '选择范围', icon: currentStep > 0 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
-                { title: '导入证据', icon: currentStep > 1 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
-                { title: '导入序时簿', icon: currentStep > 2 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
-                { title: '执行测试', icon: currentStep > 3 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
-                { title: '复核发现', icon: currentStep > 4 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
-                { title: '导出报告', icon: <ClockCircleOutlined /> },
-              ]}
-            />
+        <Col span={8}>
+          <Card loading={loading}>
+            <Statistic title="待执行测试" value={pendingTests} valueStyle={{ color: '#cf1322' }} />
           </Card>
-
-          <Card title="测试统计" style={{ marginTop: 16 }} loading={loading}>
-            {testProgressData.length === 0 ? (
-              <Empty description="暂无测试数据，请先创建审计导入任务" />
-            ) : (
-              <Table
-                size="small"
-                columns={testProgressColumns}
-                dataSource={testProgressData}
-                pagination={false}
-                rowKey="key"
-              />
-            )}
-          </Card>
-
-          <Card title="风险清单" style={{ marginTop: 16 }} loading={loading}>
-            {riskData.length === 0 ? (
-              <Empty description="暂无风险发现" />
-            ) : (
-              <Table
-                size="small"
-                columns={riskColumns}
-                dataSource={riskData}
-                pagination={false}
-                rowKey="key"
-              />
-            )}
+        </Col>
+        <Col span={8}>
+          <Card loading={loading}>
+            <Statistic title="风险发现" value={risks.length} valueStyle={{ color: '#faad14' }} />
           </Card>
         </Col>
       </Row>
-    </div>
+
+      <Card title="项目进度" style={{ marginTop: 16 }} loading={loading}>
+        <Steps
+          size="small"
+          current={currentStep}
+          items={[
+            { title: '选择范围', icon: currentStep > 0 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
+            { title: '导入证据', icon: currentStep > 1 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
+            { title: '导入序时簿', icon: currentStep > 2 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
+            { title: '执行测试', icon: currentStep > 3 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
+            { title: '复核发现', icon: currentStep > 4 ? <CheckCircleOutlined /> : <ClockCircleOutlined /> },
+            { title: '导出报告', icon: <ClockCircleOutlined /> },
+          ]}
+        />
+      </Card>
+
+      <Card title="测试统计" style={{ marginTop: 16 }} loading={loading}>
+        {testProgressData.length === 0 ? (
+          <Empty description="暂无测试数据，请先创建审计导入任务" />
+        ) : (
+          <Table
+            size="small"
+            columns={testProgressColumns}
+            dataSource={testProgressData}
+            pagination={false}
+            rowKey="key"
+          />
+        )}
+      </Card>
+
+      <Card title="风险清单" style={{ marginTop: 16 }} loading={loading}>
+        {riskData.length === 0 ? (
+          <Empty description="暂无风险发现" />
+        ) : (
+          <Table
+            size="small"
+            columns={riskColumns}
+            dataSource={riskData}
+            pagination={false}
+            rowKey="key"
+          />
+        )}
+      </Card>
+    </WorkspaceShell>
   )
 }

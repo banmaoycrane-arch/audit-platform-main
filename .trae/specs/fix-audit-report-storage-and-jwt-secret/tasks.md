@@ -45,7 +45,7 @@
   - [x] SubTask 6.2: 排查并修复 `backend/tests/test_app.py` 中 `import_jobs` 表结构/迁移不匹配导致的 SQLite OperationalError。
   - [x] SubTask 6.3: 排查并修复 `build_report_payload()` 参数签名与 `test_audit_report_service.py` 预期不一致。
   - [x] SubTask 6.4: 排查并修复 `test_basic_data_api.py` 中 SQLite Date 类型入参错误。
-  - [x] SubTask 6.5: 排查并修复 `test_lifecycle.py` 账套生命周期接口返回 403 的权限或测试上下文问题。
+  - [x] SubTask 6.5: 排查并修复 `test_lifecycle.py` 账簿生命周期接口返回 403 的权限或测试上下文问题。
 
 - [x] Task 7: 修复前端 lint 类型错误。
   - [x] SubTask 7.1: 统一 `frontend/src/pages/ProjectsPage.tsx` 与 `frontend/src/api/client` 的 `Project.description` 类型，修复 `string | null | undefined` 不能赋值给 `string | null`。

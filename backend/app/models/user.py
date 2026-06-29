@@ -14,6 +14,7 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(200), unique=True, index=True, nullable=True)
     hashed_password: Mapped[str | None] = mapped_column(String(200), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    platform_role: Mapped[str] = mapped_column(String(40), default="user", nullable=False)
     agreed_terms: Mapped[bool] = mapped_column(Boolean, default=False)
     agreed_privacy: Mapped[bool] = mapped_column(Boolean, default=False)
     team_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("teams.id"), nullable=True)

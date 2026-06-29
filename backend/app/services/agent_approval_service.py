@@ -3,7 +3,7 @@
 模块功能：Agent 高风险动作人工确认服务
 业务场景：为中高风险 Agent 工具生成待确认记录，并记录人工确认结果
 政策依据：会计信息系统内部控制要求，高风险财务动作必须经过授权确认并留痕
-输入数据：工具名称、Agent 角色、工具参数、当前用户和账套上下文
+输入数据：工具名称、Agent 角色、工具参数、当前用户和账簿上下文
 输出结果：agent_approvals 表确认记录
 创建日期：2026-06-19
 更新记录：
@@ -37,7 +37,7 @@ def request_agent_tool_approval(
         agent_role: 当前 Agent 角色。
         args: 工具参数摘要。
         current_user: 发起确认申请的用户。
-        ledger_id: 当前账套 ID。
+        ledger_id: 当前账簿 ID。
 
     Returns:
         AgentApproval: 新创建的待确认记录。

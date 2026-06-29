@@ -92,7 +92,7 @@ TASK_PLAN_RULES = {
         "task_type": "accounting_assisted_import",
         "agent_role": "accounting_assistant_agent",
         "risk_level": "medium",
-        "required_inputs": ["原始凭证、银行流水或合同资料", "当前账套", "会计期间"],
+        "required_inputs": ["原始凭证、银行流水或合同资料", "当前账簿", "会计期间"],
         "allowed_tools": ["create_import_job", "upload_source_file", "generate_entry_drafts"],
         "approval_required": True,
         "approval_reason": "Agent 只能生成分录草稿，正式入账前需要人工复核确认。",
@@ -119,7 +119,7 @@ TASK_PLAN_RULES = {
         "task_type": "basic_data_assistance",
         "agent_role": "accounting_assistant_agent",
         "risk_level": "medium",
-        "required_inputs": ["当前账套", "科目或往来单位资料"],
+        "required_inputs": ["当前账簿", "科目或往来单位资料"],
         "allowed_tools": ["list_chart_of_accounts", "list_counterparties"],
         "approval_required": True,
         "approval_reason": "基础资料变更会影响后续凭证、报表和审计口径，需要人工确认。",
@@ -128,7 +128,7 @@ TASK_PLAN_RULES = {
         "task_type": "period_close_assistance",
         "agent_role": "accounting_assistant_agent",
         "risk_level": "high",
-        "required_inputs": ["当前账套", "会计期间", "结账前检查结果"],
+        "required_inputs": ["当前账簿", "会计期间", "结账前检查结果"],
         "allowed_tools": ["generate_trial_balance", "preview_profit_loss_transfer"],
         "approval_required": True,
         "approval_reason": "损益结转、结账和反结账属于高风险动作，必须人工确认并留痕。",
@@ -217,9 +217,9 @@ def build_task_plan(agent_result: dict, user_id: int, ledger_id: int | None) -> 
     allowed_tool_names = [tool["tool_name"] for tool in tool_details]
     context_notes = ["Agent 接口已绑定当前登录用户，后续执行必须继续复用同一套鉴权逻辑。"]
     if ledger_id is None:
-        context_notes.append("当前未指定账套；涉及凭证、报表、审计数据前需要先选择账套。")
+        context_notes.append("当前未指定账簿；涉及凭证、报表、审计数据前需要先选择账簿。")
     else:
-        context_notes.append(f"当前任务将以账套 {ledger_id} 作为业务上下文。")
+        context_notes.append(f"当前任务将以账簿 {ledger_id} 作为业务上下文。")
 
     return {
         "task_type": rule["task_type"],

@@ -16,6 +16,8 @@ from app.schemas.accounting_period import (
     PeriodActionRequest,
     PeriodSnapshotResponse,
     SnapshotCreateRequest,
+    PeriodBatchCreateRequest,
+    PeriodBatchCreateResponse,
 )
 from app.services.accounting_period_service import AccountingPeriodService
 from app.services import period_close_service
@@ -97,7 +99,7 @@ def create_period(payload: AccountingPeriodCreate, db: Session = Depends(get_db)
             organization_id = resolve_or_create_organization_for_ledger(db, payload.ledger_id)
 
     if organization_id is None:
-        raise HTTPException(status_code=400, detail="无法确定组织，请先完成账套导入或指定组织 ID")
+        raise HTTPException(status_code=400, detail="无法确定组织，请先完成账簿导入或指定组织 ID")
 
     organization = db.get(Organization, organization_id)
     if not organization:
@@ -288,3 +290,90 @@ def pl_transfer_reverse(period_id: int, db: Session = Depends(get_db)) -> dict:
         raise HTTPException(status_code=404, detail=str(exc))
     except PermissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/batch-create", response_model=PeriodBatchCreateResponse)
+def batch_create_periods(
+    payload: PeriodBatchCreateRequest,
+    db: Session = Depends(get_db),
+) -> PeriodBatchCreateResponse:
+    if payload.start_date > payload.end_date:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+
+    organization_id = payload.organization_id
+    if payload.ledger_id is not None:
+        resolved_org_id = resolve_organization_id_for_ledger(db, payload.ledger_id)
+        if resolved_org_id is not None:
+            organization_id = resolved_org_id
+        elif organization_id is None:
+            organization_id = resolve_or_create_organization_for_ledger(db, payload.ledger_id)
+
+    if organization_id is None:
+        raise HTTPException(status_code=400, detail="无法确定组织，请先完成账簿导入或指定组织 ID")
+
+    organization = db.get(Organization, organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="组织不存在")
+
+    existing_periods = (
+        db.query(AccountingPeriod)
+        .filter(AccountingPeriod.organization_id == organization_id)
+        .all()
+    )
+
+    created_periods: list[AccountingPeriod] = []
+    skipped_periods: list[str] = []
+
+    current_year = payload.start_date.year
+    current_month = payload.start_date.month
+    end_year = payload.end_date.year
+    end_month = payload.end_date.month
+
+    while (current_year, current_month) <= (end_year, end_month):
+        period_code = f"{current_year}-{current_month:02d}"
+        start_date = date(current_year, current_month, 1)
+        last_day = monthrange(current_year, current_month)[1]
+        end_date = date(current_year, current_month, last_day)
+
+        overlapped = False
+        for existing in existing_periods:
+            if existing.start_date <= end_date and existing.end_date >= start_date:
+                overlapped = True
+                break
+
+        if overlapped:
+            skipped_periods.append(period_code)
+        else:
+            period = AccountingPeriod(
+                organization_id=organization_id,
+                ledger_id=payload.ledger_id,
+                period_code=period_code,
+                period_type="monthly",
+                start_date=start_date,
+                end_date=end_date,
+                status="open",
+            )
+            db.add(period)
+            created_periods.append(period)
+
+        if current_month == 12:
+            current_year += 1
+            current_month = 1
+        else:
+            current_month += 1
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="批量创建期间时发生数据冲突，请稍后重试")
+
+    for period in created_periods:
+        db.refresh(period)
+
+    return PeriodBatchCreateResponse(
+        created_count=len(created_periods),
+        skipped_count=len(skipped_periods),
+        created_periods=[_period_response(db, p) for p in created_periods],
+        skipped_period_codes=skipped_periods,
+    )

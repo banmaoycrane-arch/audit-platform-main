@@ -30,6 +30,7 @@ from app.db.models import AccountingEntry, EntryTag, ImportJob, SourceFile
 from app.services.data_validator import generate_quality_report
 from app.services.entry_tags_service import build_semantic_text, generate_entry_tags
 from app.services.file_parser_service import ParseResult, parse_entries
+from app.storage.local_storage import resolve_storage_path
 from app.services.logic_check_service import (
     BatchCheckReport,
     check_entry_logic,
@@ -259,6 +260,60 @@ def _index_text(db: Session, organization_id: int, source_type: str, source_id: 
                 pass
 
 
+def _entry_duplicate_key(entry_data: dict[str, Any]) -> tuple[str, str, str, str, str, str, str, str]:
+    """生成分录去重口径，防止同一任务重复解析、重复上传同一序时簿。"""
+    voucher_date = entry_data.get("voucher_date")
+    voucher_date_text = voucher_date.isoformat() if hasattr(voucher_date, "isoformat") else str(voucher_date or "")
+    return (
+        str(entry_data.get("voucher_no") or "").strip(),
+        voucher_date_text,
+        str(entry_data.get("summary") or "").strip(),
+        str(entry_data.get("account_code") or "").strip(),
+        str(entry_data.get("account_name") or "").strip(),
+        str(_amount_to_decimal(entry_data.get("debit_amount", 0))),
+        str(_amount_to_decimal(entry_data.get("credit_amount", 0))),
+        str(entry_data.get("counterparty") or "").strip(),
+    )
+
+
+def build_accounting_entry_duplicate_key(entry_data: dict[str, Any]) -> tuple[str, str, str, str, str, str, str, str]:
+    """供其他导入链路复用的分录去重口径。"""
+    return _entry_duplicate_key(entry_data)
+
+
+def _existing_entry_duplicate_keys(db: Session, job_id: int) -> set[tuple[str, str, str, str, str, str, str, str]]:
+    """读取当前导入任务已落库分录的去重口径。"""
+    existing_rows = (
+        db.query(
+            AccountingEntry.voucher_no,
+            AccountingEntry.voucher_date,
+            AccountingEntry.summary,
+            AccountingEntry.account_code,
+            AccountingEntry.account_name,
+            AccountingEntry.debit_amount,
+            AccountingEntry.credit_amount,
+            AccountingEntry.counterparty,
+        )
+        .filter(AccountingEntry.import_job_id == job_id)
+        .all()
+    )
+    return {
+        _entry_duplicate_key(
+            {
+                "voucher_no": row.voucher_no,
+                "voucher_date": row.voucher_date,
+                "summary": row.summary,
+                "account_code": row.account_code,
+                "account_name": row.account_name,
+                "debit_amount": row.debit_amount,
+                "credit_amount": row.credit_amount,
+                "counterparty": row.counterparty,
+            }
+        )
+        for row in existing_rows
+    }
+
+
 def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingResult:
     """
     处理序时簿导入任务
@@ -291,6 +346,20 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
         3. 跳号检测仅适用于包含数字的凭证号
     """
     try:
+        # 防止同一个导入任务被 Step3 重复触发时重复落库。
+        existing_entry_count = (
+            db.query(AccountingEntry)
+            .filter(AccountingEntry.import_job_id == job.id)
+            .count()
+        )
+        if existing_entry_count > 0:
+            return DayBookProcessingResult(
+                success=True,
+                entries_created=existing_entry_count,
+                report=None,
+            )
+        existing_keys = _existing_entry_duplicate_keys(db, job.id)
+
         # 获取任务关联的源文件
         files = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
 
@@ -304,13 +373,18 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
                 continue
 
             # 解析文件
-            parse_result = parse_entries(source_file.storage_path)
+            parse_result = parse_entries(resolve_storage_path(source_file.storage_path))
             if not parse_result.entries:
                 from app.services.file_parser_service import build_parse_diagnostics
 
                 last_parse_diagnostics = build_parse_diagnostics(parse_result)
-            if parse_result.entries:
-                all_entries.extend(parse_result.entries)
+            for parsed_entry in parse_result.entries:
+                duplicate_key = _entry_duplicate_key(parsed_entry)
+                if duplicate_key in existing_keys:
+                    continue
+                existing_keys.add(duplicate_key)
+                parsed_entry["source_file_id"] = source_file.id
+                all_entries.append(parsed_entry)
 
         if not all_entries:
             from app.services.file_parser_service import build_parse_diagnostics
@@ -441,58 +515,24 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
             "entry_line_no",
         }
 
-        for i, entry_data in enumerate(all_entries):
-            tags = generate_entry_tags(entry_data)
-            entry_data["tags"] = tags
-            entry_data = enhance_entry_with_risk_analysis(entry_data)
-            semantic_text = build_semantic_text(entry_data, tags)
-
+        entry_mappings: list[dict[str, Any]] = []
+        for entry_data in all_entries:
+            source_file_id = entry_data.get("source_file_id")
             entry_kwargs = {k: v for k, v in entry_data.items() if k in model_fields}
-            entry = AccountingEntry(
-                organization_id=job.organization_id,
-                import_job_id=job.id,
-                **entry_kwargs,
-            )
-            db.add(entry)
-            db.flush()
-
-            # 保存 tags
-            for tag in tags:
-                db.add(EntryTag(entry_id=entry.id, tag_name=tag, confidence=1.0))
-
-            # 保存逻辑校验结果到 tags
-            check_result = logic_check_results[i]
-            if not check_result.is_consistent:
-                for issue in check_result.issues:
-                    tag_name = f"逻辑校验:{issue.severity}:{issue.issue_type}"
-                    db.add(EntryTag(entry_id=entry.id, tag_name=tag_name, confidence=0.9))
-
-            # 保存风险案例匹配结果
-            for case in check_result.matched_risk_cases:
-                tag_name = f"风险案例:{case['risk_type']}:{case['id']}"
-                db.add(EntryTag(entry_id=entry.id, tag_name=tag_name, confidence=0.9))
-
-            # 向量索引
-            _index_text(
-                db,
-                job.organization_id,
-                "accounting_entry",
-                entry.id,
-                semantic_text,
+            entry_mappings.append(
                 {
                     "organization_id": job.organization_id,
+                    "ledger_id": job.ledger_id,
                     "import_job_id": job.id,
-                    "voucher_no": entry.voucher_no,
-                    "voucher_date": str(entry.voucher_date) if entry.voucher_date else None,
-                    "account_name": entry.account_name,
-                    "amount": float(entry.debit_amount or entry.credit_amount or 0),
-                    "counterparty": entry.counterparty,
-                    "tags": tags,
-                    "is_consistent": check_result.is_consistent,
-                    "risk_count": len(check_result.matched_risk_cases),
-                },
+                    "source_file_id": source_file_id,
+                    "entry_source": "auto",
+                    **entry_kwargs,
+                }
             )
-            total_created += 1
+
+        if entry_mappings:
+            db.bulk_insert_mappings(AccountingEntry, entry_mappings)
+            total_created = len(entry_mappings)
 
         db.commit()
 

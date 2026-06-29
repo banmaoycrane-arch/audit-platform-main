@@ -1,4 +1,4 @@
-"""账套 / 团队 / 项目 / 主体 管理配置 API。"""
+"""账簿 / 团队 / 项目 / 主体 管理配置 API。"""
 from __future__ import annotations
 
 from typing import Any
@@ -54,14 +54,14 @@ def _patch_from_model(model: BaseModel) -> dict[str, Any]:
 
 def _require_ledger_admin(db: Session, user_id: int, ledger_id: int) -> None:
     if not ledger_management_service.user_has_ledger_access(db, user_id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
     auth = (
         db.query(UserLedgerAuth)
         .filter(UserLedgerAuth.user_id == user_id, UserLedgerAuth.ledger_id == ledger_id)
         .first()
     )
     if auth is None or auth.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要账套管理员权限")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要账簿管理员权限")
 
 
 def _require_team_member(user: User, team_id: int) -> None:
@@ -127,9 +127,9 @@ def get_ledger_settings(
 ) -> dict[str, Any]:
     ledger = db.query(Ledger).filter(Ledger.id == ledger_id).first()
     if ledger is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
     return scope_settings_service.get_ledger_settings(db, ledger_id)
 
 
@@ -142,7 +142,7 @@ def update_ledger_settings(
 ) -> dict[str, Any]:
     ledger = db.query(Ledger).filter(Ledger.id == ledger_id).first()
     if ledger is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
     _require_ledger_admin(db, current_user.id, ledger_id)
     return scope_settings_service.upsert_ledger_settings(
         db, ledger_id, _patch_from_model(payload)
@@ -201,9 +201,9 @@ def get_entity_scope_settings(
 ) -> dict[str, Any]:
     ledger = db.query(Ledger).filter(Ledger.id == ledger_id).first()
     if ledger is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
     return scope_settings_service.get_entity_scope_settings(db, ledger_id)
 
 
@@ -216,7 +216,7 @@ def update_entity_scope_settings(
 ) -> dict[str, Any]:
     ledger = db.query(Ledger).filter(Ledger.id == ledger_id).first()
     if ledger is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
     _require_ledger_admin(db, current_user.id, ledger_id)
     return scope_settings_service.upsert_entity_scope_settings(
         db, ledger_id, _patch_from_model(payload)

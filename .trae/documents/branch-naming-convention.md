@@ -55,7 +55,7 @@ docs/api-reference-01
 | 领域代码 | 功能域 | 分支命名关键词 | 阶段归属 |
 |---|---|---|---|
 | D01 | 身份认证与访问控制 | `auth`, `login`, `gateway` | 基础设施 |
-| D02 | 团队、账套、项目、上下文 | `team`, `ledger`, `project`, `context` | 基础设施 |
+| D02 | 团队、账簿、项目、上下文 | `team`, `ledger`, `project`, `context` | 基础设施 |
 | D03 | Shell、导航、工作台、模块入口 | `shell`, `nav`, `workspace` | 基础设施 |
 | D04 | 凭证生命周期 | `voucher`, `entry`, `journal` | phase-a |
 | D05 | 原始资料导入与解析 | `import`, `parse`, `upload` | phase-a |

@@ -11,8 +11,8 @@
 
 - [x] Task 3: 修复注册后初始化流程
   - [x] SubTask 3.1: 修改 `frontend/src/pages/Auth/RegisterPage.tsx`，注册成功后获取用户信息
-  - [x] SubTask 3.2: 注册后加载团队和账套列表
-  - [x] SubTask 3.3: 无团队或账套时跳转 `/onboarding`，否则进入 `/workspace`
+  - [x] SubTask 3.2: 注册后加载团队和账簿列表
+  - [x] SubTask 3.3: 无团队或账簿时跳转 `/onboarding`，否则进入 `/workspace`
   - [x] SubTask 3.4: 注册失败时展示可理解错误信息
 
 - [x] Task 4: 补充回归测试

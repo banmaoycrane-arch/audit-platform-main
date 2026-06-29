@@ -32,6 +32,7 @@ from app.db.models import (
 from app.services.audit_day_book_service import (
     DayBookProcessingResult,
     DayBookReport,
+    build_accounting_entry_duplicate_key,
     process_day_book_import,
 )
 from app.services.draft_archive_service import auto_archive_draft
@@ -57,7 +58,7 @@ from app.services.risk_case_library import enhance_entry_with_risk_analysis
 from app.services.ledger_context_service import resolve_or_create_organization_for_ledger
 from app.services.tagging_service import suggest_tags, suggest_voucher_type
 from app.services.vector_store_service import chunk_hash, chunk_text, safe_vector_store
-from app.storage.local_storage import save_upload
+from app.storage.local_storage import resolve_storage_path, save_upload
 
 
 # 会计凭证文件类型
@@ -188,7 +189,7 @@ def attach_file(db: Session, job: ImportJob, file: UploadFile) -> SourceFile:
     storage_path = save_upload(file)
     file_type = Path(file.filename or storage_path).suffix.lower().lstrip(".") or "unknown"
 
-    # 【修复】自动关联账套ID：如果 job 没有 ledger_id，尝试从同 organization 的其他 job 获取
+    # 【修复】自动关联账簿ID：如果 job 没有 ledger_id，尝试从同 organization 的其他 job 获取
     ledger_id = job.ledger_id
     if ledger_id is None:
         # 查找同 organization 下最近有 ledger_id 的其他 job
@@ -369,7 +370,7 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
     """
     try:
         # 解析文件
-        parse_result = parse_entries(source_file.storage_path)
+        parse_result = parse_entries(resolve_storage_path(source_file.storage_path))
 
         if not parse_result.entries:
             return (
@@ -431,6 +432,32 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
 
         # 创建分录
         entries_created = 0
+        existing_keys = {
+            build_accounting_entry_duplicate_key(
+                {
+                    "voucher_no": row.voucher_no,
+                    "voucher_date": row.voucher_date,
+                    "summary": row.summary,
+                    "account_code": row.account_code,
+                    "account_name": row.account_name,
+                    "debit_amount": row.debit_amount,
+                    "credit_amount": row.credit_amount,
+                    "counterparty": row.counterparty,
+                }
+            )
+            for row in db.query(
+                AccountingEntry.voucher_no,
+                AccountingEntry.voucher_date,
+                AccountingEntry.summary,
+                AccountingEntry.account_code,
+                AccountingEntry.account_name,
+                AccountingEntry.debit_amount,
+                AccountingEntry.credit_amount,
+                AccountingEntry.counterparty,
+            )
+            .filter(AccountingEntry.import_job_id == job.id)
+            .all()
+        }
         voucher_line_counter: dict[str, int] = {}
         for i, entry_data in enumerate(parse_result.entries):
             # 生成多维度 tags
@@ -447,6 +474,11 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
             voucher_no = entry_data.get("voucher_no") or f"__no_voucher__:{i}"
             voucher_line_counter[voucher_no] = voucher_line_counter.get(voucher_no, 0) + 1
             entry_data["entry_line_no"] = voucher_line_counter[voucher_no]
+
+            duplicate_key = build_accounting_entry_duplicate_key(entry_data)
+            if duplicate_key in existing_keys:
+                continue
+            existing_keys.add(duplicate_key)
 
             # 仅保留 AccountingEntry 模型字段，避免传入 tags / risk_cases 等扩展字段
             model_fields = {
@@ -716,7 +748,7 @@ def _process_structured_preview(db: Session, job: ImportJob, source_file: Source
     AI 路径下的结构化文件预览：解析但不落库，引导用户使用序时簿导入模式。
     """
     try:
-        parse_result = parse_entries(source_file.storage_path)
+        parse_result = parse_entries(resolve_storage_path(source_file.storage_path))
         entry_count = len(parse_result.entries)
         if entry_count == 0:
             _save_parse_feedback(

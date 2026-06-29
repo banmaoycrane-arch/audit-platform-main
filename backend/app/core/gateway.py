@@ -88,6 +88,7 @@ def build_error_response(
         status_code=status_code,
         content=payload,
         headers={"X-Request-ID": request_id},
+        media_type="application/json; charset=utf-8",
     )
 
 

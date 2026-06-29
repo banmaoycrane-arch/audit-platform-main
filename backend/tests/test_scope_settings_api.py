@@ -1,4 +1,4 @@
-"""账套 / 团队 / 项目 / 主体 管理配置 API 测试。"""
+"""账簿 / 团队 / 项目 / 主体 管理配置 API 测试。"""
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -62,7 +62,7 @@ def _bootstrap_scope(client: TestClient, headers: dict) -> dict:
     ).json()
     ledger = client.post(
         "/api/ledgers",
-        json={"team_id": team["id"], "name": "配置测试账套"},
+        json={"team_id": team["id"], "name": "配置测试账簿"},
         headers=headers,
     ).json()
     project = client.post(

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 模块功能：绑定申请 API 路由
-业务场景：访客用户提交团队/账套/项目绑定申请，管理员审批后完成授权
+业务场景：访客用户提交团队/账簿/项目绑定申请，管理员审批后完成授权
 政策依据：会计信息系统内部控制规范——权限申请、审批、授权留痕
-输入数据：HTTP 请求中的团队、账套、项目、角色、审批意见
+输入数据：HTTP 请求中的团队、账簿、项目、角色、审批意见
 输出结果：绑定申请 JSON 数据和审批结果
 创建日期：2026-06-20
 更新记录：
@@ -94,7 +94,7 @@ def build_binding_request_response(request: BindingRequest) -> BindingRequestRes
 
 
 def attach_display_names(db: Session, request: BindingRequest) -> BindingRequest:
-    """补充团队、账套、项目名称，仅用于申请列表展示。"""
+    """补充团队、账簿、项目名称，仅用于申请列表展示。"""
     from app.models.ledger import Ledger
     from app.models.project import Project
     from app.models.team import Team
@@ -114,7 +114,7 @@ def get_binding_options(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BindingOptionsResponse:
-    """返回提交绑定申请所需的团队、账套、项目下拉选项。"""
+    """返回提交绑定申请所需的团队、账簿、项目下拉选项。"""
     teams = binding_request_service.get_visible_teams(db)
     ledgers = binding_request_service.get_visible_ledgers(db, team_id) if team_id else []
     projects = binding_request_service.get_visible_projects(db, team_id) if team_id else []

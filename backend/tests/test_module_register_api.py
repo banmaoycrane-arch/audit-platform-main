@@ -51,7 +51,7 @@ def _seed_ledger(db) -> int:
     team = Team(name="PhaseA团队")
     db.add(team)
     db.flush()
-    ledger = Ledger(name="PhaseA账套", team_id=team.id)
+    ledger = Ledger(name="PhaseA账簿", team_id=team.id)
     db.add(ledger)
     db.commit()
     return ledger.id

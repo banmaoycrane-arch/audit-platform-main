@@ -9,6 +9,7 @@
 更新记录：
     2026-06-18  初始创建项目管理服务
 """
+from datetime import date
 from sqlalchemy.orm import Session, joinedload
 from app.models.project import Project
 from app.models.project_ledger import ProjectLedger
@@ -16,6 +17,7 @@ from app.models.project_member import ProjectMember
 from app.models.team import Team
 from app.models.ledger import Ledger
 from app.models.user import User
+from app.models.user_ledger_auth import UserLedgerAuth
 
 
 def create_project(
@@ -49,8 +51,6 @@ def create_project(
     注意事项：
         1. 团队必须存在
     """
-    from datetime import date
-
     project = Project(
         team_id=team_id,
         name=name,
@@ -59,9 +59,9 @@ def create_project(
         manager_id=manager_id,
     )
     if start_date:
-        project.start_date = date.fromisoformat(start_date)
+        project.start_date = _parse_date(start_date)
     if end_date:
-        project.end_date = date.fromisoformat(end_date)
+        project.end_date = _parse_date(end_date)
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -98,8 +98,6 @@ def update_project(
     end_date: str | None = None,
     manager_id: int | None = None,
 ) -> Project | None:
-    from datetime import date
-
     project = get_project_by_id(db, project_id)
     if not project:
         return None
@@ -112,14 +110,40 @@ def update_project(
     if status is not None:
         project.status = status
     if start_date is not None:
-        project.start_date = date.fromisoformat(start_date) if start_date else None
+        project.start_date = _parse_date(start_date)
     if end_date is not None:
-        project.end_date = date.fromisoformat(end_date) if end_date else None
+        project.end_date = _parse_date(end_date)
     if manager_id is not None:
         project.manager_id = manager_id
     db.commit()
     db.refresh(project)
     return project
+
+
+def _parse_date(date_str: str) -> date | None:
+    """解析日期字符串，支持多种格式。"""
+    if not date_str:
+        return None
+    # 尝试 ISO 格式 YYYY-MM-DD
+    try:
+        return date.fromisoformat(date_str)
+    except ValueError:
+        pass
+    # 尝试 YYYY-M-D 格式（前端可能发送的格式）
+    try:
+        parts = date_str.split("-")
+        if len(parts) == 3:
+            return date(int(parts[0]), int(parts[1]), int(parts[2]))
+    except (ValueError, IndexError):
+        pass
+    # 尝试 YYYY/MM/DD 格式
+    try:
+        parts = date_str.split("/")
+        if len(parts) == 3:
+            return date(int(parts[0]), int(parts[1]), int(parts[2]))
+    except (ValueError, IndexError):
+        pass
+    raise ValueError(f"无法解析日期格式: {date_str}")
 
 
 def remove_ledger_from_project(db: Session, project_id: int, ledger_id: int) -> int:
@@ -152,9 +176,11 @@ def list_projects_by_team(db: Session, team_id: int) -> list[Project]:
 
 def list_projects_by_user(db: Session, user_id: int) -> list[Project]:
     """
-    获取用户参与的项目列表。
+    获取用户可访问的项目列表。
 
-    业务逻辑：通过 project_members 表查询用户所属的所有项目
+    业务逻辑：项目可见范围包括两类：
+    1. 用户已被加入 project_members 的项目；
+    2. 用户有账簿权限，且该账簿已绑定到项目的项目。
 
     Args:
         user_id: 用户ID
@@ -162,11 +188,73 @@ def list_projects_by_user(db: Session, user_id: int) -> list[Project]:
     Returns:
         list[Project]: 项目列表
     """
-    member_records = db.query(ProjectMember).filter(ProjectMember.user_id == user_id).all()
-    if not member_records:
+    member_project_ids = [
+        record.project_id
+        for record in db.query(ProjectMember).filter(ProjectMember.user_id == user_id).all()
+    ]
+    ledger_project_ids = [
+        record.project_id
+        for record in (
+            db.query(ProjectLedger)
+            .join(UserLedgerAuth, UserLedgerAuth.ledger_id == ProjectLedger.ledger_id)
+            .filter(UserLedgerAuth.user_id == user_id)
+            .all()
+        )
+    ]
+    project_ids = sorted(set(member_project_ids + ledger_project_ids))
+    if not project_ids:
         return []
-    project_ids = [m.project_id for m in member_records]
     return db.query(Project).filter(Project.id.in_(project_ids)).order_by(Project.created_at.desc()).all()
+
+
+def list_project_task_assignees(db: Session, project_id: int, ledger_id: int | None = None) -> list[dict]:
+    """获取可作为审计任务负责人的项目成员。"""
+    project = get_project_by_id(db, project_id)
+    if not project:
+        return []
+
+    project_ledger_ids = [
+        link.ledger_id
+        for link in db.query(ProjectLedger).filter(ProjectLedger.project_id == project_id).all()
+    ]
+    if ledger_id is not None:
+        if ledger_id not in project_ledger_ids:
+            return []
+        project_ledger_ids = [ledger_id]
+    if not project_ledger_ids:
+        return []
+
+    rows = (
+        db.query(User, ProjectMember.role, UserLedgerAuth.role)
+        .join(ProjectMember, ProjectMember.user_id == User.id)
+        .join(UserLedgerAuth, UserLedgerAuth.user_id == User.id)
+        .filter(
+            ProjectMember.project_id == project_id,
+            User.team_id == project.team_id,
+            User.is_active.is_(True),
+            UserLedgerAuth.ledger_id.in_(project_ledger_ids),
+        )
+        .order_by(User.id.asc())
+        .all()
+    )
+
+    assignees: dict[int, dict] = {}
+    for user, project_role, ledger_role in rows:
+        item = assignees.setdefault(
+            user.id,
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "phone": user.phone,
+                "team_id": user.team_id,
+                "project_role": project_role,
+                "ledger_roles": [],
+            },
+        )
+        if ledger_role and ledger_role not in item["ledger_roles"]:
+            item["ledger_roles"].append(ledger_role)
+    return list(assignees.values())
 
 
 def associate_ledger_to_project(db: Session, project_id: int, ledger_id: int) -> ProjectLedger:

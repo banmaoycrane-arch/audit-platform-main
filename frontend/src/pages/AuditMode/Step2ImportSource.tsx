@@ -77,13 +77,13 @@ export function Step2AuditImportSource() {
       }
       setUploadedFiles(prev => [...prev, fileInfo])
 
-      // 上传后自动触发生成（同步处理所有文件）
-      message.loading({ content: '正在解析上传文件，请稍候...', key: 'parsing' })
+      // 上传后统一调用 parser-engine，不再使用模块私有解析链路。
+      message.loading({ content: '正在调用统一解析引擎解析上传文件，请稍候...', key: 'parsing' })
       try {
-        await api.processImportJobSync(jobId)
-        message.success({ content: `文件解析完成，${file.name} 已处理`, key: 'parsing' })
+        await api.parseSourceFileWithEngine(jobId, result.id)
+        message.success({ content: `文件已由统一解析引擎完成解析，${file.name} 已处理`, key: 'parsing' })
       } catch {
-        message.warning({ content: `${file.name} 上传成功，但解析失败`, key: 'parsing' })
+        message.warning({ content: `${file.name} 上传成功，但统一解析引擎解析失败`, key: 'parsing' })
       }
     } catch (error) {
       message.error(`${file.name} 上传失败`)

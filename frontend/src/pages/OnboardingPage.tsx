@@ -22,8 +22,8 @@ const stepDefinitions: Array<{
   },
   {
     key: 'ledger',
-    title: '账套',
-    financialMeaning: '账套是凭证、科目、期间和报表的归属范围，不同账套之间的财务数据必须隔离。',
+    title: '账簿',
+    financialMeaning: '账簿是凭证、科目、期间和报表的归属范围，不同账簿之间的财务数据必须隔离。',
   },
   {
     key: 'project',
@@ -33,13 +33,13 @@ const stepDefinitions: Array<{
   {
     key: 'accounting_entity',
     title: '会计主体确认',
-    financialMeaning: '会计主体决定“为谁记账、为谁出报表”，未确认前历史资料不能自动并入当前账套。',
+    financialMeaning: '会计主体决定“为谁记账、为谁出报表”，未确认前历史资料不能自动并入当前账簿。',
   },
 ]
 
 const bindingLabels: Record<BindingKey, string> = {
   team: '团队',
-  ledger: '账套',
+  ledger: '账簿',
   project: '项目',
   accounting_entity: '会计主体',
 }
@@ -109,7 +109,7 @@ export function OnboardingPage() {
     try {
       const team = await api.createTeam(values)
       setSelectedTeamId(team.id)
-      message.success('团队创建成功，请继续确认账套')
+      message.success('团队创建成功，请继续确认账簿')
       await refreshContext()
     } catch (error: any) {
       message.error(error.message || '团队创建失败')
@@ -144,10 +144,10 @@ export function OnboardingPage() {
       })
       await api.switchLedger(ledger.id)
       setSelectedLedgerId(ledger.id)
-      message.success('账套创建成功，请继续确认项目')
+      message.success('账簿创建成功，请继续确认项目')
       await refreshContext()
     } catch (error: any) {
-      message.error(error.message || '账套创建失败')
+      message.error(error.message || '账簿创建失败')
     } finally {
       setLoading(false)
     }
@@ -155,17 +155,17 @@ export function OnboardingPage() {
 
   const handleSelectExistingLedger = async () => {
     if (!selectedLedgerId) {
-      message.warning('请先选择账套')
+      message.warning('请先选择账簿')
       return
     }
     setLoading(true)
     try {
       await api.switchLedger(selectedLedgerId)
       setCurrentLedger(selectedLedgerId)
-      message.success('已切换到账套，请继续确认项目')
+      message.success('已切换到账簿，请继续确认项目')
       await refreshContext()
     } catch (error: any) {
-      message.error(error.message || '账套切换失败')
+      message.error(error.message || '账簿切换失败')
     } finally {
       setLoading(false)
     }
@@ -206,7 +206,7 @@ export function OnboardingPage() {
   const handleConfirmAccountingEntity = async () => {
     const ledgerId = selectedLedgerId || context?.current_ledger_id || ledgers[0]?.id
     if (!ledgerId) {
-      message.warning('请先选择或创建账套')
+      message.warning('请先选择或创建账簿')
       return
     }
     const values = await entityForm.validateFields()
@@ -238,7 +238,7 @@ export function OnboardingPage() {
       <Card style={{ maxWidth: 920, margin: '0 auto' }}>
         <Title level={3}>首次登录引导</Title>
         <Paragraph type="secondary">
-          请把用户、团队、账套、项目和会计主体关系确认清楚。这样后续凭证、报表、审计证据都能落到明确的财务归属范围。
+          请把用户、团队、账簿、项目和会计主体关系确认清楚。这样后续凭证、报表、审计证据都能落到明确的财务归属范围。
         </Paragraph>
 
         {isTemporary && (
@@ -247,7 +247,7 @@ export function OnboardingPage() {
             showIcon
             style={{ marginBottom: 16 }}
             title="当前为临时工作状态"
-            description="未完成绑定前可以继续准备资料，但历史资料不会自动认领或并入当前账套；涉及正式记账、期间关闭、报表出具等操作应在完成会计主体确认后进行。"
+            description="未完成绑定前可以继续准备资料，但历史资料不会自动认领或并入当前账簿；涉及正式记账、期间关闭、报表出具等操作应在完成会计主体确认后进行。"
           />
         )}
 
@@ -322,20 +322,20 @@ export function OnboardingPage() {
         {currentBindingKey === 'ledger' && (
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
             {ledgers.length > 0 && (
-              <Card size="small" title="选择已有账套">
+              <Card size="small" title="选择已有账簿">
                 <Space wrap>
                   <Select
                     style={{ width: 320 }}
-                    placeholder="请选择账套"
+                    placeholder="请选择账簿"
                     value={selectedLedgerId || undefined}
                     onChange={setSelectedLedgerId}
                     options={ledgers.map((ledger) => ({ value: ledger.id, label: ledger.name }))}
                   />
-                  <Button type="primary" loading={loading} onClick={handleSelectExistingLedger}>使用该账套继续</Button>
+                  <Button type="primary" loading={loading} onClick={handleSelectExistingLedger}>使用该账簿继续</Button>
                 </Space>
               </Card>
             )}
-            <Card size="small" title="创建新账套">
+            <Card size="small" title="创建新账簿">
               <Form form={ledgerForm} layout="vertical" initialValues={{ team_id: selectedTeamId || undefined, accounting_start_date: dayjs() }}>
                 <Form.Item name="team_id" label="所属团队" rules={[{ required: true, message: '请选择所属团队' }]}>
                   <Select
@@ -344,21 +344,21 @@ export function OnboardingPage() {
                     options={teams.map((team) => ({ value: team.id, label: team.name }))}
                   />
                 </Form.Item>
-                <Form.Item name="name" label="账套名称" rules={[{ required: true, message: '请输入账套名称' }]}>
-                  <Input placeholder="例如：XX公司2026账套" />
+                <Form.Item name="name" label="账簿名称" rules={[{ required: true, message: '请输入账簿名称' }]}>
+                  <Input placeholder="例如：XX公司2026账簿" />
                 </Form.Item>
                 <Form.Item
                   name="accounting_start_date"
                   label="会计时间线起点"
                   rules={[{ required: true, message: '请选择会计时间线起点' }]}
-                  extra="默认创建当天；补建历史账套时请调整为实际开账日期"
+                  extra="默认创建当天；补建历史账簿时请调整为实际开账日期"
                 >
                   <DatePicker style={{ width: '100%' }} />
                 </Form.Item>
                 <Space>
                   <Button onClick={() => setCurrentStep(0)}>返回团队步骤</Button>
                   <Button type="primary" loading={loading} onClick={handleCreateLedger}>
-                    创建账套并继续
+                    创建账簿并继续
                   </Button>
                 </Space>
               </Form>
@@ -397,7 +397,7 @@ export function OnboardingPage() {
                   />
                 </Form.Item>
                 <Space>
-                  <Button onClick={() => setCurrentStep(1)}>返回账套步骤</Button>
+                  <Button onClick={() => setCurrentStep(1)}>返回账簿步骤</Button>
                   <Button type="primary" loading={loading} onClick={handleCreateProject}>创建项目并继续</Button>
                 </Space>
               </Form>
@@ -410,8 +410,8 @@ export function OnboardingPage() {
             <Alert
               type="info"
               showIcon
-              title="请确认当前账套的会计主体"
-              description="会计主体是凭证、报表和审计证据的归属对象。确认后系统会把该主体写入当前账套，后续登录不会再重复提示该项缺失。"
+              title="请确认当前账簿的会计主体"
+              description="会计主体是凭证、报表和审计证据的归属对象。确认后系统会把该主体写入当前账簿，后续登录不会再重复提示该项缺失。"
             />
             <Divider />
             <Form form={entityForm} layout="vertical" initialValues={{ is_legal_entity: true, is_tax_entity: false, is_management_entity: false }}>
@@ -438,14 +438,14 @@ export function OnboardingPage() {
               renderItem={(item, index) => (
                 <List.Item>
                   {typeof item === 'object' && item !== null
-                    ? `候选资料 ${index + 1}：请确认是否归属于当前账套`
+                    ? `候选资料 ${index + 1}：请确认是否归属于当前账簿`
                     : String(item)}
                 </List.Item>
               )}
             />
           ) : (
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              暂无可自动匹配的历史资料。即使后续发现候选资料，也必须由用户确认后才能并入当前账套。
+              暂无可自动匹配的历史资料。即使后续发现候选资料，也必须由用户确认后才能并入当前账簿。
             </Paragraph>
           )}
         </Card>

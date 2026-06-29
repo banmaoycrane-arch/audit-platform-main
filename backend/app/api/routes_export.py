@@ -92,11 +92,20 @@ def post_import_job_entries(
     if not entries:
         raise HTTPException(status_code=400, detail="该导入任务下没有可入账的分录")
 
-    unreviewed = [e.id for e in entries if e.review_status not in POSTABLE_REVIEW_STATUSES]
-    if unreviewed:
+    unreviewed_query = db.query(AccountingEntry.id).filter(
+        AccountingEntry.import_job_id == job_id,
+        AccountingEntry.review_status.notin_(POSTABLE_REVIEW_STATUSES),
+    )
+    unreviewed_count = unreviewed_query.count()
+    if unreviewed_count:
+        sample_ids = [row[0] for row in unreviewed_query.order_by(AccountingEntry.id).limit(20).all()]
         raise HTTPException(
             status_code=400,
-            detail=f"存在未复核通过的分录（需 verified 或 ready），entry_ids={unreviewed}",
+            detail={
+                "message": "存在未复核通过的分录（需 verified 或 ready）",
+                "unreviewed_count": unreviewed_count,
+                "sample_entry_ids": sample_ids,
+            },
         )
 
     now = datetime.utcnow()

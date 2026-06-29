@@ -47,6 +47,7 @@ from app.api.routes_team import router as team_router
 from app.api.routes_scope_settings import router as scope_settings_router
 from app.api.routes_parser_engine import router as parser_engine_router
 from app.api.routes_config import router as config_router
+from app.api.routes_super_admin import router as super_admin_router
 from app.db import models
 import app.models  # noqa: F401 — register app.models tables for create_all
 from app.db.session import Base, engine
@@ -107,6 +108,7 @@ def _ensure_local_sqlite_schema() -> None:
             user_missing_columns = {
                 "agreed_terms": "ALTER TABLE users ADD COLUMN agreed_terms BOOLEAN DEFAULT 0 NOT NULL",
                 "agreed_privacy": "ALTER TABLE users ADD COLUMN agreed_privacy BOOLEAN DEFAULT 0 NOT NULL",
+                "platform_role": "ALTER TABLE users ADD COLUMN platform_role VARCHAR(40) DEFAULT 'user' NOT NULL",
                 "team_id": "ALTER TABLE users ADD COLUMN team_id INTEGER",
                 "last_ledger_id": "ALTER TABLE users ADD COLUMN last_ledger_id INTEGER",
                 "updated_at": "ALTER TABLE users ADD COLUMN updated_at DATETIME",
@@ -195,6 +197,7 @@ def _ensure_local_sqlite_schema() -> None:
         if "accounting_entries" in table_names:
             entry_columns = {column["name"] for column in inspector.get_columns("accounting_entries")}
             entry_missing_columns = {
+                "ledger_id": "ALTER TABLE accounting_entries ADD COLUMN ledger_id INTEGER",
                 "entity_id": "ALTER TABLE accounting_entries ADD COLUMN entity_id INTEGER",
                 "original_entity_name": "ALTER TABLE accounting_entries ADD COLUMN original_entity_name VARCHAR(500)",
                 "source_file_id": "ALTER TABLE accounting_entries ADD COLUMN source_file_id INTEGER",
@@ -296,7 +299,13 @@ def _ensure_local_sqlite_schema() -> None:
 
 _ensure_local_sqlite_schema()
 
-app = FastAPI(title="财务向量审计风险识别系统", version="0.1.0")
+from fastapi.responses import JSONResponse
+
+app = FastAPI(
+    title="财务向量审计风险识别系统",
+    version="0.1.0",
+    default_response_class=JSONResponse,
+)
 configure_gateway(app)
 app.add_middleware(
     CORSMiddleware,
@@ -337,6 +346,7 @@ app.include_router(team_router)
 app.include_router(scope_settings_router)
 app.include_router(parser_engine_router)
 app.include_router(config_router)
+app.include_router(super_admin_router)
 app.include_router(binding_requests_router)
 app.include_router(bank_router)
 app.include_router(confirmations_router)

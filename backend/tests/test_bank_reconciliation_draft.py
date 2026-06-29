@@ -62,7 +62,7 @@ def _create_ledger(client: TestClient, headers: dict) -> int:
     assert team.status_code == 200
     ledger = client.post(
         "/api/ledgers",
-        json={"team_id": team.json()["id"], "name": "调节表账套"},
+        json={"team_id": team.json()["id"], "name": "调节表账簿"},
         headers=headers,
     )
     assert ledger.status_code == 200

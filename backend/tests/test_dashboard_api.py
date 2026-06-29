@@ -204,7 +204,7 @@ def test_dashboard_summary_returns_team_after_onboarding(client):
 
     ledger_response = client.post(
         "/api/ledgers",
-        json={"team_id": team_id, "name": "仪表盘账套"},
+        json={"team_id": team_id, "name": "仪表盘账簿"},
         headers=headers,
     )
     assert ledger_response.status_code == 200

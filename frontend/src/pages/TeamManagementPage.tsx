@@ -48,7 +48,7 @@ const requestStatusMap: Record<string, { label: string; color: string }> = {
   // 缺少绑定项的中文标签
   const missingBindingLabelMap: Record<string, string> = {
     team: '团队',
-    ledger: '账套',
+    ledger: '账簿',
     project: '项目',
     accounting_entity: '会计主体',
   }
@@ -233,7 +233,7 @@ export function TeamManagementPage() {
         </Title>
         <Space size="large" style={{ fontSize: 12, color: '#666' }}>
           <span><UserOutlined /> {team.member_count ?? '-'} 人</span>
-          <span><BookOutlined /> {team.ledger_count ?? '-'} 账套</span>
+          <span><BookOutlined /> {team.ledger_count ?? '-'} 账簿</span>
         </Space>
         <div>
           <Text type="secondary" style={{ fontSize: 12 }}>
@@ -253,7 +253,7 @@ export function TeamManagementPage() {
 
   const bindingRequestColumns = [
     { title: '团队', dataIndex: 'team_name', key: 'team_name', render: (value: string | null) => value || '-' },
-    { title: '账套', dataIndex: 'ledger_name', key: 'ledger_name', render: (value: string | null) => value || '-' },
+    { title: '账簿', dataIndex: 'ledger_name', key: 'ledger_name', render: (value: string | null) => value || '-' },
     { title: '项目', dataIndex: 'project_name', key: 'project_name', render: (value: string | null) => value || '-' },
     {
       title: '申请角色',
@@ -319,7 +319,7 @@ export function TeamManagementPage() {
                 style={{ marginBottom: 16 }}
                 items={[
                   { title: '申请团队', icon: currentStep > 0 ? <CheckCircleOutlined /> : <TeamOutlined /> },
-                  { title: '申请账套', icon: currentStep > 1 ? <CheckCircleOutlined /> : currentStep === 1 ? <LoadingOutlined /> : <BookOutlined /> },
+                  { title: '申请账簿', icon: currentStep > 1 ? <CheckCircleOutlined /> : currentStep === 1 ? <LoadingOutlined /> : <BookOutlined /> },
                   { title: '申请项目', icon: currentStep > 2 ? <CheckCircleOutlined /> : currentStep === 2 ? <LoadingOutlined /> : <AuditOutlined /> },
                 ]}
               />
@@ -396,7 +396,7 @@ export function TeamManagementPage() {
           <Title level={4} style={{ margin: 0 }}>
             <TeamOutlined /> 团队管理
           </Title>
-          <Paragraph type="secondary">团队用于归集人员、账套和项目，是权限隔离的基础。</Paragraph>
+          <Paragraph type="secondary">团队用于归集人员、账簿和项目，是权限隔离的基础。</Paragraph>
         </Col>
         <Col>
           <Space>
@@ -539,7 +539,7 @@ export function TeamManagementPage() {
         title={
           <Space>
             <SafetyCertificateOutlined />
-            <span>申请授权（团队 / 账套 / 项目）</span>
+            <span>申请授权（团队 / 账簿 / 项目）</span>
           </Space>
         }
         open={requestOpen}
@@ -555,7 +555,7 @@ export function TeamManagementPage() {
             description={
               <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
                 <li>选择团队是必选项，申请后将成为该团队的成员</li>
-                <li>账套和项目为可选项，可同时申请或稍后单独申请</li>
+                <li>账簿和项目为可选项，可同时申请或稍后单独申请</li>
                 <li>审批通过后会自动写入对应的访问权限</li>
               </ul>
             }
@@ -582,13 +582,13 @@ export function TeamManagementPage() {
           </Form.Item>
           <Form.Item
             name="ledger_id"
-            label={<Space><BookOutlined /> 申请访问账套</Space>}
-            tooltip="选择后获将得该账套的访问权限"
+            label={<Space><BookOutlined /> 申请访问账簿</Space>}
+            tooltip="选择后获将得该账簿的访问权限"
           >
             <Select
               allowClear
               showSearch
-              placeholder={bindingOptions.ledgers.length > 0 ? "请选择账套（可选）" : "请先选择团队"}
+              placeholder={bindingOptions.ledgers.length > 0 ? "请选择账簿（可选）" : "请先选择团队"}
               optionFilterProp="label"
               disabled={!requestForm.getFieldValue('team_id')}
               options={bindingOptions.ledgers.map((ledger) => ({ value: ledger.id, label: ledger.name }))}
@@ -624,7 +624,7 @@ export function TeamManagementPage() {
           <Form.Item name="reason" label="申请说明">
             <Input.TextArea
               rows={3}
-              placeholder="请简要说明申请原因，例如：我是本项目记账人员，需要访问该账套处理本期凭证。"
+              placeholder="请简要说明申请原因，例如：我是本项目记账人员，需要访问该账簿处理本期凭证。"
               showCount
               maxLength={200}
             />

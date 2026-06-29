@@ -16,7 +16,8 @@ import {
 } from 'antd'
 import { PlusOutlined, ReloadOutlined, FileTextOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { api, type AuditTask, type Project } from '../../api/client'
+import { api, type AuditTask, type Ledger, type Project, type ProjectTaskAssignee } from '../../api/client'
+import { useAuthStore } from '../../stores/authStore'
 
 const { Title, Paragraph } = Typography
 const { TextArea } = Input
@@ -83,9 +84,12 @@ const TASK_TYPE_OPTIONS = [
 
 export function AuditTasksPage() {
   const navigate = useNavigate()
+  const { currentLedgerId, userLedgers, setUserLedgers } = useAuthStore()
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState<number | null>(null)
   const [projectLedgers, setProjectLedgers] = useState<{ id: number; name: string }[]>([])
+  const [availableLedgers, setAvailableLedgers] = useState<Ledger[]>([])
+  const [assignees, setAssignees] = useState<ProjectTaskAssignee[]>([])
   const [tasks, setTasks] = useState<AuditTask[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -96,19 +100,55 @@ export function AuditTasksPage() {
   const [taskTypeFilter, setTaskTypeFilter] = useState<string | undefined>()
   const [modalVisible, setModalVisible] = useState(false)
   const [createForm] = Form.useForm()
+  const selectedLedgerId = Form.useWatch('ledger_id', createForm)
+  const activeProjects = projects.filter((item) => item.status !== 'cancelled')
 
   const loadProjects = () => {
     api.listProjects().then((rows) => {
-      setProjects(rows)
-      if (!projectId && rows.length > 0) setProjectId(rows[0].id)
+      const visibleProjects = rows.filter((item) => item.status !== 'cancelled')
+      setProjects(visibleProjects)
+      if (!projectId && visibleProjects.length > 0) setProjectId(visibleProjects[0].id)
+      if (projectId && !visibleProjects.some((item) => item.id === projectId)) {
+        setProjectId(visibleProjects[0]?.id || null)
+      }
     })
   }
 
   const loadProjectLedgers = () => {
     if (!projectId) return
-    api.listProjectLedgers(projectId).then((rows) => {
-      setProjectLedgers(rows)
-    })
+    Promise.all([
+      api.listProjectLedgers(projectId),
+      userLedgers.length > 0 ? Promise.resolve(userLedgers) : api.listLedgers(),
+    ])
+      .then(([projectRows, ledgerRows]) => {
+        setProjectLedgers(projectRows)
+        setAvailableLedgers(ledgerRows.filter((ledger) => projectRows.some((item) => item.id === ledger.id)))
+        if (userLedgers.length === 0 && ledgerRows.length > 0) {
+          setUserLedgers(ledgerRows)
+        }
+        const currentValue = createForm.getFieldValue('ledger_id')
+        if (!currentValue || !projectRows.some((item) => item.id === currentValue)) {
+          const defaultLedger = projectRows.find((item) => item.id === currentLedgerId) || projectRows[0]
+          createForm.setFieldValue('ledger_id', defaultLedger?.id)
+        }
+      })
+      .catch((error: Error) => message.error(error.message || '加载账簿列表失败'))
+  }
+
+  const loadAssignees = () => {
+    if (!projectId) {
+      setAssignees([])
+      return
+    }
+    api.listProjectTaskAssignees(projectId, selectedLedgerId ? Number(selectedLedgerId) : undefined)
+      .then((rows) => {
+        setAssignees(rows)
+        const currentAssignee = createForm.getFieldValue('assignee_id')
+        if (currentAssignee && !rows.some((item) => item.id === currentAssignee)) {
+          createForm.setFieldValue('assignee_id', undefined)
+        }
+      })
+      .catch((error: Error) => message.error(error.message || '加载负责人列表失败'))
   }
 
   const loadTasks = () => {
@@ -117,6 +157,7 @@ export function AuditTasksPage() {
     api
       .listAuditTasks(projectId, {
         status: statusFilter,
+        priority: priorityFilter,
         task_type: taskTypeFilter,
         page,
         page_size: pageSize,
@@ -136,19 +177,24 @@ export function AuditTasksPage() {
   useEffect(() => {
     setPage(1)
     loadProjectLedgers()
-  }, [statusFilter, priorityFilter, taskTypeFilter, projectId])
+  }, [statusFilter, priorityFilter, taskTypeFilter, projectId, userLedgers.length, currentLedgerId])
+
+  useEffect(() => {
+    loadAssignees()
+  }, [projectId, selectedLedgerId])
 
   useEffect(() => {
     loadTasks()
-  }, [projectId, page, pageSize, statusFilter, taskTypeFilter])
+  }, [projectId, page, pageSize, statusFilter, priorityFilter, taskTypeFilter])
 
   const handleCreateTask = async () => {
     if (!projectId) return
     try {
       const values = await createForm.validateFields()
+      const ledgerId = Number(values.ledger_id)
       const payload: any = {
         project_id: projectId,
-        ledger_id: values.ledger_id,
+        ledger_id: ledgerId,
         title: values.title,
         description: values.description,
         task_type: values.task_type,
@@ -268,8 +314,11 @@ export function AuditTasksPage() {
             <Select
               style={{ width: 220 }}
               value={projectId || undefined}
-              onChange={setProjectId}
-              options={projects.map((item) => ({ value: item.id, label: item.name }))}
+              onChange={(value) => {
+                setProjectId(value)
+                createForm.setFieldsValue({ ledger_id: undefined, assignee_id: undefined })
+              }}
+              options={activeProjects.map((item) => ({ value: item.id, label: item.name }))}
               placeholder="选择项目"
             />
           </Space>
@@ -344,13 +393,16 @@ export function AuditTasksPage() {
           </Form.Item>
           <Form.Item
             name="ledger_id"
-            label="关联账套"
-            rules={[{ required: true, message: '请选择关联账套' }]}
+            label="关联账簿"
+            rules={[{ required: true, message: '请选择关联账簿' }]}
           >
             <Select
-              options={projectLedgers.map((item) => ({ value: item.id, label: item.name }))}
-              placeholder="请选择账套"
+              options={availableLedgers.map((item) => ({ value: item.id, label: item.name }))}
+              placeholder={projectLedgers.length ? '请选择项目已绑定账簿' : '当前项目暂无绑定账簿'}
               style={{ width: '100%' }}
+              showSearch
+              optionFilterProp="label"
+              onChange={() => createForm.setFieldValue('assignee_id', undefined)}
             />
           </Form.Item>
           <Form.Item name="description" label="任务描述">
@@ -365,7 +417,17 @@ export function AuditTasksPage() {
             </Form.Item>
           </Space>
           <Form.Item name="assignee_id" label="负责人">
-            <Input placeholder="请输入负责人 ID" type="number" />
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder={assignees.length ? '请选择负责人' : '暂无同时绑定项目、团队、账簿的负责人'}
+              options={assignees.map((item) => {
+                const name = item.username || item.phone || item.email || `用户 ${item.id}`
+                const roleText = [item.project_role, ...(item.ledger_roles || [])].filter(Boolean).join(' / ')
+                return { value: item.id, label: roleText ? `${name}（${roleText}）` : name }
+              })}
+            />
           </Form.Item>
           <Form.Item name="due_date" label="截止日期">
             <DatePicker style={{ width: '100%' }} placeholder="选择截止日期" />

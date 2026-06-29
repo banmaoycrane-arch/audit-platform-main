@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-模块功能：账套管理 API 路由
-业务场景：前端调用创建账套、切换账套、授权用户、查询账套列表
-政策依据：会计信息系统内部控制规范——账套隔离与权限管理
+模块功能：账簿管理 API 路由
+业务场景：前端调用创建账簿、切换账簿、授权用户、查询账簿列表
+政策依据：会计信息系统内部控制规范——账簿隔离与权限管理
 输入数据：HTTP 请求（JSON 或路径参数）
-输出结果：账套 JSON 数据
+输出结果：账簿 JSON 数据
 创建日期：2026-06-18
 更新记录：
-    2026-06-18  初始创建账套管理路由
+    2026-06-18  初始创建账簿管理路由
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/ledgers", tags=["ledgers"])
 
 
 class CreateLedgerRequest(BaseModel):
-    """创建账套请求体"""
+    """创建账簿请求体"""
     team_id: int
     name: str
     accounting_start_date: date | None = Field(
@@ -41,7 +41,7 @@ class AuthUserRequest(BaseModel):
 
 
 class LedgerResponse(BaseModel):
-    """账套响应体"""
+    """账簿响应体"""
     id: int
     name: str
     team_id: int
@@ -101,7 +101,7 @@ def create_ledger(
     current_user: User = Depends(get_current_user),
 ) -> Ledger:
     """
-    创建账套。
+    创建账簿。
 
     需要 team_id 和 name。
     创建后自动给当前用户授权 admin 角色。
@@ -131,7 +131,7 @@ def list_user_ledgers(
     current_user: User = Depends(get_current_user),
 ) -> list[LedgerResponse]:
     """
-    返回当前用户授权账套列表。
+    返回当前用户授权账簿列表。
     """
     auths = db.query(UserLedgerAuth).filter(UserLedgerAuth.user_id == current_user.id).all()
     if not auths:
@@ -148,21 +148,21 @@ def switch_ledger(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """
-    切换账套。
+    切换账簿。
 
     更新 user.last_ledger_id。
-    验证用户是否有该账套访问权限。
+    验证用户是否有该账簿访问权限。
     """
     ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
 
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
 
     ledger_management_service.switch_ledger(db, current_user.id, ledger_id)
 
-    return {"message": "账套切换成功", "ledger_id": ledger_id}
+    return {"message": "账簿切换成功", "ledger_id": ledger_id}
 
 
 @router.post("/{ledger_id}/auth")
@@ -173,14 +173,14 @@ def authorize_user(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """
-    授权用户访问账套。
+    授权用户访问账簿。
 
     需要 user_id 和 role。
-    当前用户必须对该账套有 admin 权限才能授权他人。
+    当前用户必须对该账簿有 admin 权限才能授权他人。
     """
     ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
 
     # 检查当前用户是否有 admin 权限
     current_auth = (
@@ -211,16 +211,16 @@ def activate_ledger_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> LedgerResponse:
     """
-    激活账套。
+    激活账簿。
 
-    将账套状态设置为 active。
+    将账簿状态设置为 active。
     """
     ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
 
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
 
     updated = ledger_management_service.activate_ledger(db, ledger_id, reason=payload.reason)
     return LedgerResponse(
@@ -244,16 +244,16 @@ def suspend_ledger_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> LedgerResponse:
     """
-    暂停账套。
+    暂停账簿。
 
-    将账套状态设置为 suspended，暂停期间禁止新增凭证。
+    将账簿状态设置为 suspended，暂停期间禁止新增凭证。
     """
     ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
 
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
 
     updated = ledger_management_service.suspend_ledger(db, ledger_id, reason=payload.reason)
     return LedgerResponse(
@@ -277,16 +277,16 @@ def archive_ledger_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> LedgerResponse:
     """
-    归档账套。
+    归档账簿。
 
-    将账套状态设置为 archived，归档后进入只读状态。
+    将账簿状态设置为 archived，归档后进入只读状态。
     """
     ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
 
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
 
     updated = ledger_management_service.archive_ledger(db, ledger_id, reason=payload.reason)
     return LedgerResponse(
@@ -310,16 +310,16 @@ def restore_ledger_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> LedgerResponse:
     """
-    恢复账套。
+    恢复账簿。
 
-    将 suspended 或 archived 状态的账套恢复为 active。
+    将 suspended 或 archived 状态的账簿恢复为 active。
     """
     ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
 
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
 
     updated = ledger_management_service.restore_ledger(db, ledger_id, reason=payload.reason)
     return LedgerResponse(
@@ -342,17 +342,17 @@ def list_ledger_auths(
     current_user: User = Depends(get_current_user),
 ) -> list[AuthResponse]:
     """
-    查询账套授权列表。
+    查询账簿授权列表。
 
-    返回该账套下所有用户的授权记录。
-    当前用户必须对该账套有访问权限才能查询。
+    返回该账簿下所有用户的授权记录。
+    当前用户必须对该账簿有访问权限才能查询。
     """
     ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
 
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账套")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
 
     auths = ledger_management_service.get_ledger_auths(db, ledger_id)
     return [
@@ -376,14 +376,14 @@ def revoke_ledger_auth(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """
-    撤销账套授权。
+    撤销账簿授权。
 
     删除指定授权记录。
-    当前用户必须对该账套有 admin 权限才能撤销授权。
+    当前用户必须对该账簿有 admin 权限才能撤销授权。
     """
     ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账套不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
 
     # 检查当前用户是否有 admin 权限
     current_auth = (

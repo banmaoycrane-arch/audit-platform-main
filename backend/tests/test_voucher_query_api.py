@@ -136,7 +136,7 @@ def test_voucher_query_line_mode_returns_cards(client):
     team = test_client.post("/api/teams", json={"name": "凭证查询团队", "type": "firm"}, headers=headers).json()
     ledger = test_client.post(
         "/api/ledgers",
-        json={"team_id": team["id"], "name": "凭证查询账套"},
+        json={"team_id": team["id"], "name": "凭证查询账簿"},
         headers=headers,
     ).json()
 
@@ -174,7 +174,7 @@ def test_voucher_query_voucher_mode_filters_totals(client):
     team = test_client.post("/api/teams", json={"name": "合计团队", "type": "firm"}, headers=headers).json()
     ledger = test_client.post(
         "/api/ledgers",
-        json={"team_id": team["id"], "name": "合计账套"},
+        json={"team_id": team["id"], "name": "合计账簿"},
         headers=headers,
     ).json()
 

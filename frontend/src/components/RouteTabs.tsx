@@ -64,7 +64,7 @@ const EXACT_ROUTE_TITLES: Record<string, string> = {
   '/basic/materials': 'SKU/物料',
   '/basic/warehouses': '仓库',
   '/team-management': '团队管理',
-  '/ledger-management': '账套管理',
+  '/ledger-management': '账簿管理',
   '/scope-settings': '管理配置',
   '/parser-engine': '解析引擎管理',
   '/parser-engine/config': '解析引擎配置',

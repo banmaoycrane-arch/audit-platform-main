@@ -5,7 +5,7 @@
 - [x] 凭证管理下包含 Step 2 导入原始凭证
 - [x] 凭证管理下包含 Step 3 AI 生成会计分录
 - [x] 凭证管理下包含 Step 4 复核会计分录
-- [x] 凭证管理下包含 Step 5 导出账套
+- [x] 凭证管理下包含 Step 5 导出账簿
 - [x] 凭证管理下包含凭证列表入口
 - [x] `/ledger/vouchers/step/1` 可访问并显示 Step1 页面
 - [x] `/ledger/vouchers/step/5` 可访问并显示 Step5 页面

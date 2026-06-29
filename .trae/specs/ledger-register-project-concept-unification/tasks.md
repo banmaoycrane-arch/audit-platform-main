@@ -8,11 +8,11 @@
   - [x] SubTask 1.5: 数据库自动建表
 
 - [x] Task 2: 后端项目管理 API
-  - [x] SubTask 2.1: 新增 `backend/app/services/project_service.py` — 创建项目、关联账套、分配人员、查询项目列表
+  - [x] SubTask 2.1: 新增 `backend/app/services/project_service.py` — 创建项目、关联账簿、分配人员、查询项目列表
   - [x] SubTask 2.2: 新增 `backend/app/api/routes_project.py` — 端点：
     - POST /api/projects（创建项目）
     - GET /api/projects（项目列表）
-    - POST /api/projects/{id}/ledgers（关联账套）
+    - POST /api/projects/{id}/ledgers（关联账簿）
     - POST /api/projects/{id}/members（分配人员）
   - [x] SubTask 2.3: 在 `main.py` 注册 project 路由
 
@@ -28,7 +28,7 @@
   - [x] SubTask 4.3: 新增项目 API 方法到 `client.ts`
 
 - [x] Task 5: 测试与验证
-  - [x] SubTask 5.1: 新增 `backend/tests/test_project_api.py` — 创建项目、关联账套、分配人员
+  - [x] SubTask 5.1: 新增 `backend/tests/test_project_api.py` — 创建项目、关联账簿、分配人员
   - [x] SubTask 5.2: 运行后端 `pytest -q`
   - [x] SubTask 5.3: 运行前端 `npm run lint`
 

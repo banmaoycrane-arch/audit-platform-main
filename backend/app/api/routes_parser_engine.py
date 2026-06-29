@@ -13,6 +13,8 @@ from app.schemas.parser_engine import (
     LLMComparisonResponse,
     ParserEngineStatusResponse,
 )
+from app.services.parser_engine.unified_parser_service import convert_parse_result_to_dict
+from app.storage.local_storage import resolve_storage_path
 
 router = APIRouter(prefix="/api/parser-engine", tags=["parser-engine"])
 
@@ -23,103 +25,7 @@ def _ensure_organization(db: Session, organization_id: int) -> None:
 
 
 def _convert_parse_result_to_dict(parse_result: Any) -> dict[str, Any]:
-    from app.services.parser_engine.parse_result import (
-        ParseResult,
-        LLMComparisonResult,
-    )
-    
-    if isinstance(parse_result, dict) and "final_result" in parse_result:
-        final = parse_result["final_result"]
-        if final:
-            file_format = final.file_format.value if hasattr(final.file_format, 'value') else str(final.file_format) if final.file_format else "unknown"
-            return {
-                "file_format": file_format,
-                "document_type": final.document_type.value if hasattr(final.document_type, 'value') else str(final.document_type),
-                "document_sub_type": (
-                    final.sub_type.value
-                    if hasattr(final.sub_type, 'value') and final.sub_type
-                    else str(final.sub_type) if final.sub_type else None
-                ),
-                "confidence": final.confidence,
-                "engine_type": final.engine.value if hasattr(final.engine, 'value') else str(final.engine),
-                "data": final.data or {},
-                "raw_text": final.raw_text,
-                "error_message": "; ".join(final.validation_errors) if final.validation_errors else None,
-                "parse_duration_ms": parse_result.get("parse_duration_ms", 0),
-                "engine_comparison": {
-                    "rule_engine_result": parse_result.get("rule_engine_result"),
-                    "llm_engine_result": parse_result.get("llm_engine_result"),
-                    "selection_reason": parse_result.get("selection_reason", ""),
-                    "rule_confidence": parse_result.get("engine_comparison", {}).get("rule_confidence", 0.0),
-                    "llm_confidence": parse_result.get("engine_comparison", {}).get("llm_confidence", 0.0),
-                    "diagnosis": parse_result.get("engine_comparison", {}).get("diagnosis", {}),
-                },
-            }
-        else:
-            return {
-                "file_format": "unknown",
-                "document_type": "unknown",
-                "document_sub_type": None,
-                "confidence": 0.0,
-                "engine_type": "unknown",
-                "data": {},
-                "raw_text": None,
-                "error_message": "解析失败",
-                "engine_comparison": {
-                    "rule_engine_result": parse_result.get("rule_engine_result"),
-                    "llm_engine_result": parse_result.get("llm_engine_result"),
-                    "selection_reason": parse_result.get("selection_reason", ""),
-                },
-            }
-    
-    if isinstance(parse_result, LLMComparisonResult):
-        final = parse_result.final_result
-        if final is None and parse_result.engine_results:
-            final = list(parse_result.engine_results.values())[0]
-        if final:
-            file_format = final.file_format.value if hasattr(final.file_format, 'value') else str(final.file_format) if final.file_format else "unknown"
-            return {
-                "file_format": file_format,
-                "document_type": final.document_type.value if hasattr(final.document_type, 'value') else str(final.document_type),
-                "document_sub_type": (
-                    final.sub_type.value
-                    if hasattr(final.sub_type, 'value') and final.sub_type
-                    else str(final.sub_type) if final.sub_type else None
-                ),
-                "confidence": final.confidence,
-                "engine_type": final.engine.value if hasattr(final.engine, 'value') else str(final.engine),
-                "data": final.data or {},
-                "raw_text": final.raw_text,
-                "error_message": None,
-                "multi_llm_comparison": parse_result.to_dict(),
-            }
-        else:
-            return {
-                "file_format": "unknown",
-                "document_type": "unknown",
-                "document_sub_type": None,
-                "confidence": 0.0,
-                "engine_type": "unknown",
-                "data": {},
-                "raw_text": None,
-                "error_message": "多引擎对比未产生结果",
-            }
-    
-    file_format = parse_result.file_format.value if hasattr(parse_result.file_format, 'value') else str(parse_result.file_format) if parse_result.file_format else "unknown"
-    return {
-        "file_format": file_format,
-        "document_type": parse_result.document_type.value if hasattr(parse_result.document_type, 'value') else str(parse_result.document_type),
-        "document_sub_type": (
-            parse_result.sub_type.value
-            if hasattr(parse_result.sub_type, 'value') and parse_result.sub_type
-            else str(parse_result.sub_type) if parse_result.sub_type else None
-        ),
-        "confidence": parse_result.confidence,
-        "engine_type": parse_result.engine.value if hasattr(parse_result.engine, 'value') else str(parse_result.engine),
-        "data": parse_result.data or {},
-        "raw_text": parse_result.raw_text,
-        "error_message": "; ".join(parse_result.validation_errors) if parse_result.validation_errors else None,
-    }
+    return convert_parse_result_to_dict(parse_result)
 
 
 @router.get("/status", response_model=ParserEngineStatusResponse)
@@ -304,7 +210,8 @@ def parse_source_file(file_id: int, db: Session = Depends(get_db)) -> ParseResul
         raise HTTPException(status_code=404, detail="文件不存在")
     
     import os
-    if not os.path.exists(source_file.storage_path):
+    source_path = resolve_storage_path(source_file.storage_path)
+    if not os.path.exists(source_path):
         raise HTTPException(status_code=404, detail="文件物理路径不存在")
     
     try:
@@ -318,11 +225,11 @@ def parse_source_file(file_id: int, db: Session = Depends(get_db)) -> ParseResul
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
-                parse_result = loop.run_until_complete(dispatcher.parse(source_file.storage_path))
+                parse_result = loop.run_until_complete(dispatcher.parse(source_path))
             else:
-                parse_result = asyncio.run(dispatcher.parse(source_file.storage_path))
+                parse_result = asyncio.run(dispatcher.parse(source_path))
         except RuntimeError:
-            parse_result = asyncio.run(dispatcher.parse(source_file.storage_path))
+            parse_result = asyncio.run(dispatcher.parse(source_path))
         
         duration_ms = (time.time() - start_time) * 1000
         
@@ -352,7 +259,8 @@ def multi_llm_compare(
         raise HTTPException(status_code=404, detail="文件不存在")
     
     import os
-    if not os.path.exists(source_file.storage_path):
+    source_path = resolve_storage_path(source_file.storage_path)
+    if not os.path.exists(source_path):
         raise HTTPException(status_code=404, detail="文件物理路径不存在")
     
     try:
@@ -366,14 +274,14 @@ def multi_llm_compare(
         
         start_time = time.time()
         
-        format_result = format_recognizer.recognize_format(source_file.storage_path)
+        format_result = format_recognizer.recognize_format(source_path)
         type_result = document_type_classifier.classify_document_type(
-            source_file.storage_path,
+            source_path,
             source_file.filename,
             format_result.file_format,
         )
         extracted_text = extract_text_from_file(
-            source_file.storage_path,
+            source_path,
             format_result.file_format,
         )
         
@@ -382,7 +290,7 @@ def multi_llm_compare(
             if loop.is_running():
                 comparison_result = loop.run_until_complete(
                     multi_llm_comparison(
-                        source_file.storage_path,
+                        source_path,
                         type_result.document_type,
                         extracted_text,
                     )
@@ -390,7 +298,7 @@ def multi_llm_compare(
             else:
                 comparison_result = asyncio.run(
                     multi_llm_comparison(
-                        source_file.storage_path,
+                        source_path,
                         type_result.document_type,
                         extracted_text,
                     )
@@ -398,7 +306,7 @@ def multi_llm_compare(
         except RuntimeError:
             comparison_result = asyncio.run(
                 multi_llm_comparison(
-                    source_file.storage_path,
+                    source_path,
                     type_result.document_type,
                     extracted_text,
                 )

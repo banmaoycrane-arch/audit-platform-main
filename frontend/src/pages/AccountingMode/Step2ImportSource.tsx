@@ -137,6 +137,8 @@ const renderParseGuidance = (
   )
 }
 
+type PeriodSelectionMode = 'adaptive' | 'fixed'
+
 export function Step2AccountingImportSource() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -165,6 +167,9 @@ export function Step2AccountingImportSource() {
   const [accountingPeriods, setAccountingPeriods] = useState<AccountingPeriod[]>([])
   const [periodsLoading, setPeriodsLoading] = useState(false)
   const [periodSuggestion, setPeriodSuggestion] = useState('')
+  const [periodMode, setPeriodMode] = useState<PeriodSelectionMode>(searchParams.get('periodMode') === 'fixed' ? 'fixed' : 'adaptive')
+  const [adaptiveStartDate, setAdaptiveStartDate] = useState<string>('')
+  const [adaptiveEndDate, setAdaptiveEndDate] = useState<string>('')
   const [chartOfAccounts, setChartOfAccounts] = useState<ChartOfAccount[]>([])
   const [coaLoading, setCoaLoading] = useState(false)
   const [counterparties, setCounterparties] = useState<Counterparty[]>([])
@@ -212,14 +217,19 @@ export function Step2AccountingImportSource() {
     [chartOfAccounts]
   )
 
-  const syncQueryToUrl = (updates: { jobId?: number | null; periodId?: number | null }) => {
+  const syncQueryToUrl = (updates: { jobId?: number | null; periodId?: number | null; periodMode?: PeriodSelectionMode }) => {
     const next = new URLSearchParams(searchParams)
     next.set('inputMode', inputMode)
+    next.set('periodMode', updates.periodMode || periodMode)
     if (updates.jobId !== undefined && updates.jobId) {
       next.set('jobId', String(updates.jobId))
     }
     if (updates.periodId !== undefined && updates.periodId) {
       next.set('periodId', String(updates.periodId))
+    }
+    if (periodMode === 'adaptive') {
+      if (adaptiveStartDate) next.set('adaptiveStartDate', adaptiveStartDate)
+      if (adaptiveEndDate) next.set('adaptiveEndDate', adaptiveEndDate)
     }
     setSearchParams(next, { replace: true })
   }
@@ -342,22 +352,29 @@ export function Step2AccountingImportSource() {
         setCurrentOrgId(job.organization_id)
       }
 
-      await api.uploadFile(jobId, file)
-      setUploadedFiles(prev => [...prev, { name: file.name, size: file.size, fileType: file.type || 'unknown', jobId, }])
+      const sourceFile = await api.uploadFile(jobId, file)
+      setUploadedFiles(prev => [...prev, { name: file.name, size: file.size, fileType: file.type || 'unknown', jobId, fileId: sourceFile.id }])
 
-      message.loading({ content: '正在解析序时簿并生成会计凭证...', key: 'daybook-parse' })
-      const result = await api.processImportJobSync(jobId)
-      const jobStatus = result.job?.status
-      const reportSummary = result.report as {
-        output_path?: string
-        total_entries?: number
-        failed_files?: number
-        error_message?: string
-        parse_diagnostics?: ParseDiagnostics
-        period_suggestion?: ImportPeriodSuggestion
-        day_book_report?: DayBookReport
-        file_summary?: Array<{ parse_diagnostics?: ParseDiagnostics; error?: string }>
+      message.loading({ content: '正在调用统一解析引擎解析序时簿...', key: 'daybook-parse' })
+      const parseResult = await api.parseSourceFileWithEngine(jobId, sourceFile.id) as {
+        parser_engine_result?: {
+          data?: Record<string, unknown>
+          error_message?: string | null
+        }
+        job_status?: string
       }
+      const parserResult = parseResult.parser_engine_result
+      const reportSummary = {
+        output_path: 'parser_engine_draft',
+        total_entries: 0,
+        failed_files: parserResult?.error_message ? 1 : 0,
+        error_message: parserResult?.error_message || undefined,
+        parse_diagnostics: {
+          source: 'parser_engine',
+          data: parserResult?.data || {},
+        } as ParseDiagnostics,
+      }
+      const jobStatus = parseResult.job_status
 
       const diagnostics = reportSummary.parse_diagnostics
         || reportSummary.file_summary?.find((item) => item.parse_diagnostics)?.parse_diagnostics
@@ -408,7 +425,7 @@ export function Step2AccountingImportSource() {
       let jobId = currentJobId
       if (!jobId) {
         // 创建导入任务
-        const job = await api.createImportJob('账套导入', 'ai_generated', currentLedgerId)
+        const job = await api.createImportJob('账簿导入', 'ai_generated', currentLedgerId)
         jobId = job.id
         setCurrentJobId(jobId)
         setCurrentOrgId(job.organization_id)
@@ -427,99 +444,60 @@ export function Step2AccountingImportSource() {
       }
       setUploadedFiles(prev => [...prev, fileInfo])
 
-      // 上传后自动触发生成（同步处理所有文件）
-      message.loading({ content: '正在解析上传文件，请稍候...', key: 'parsing' })
+      // 上传后统一调用解析引擎管理页面同源的通用解析接口。
+      // 财务含义：上传的合同、发票、回单等支持性文件只做“证据解析草稿”，正式凭证仍需人工复核确认。
+      message.loading({ content: '正在调用统一解析引擎解析上传文件，请稍候...', key: 'parsing' })
       try {
-        const syncResult = await api.processImportJobSync(jobId)
-        const reportSummary = syncResult.report as {
-          output_path?: string
-          total_entries?: number
-          error_message?: string
-          parse_diagnostics?: ParseDiagnostics
-          file_summary?: Array<{
-            filename: string
-            type?: string
-            success?: boolean
-            error?: string
-            recommended_mode?: string
-            parse_diagnostics?: ParseDiagnostics
-            entries?: number
-            register_summary?: string
-            module_registrations?: UploadedFile['moduleRegistrations']
-            module_label?: string
-          }>
-          register_summary?: Array<{
-            filename: string
-            register_summary?: string
-            module_registrations?: UploadedFile['moduleRegistrations']
-            module_label?: string
-          }>
-        }
-        const fileSummary = reportSummary.file_summary?.find((item) => item.filename === file.name)
-        const isStructuredPreview = fileSummary?.type === 'structured_preview' || fileSummary?.recommended_mode === 'day_book_import'
-
-        if (isStructuredPreview) {
-          const previewCount = fileSummary?.entries || 0
-          setStructuredPreviewCount(previewCount)
-          setParseGuidance(fileSummary?.parse_diagnostics || reportSummary.parse_diagnostics || null)
-          setOutputPath('structured_preview')
-          setEntryCount(0)
-          if (previewCount > 0) {
-            message.warning({
-              content: `识别到 ${previewCount} 条结构化分录。Excel/CSV 序时簿请切换到「序时簿导入」模式生成正式凭证。`,
-              key: 'parsing',
-            })
-          } else {
-            message.error({
-              content: fileSummary?.error || reportSummary.error_message || '表格未识别到有效分录列',
-              key: 'parsing',
-            })
+        const parseResult = await api.parseSourceFileWithEngine(jobId, result.id) as {
+          parser_engine_result?: {
+            document_type?: string
+            confidence?: number
+            engine_type?: string
+            data?: Record<string, unknown>
+            error_message?: string | null
           }
-          return
+          job_status?: string
         }
+        const parserResult = parseResult.parser_engine_result
+        const hasError = Boolean(parserResult?.error_message)
 
         setStructuredPreviewCount(0)
         setParseGuidance(null)
-        setOutputPath(reportSummary.output_path || 'register_ledger')
-        setEntryCount(reportSummary.total_entries || 0)
-
-        const fileRegister = reportSummary.register_summary?.find((item) => item.filename === file.name)
+        setOutputPath('parser_engine_draft')
+        setEntryCount(0)
         setUploadedFiles(prev => prev.map((item) => {
           if (item.name !== file.name) return item
-          const registerItem = fileRegister as {
-            module_registrations?: UploadedFile['moduleRegistrations']
-            semantic_tags?: string[]
-            risk_hints?: UploadedFile['riskHints']
-            semantic_decomposition?: { decomposition_source?: string }
-            archive_path?: string
-            archive_context?: { archive_category?: string; project_name?: string; archive_path?: string }
-          } | undefined
           return {
             ...item,
-            registerSummary: registerItem?.module_registrations?.length
-              ? registerItem.module_registrations.map((reg) => reg.module_label).join('、')
-              : undefined,
-            moduleRegistrations: registerItem?.module_registrations,
-            semanticTags: registerItem?.semantic_tags,
-            riskHints: registerItem?.risk_hints,
-            decompositionSource: registerItem?.semantic_decomposition?.decomposition_source,
-            archivePath: registerItem?.archive_path || registerItem?.archive_context?.archive_path,
-            archiveCategory: registerItem?.archive_context?.archive_category,
-            projectName: registerItem?.archive_context?.project_name,
+            registerSummary: parserResult?.document_type
+              ? `统一解析引擎识别：${parserResult.document_type}`
+              : '统一解析引擎已处理',
+            semanticTags: [
+              'parser_engine',
+              parserResult?.engine_type ? `engine:${parserResult.engine_type}` : 'engine:unknown',
+            ],
           }
         }))
 
-        message.success({ content: `文件已登记为模块台账底稿：${file.name}`, key: 'parsing' })
-        console.debug('Parse report:', syncResult)
+        if (hasError) {
+          message.warning({
+            content: `${file.name} 已进入统一解析草稿，但存在解析提示：${parserResult?.error_message}`,
+            key: 'parsing',
+          })
+        } else {
+          message.success({
+            content: `${file.name} 已由统一解析引擎完成解析，结果已保存到凭证草稿页`,
+            key: 'parsing',
+          })
+        }
       } catch (err) {
-        // 解析失败时，跳转到草稿页面让用户处理
+        // 统一解析失败时跳转草稿页，草稿页展示 parser-engine 的错误详情。
         const errorMessage = err instanceof Error ? err.message : String(err)
         message.warning({
-          content: `${file.name} 上传成功，但解析失败：${errorMessage}。正在跳转到草稿页面...`,
+          content: `${file.name} 上传成功，但统一解析引擎解析失败：${errorMessage}。正在跳转到草稿页面...`,
           key: 'parsing',
           duration: 3,
         })
-        // 延迟跳转，让用户看到提示
         setTimeout(() => {
           navigate(`/ledger/vouchers/draft/${jobId}`)
         }, 1500)
@@ -559,7 +537,7 @@ export function Step2AccountingImportSource() {
     let jobId = currentJobId
     let orgId = currentOrgId
     if (!jobId) {
-      const job = await api.createImportJob('账套导入', sourceType, currentLedgerId)
+      const job = await api.createImportJob('账簿导入', sourceType, currentLedgerId)
       jobId = job.id
       orgId = job.organization_id
       setCurrentJobId(jobId)
@@ -629,6 +607,26 @@ export function Step2AccountingImportSource() {
       return
     }
 
+    if (periodMode === 'adaptive') {
+      if (!adaptiveStartDate || !adaptiveEndDate) {
+        message.warning('请填写自适应期间范围的开始日期和结束日期')
+        return
+      }
+      if (dayjs(adaptiveEndDate).isBefore(dayjs(adaptiveStartDate), 'day')) {
+        message.warning('结束日期不能早于开始日期')
+        return
+      }
+      const nextParams = new URLSearchParams()
+      nextParams.set('inputMode', inputMode)
+      nextParams.set('jobId', String(currentJobId))
+      nextParams.set('periodMode', 'adaptive')
+      nextParams.set('adaptiveStartDate', adaptiveStartDate)
+      nextParams.set('adaptiveEndDate', adaptiveEndDate)
+      syncQueryToUrl({ jobId: currentJobId, periodMode: 'adaptive' })
+      navigate(`${stepPath(3)}?${nextParams.toString()}`)
+      return
+    }
+
     let usePeriodId = periodId
     if (!usePeriodId) {
       if (!currentOrgId || !periodCode || !periodStart || !periodEnd) {
@@ -655,7 +653,8 @@ export function Step2AccountingImportSource() {
     nextParams.set('inputMode', inputMode)
     nextParams.set('jobId', String(currentJobId))
     nextParams.set('periodId', String(usePeriodId))
-    syncQueryToUrl({ jobId: currentJobId, periodId: usePeriodId })
+    nextParams.set('periodMode', 'fixed')
+    syncQueryToUrl({ jobId: currentJobId, periodId: usePeriodId, periodMode: 'fixed' })
     navigate(`${stepPath(3)}?${nextParams.toString()}`)
   }
 
@@ -865,50 +864,127 @@ export function Step2AccountingImportSource() {
     }
   }
 
+  const earliestPeriodStart = useMemo(() => {
+    if (accountingPeriods.length === 0) return null
+    return [...accountingPeriods].sort((a, b) => dayjs(a.start_date).valueOf() - dayjs(b.start_date).valueOf())[0].start_date
+  }, [accountingPeriods])
+
+  const disabledStartDate = (current: Dayjs) => {
+    if (!earliestPeriodStart) return false
+    return current.isBefore(dayjs(earliestPeriodStart), 'day')
+  }
+
+  const disabledEndDate = (current: Dayjs) => {
+    if (!adaptiveStartDate) return false
+    return current.isBefore(dayjs(adaptiveStartDate), 'day')
+  }
+
   const renderPeriodSelectionCard = (sectionTitle: string) => (
     <Card style={{ marginTop: '16px' }}>
       <Title level={5}>{sectionTitle}</Title>
       <Space direction="vertical" style={{ width: '100%' }}>
-        <Select
-          allowClear
-          showSearch
-          placeholder="优先选择 open/reopened 会计期间"
-          loading={periodsLoading}
-          value={periodId || undefined}
-          options={accountingPeriods.map(period => ({
-            value: period.id,
-            label: `${period.period_code}（${period.start_date} 至 ${period.end_date}，${period.status}）`,
-          }))}
-          optionFilterProp="label"
-          onChange={(value) => (value ? handleSelectPeriod(value) : setPeriodId(null))}
-          style={{ maxWidth: 520, width: '100%' }}
-        />
-        {periodSuggestion && <Alert title={periodSuggestion} type="info" showIcon />}
-        <Alert
-          title="期间选择说明"
-          description="系统会优先使用 open/reopened 期间；如果只有已结账期间，会按上一已结账期间建议下一自然月。下方手工创建入口仅作为没有可用期间时的补充路径。"
-          type="info"
-          showIcon
-        />
-        <Space wrap>
-          <Input
-            placeholder="期间编码，如 2026-01"
-            value={periodCode}
-            onChange={(e) => setPeriodCode(e.target.value)}
-            style={{ width: 180 }}
-          />
-          <DatePicker
-            value={periodStart ? dayjs(periodStart) : null}
-            placeholder="期间开始"
-            onChange={(date) => setPeriodStart(date ? date.format('YYYY-MM-DD') : '')}
-          />
-          <DatePicker
-            value={periodEnd ? dayjs(periodEnd) : null}
-            placeholder="期间结束"
-            onChange={(date) => setPeriodEnd(date ? date.format('YYYY-MM-DD') : '')}
-          />
-        </Space>
-        <Text type="secondary">会计期间用于限定凭证日期范围，也是后续复核、报表和导出的基础核算范围。</Text>
+        <Radio.Group
+          value={periodMode}
+          onChange={(event) => setPeriodMode(event.target.value)}
+          style={{ marginBottom: '8px' }}
+        >
+          <Space direction="vertical">
+            <Radio value="adaptive">
+              <Space direction="vertical" size={0}>
+                <span>自适应范围（根据识别的凭证日期自动匹配期间）</span>
+                <span style={{ color: '#666', fontSize: 12 }}>系统根据凭证日期识别月份范围，自动创建缺失期间，适用于多期间混合导入场景。</span>
+              </Space>
+            </Radio>
+            <Radio value="fixed">
+              <Space direction="vertical" size={0}>
+                <span>固定期间（事前约定单一会计期间）</span>
+                <span style={{ color: '#666', fontSize: 12 }}>只接受指定期间内的凭证，超出期间的凭证将被标记为异常，适用于按月分批导入场景。</span>
+              </Space>
+            </Radio>
+          </Space>
+        </Radio.Group>
+
+        {periodMode === 'adaptive' && (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Alert
+              title="自适应期间范围设置"
+              description={
+                <Space direction="vertical" size={4}>
+                  <div><strong>上限（最早允许日期）：</strong>{earliestPeriodStart || '未设置'} — 系统自动取账簿最早期间的开始日期，凭证日期不得早于此日期。</div>
+                  <div><strong>下限（最晚允许日期）：</strong>由您指定，凭证日期不得晚于此日期。</div>
+                </Space>
+              }
+              type="info"
+              showIcon
+            />
+            <Space wrap>
+              <DatePicker
+                value={adaptiveStartDate ? dayjs(adaptiveStartDate) : (earliestPeriodStart ? dayjs(earliestPeriodStart) : null)}
+                placeholder="期间范围开始（默认账簿最早期间）"
+                onChange={(date) => setAdaptiveStartDate(date ? date.format('YYYY-MM-DD') : '')}
+                disabledDate={disabledStartDate}
+                style={{ width: 200 }}
+              />
+              <DatePicker
+                value={adaptiveEndDate ? dayjs(adaptiveEndDate) : null}
+                placeholder="期间范围结束"
+                onChange={(date) => setAdaptiveEndDate(date ? date.format('YYYY-MM-DD') : '')}
+                disabledDate={disabledEndDate}
+                style={{ width: 200 }}
+              />
+            </Space>
+            {adaptiveStartDate && adaptiveEndDate && (
+              <Text type="secondary">
+                当前设置：{adaptiveStartDate} 至 {adaptiveEndDate}，系统将在此范围内按月份自动创建会计期间。
+              </Text>
+            )}
+          </Space>
+        )}
+
+        {periodMode === 'fixed' && (
+          <>
+            <Select
+              allowClear
+              showSearch
+              placeholder="优先选择 open/reopened 会计期间"
+              loading={periodsLoading}
+              value={periodId || undefined}
+              options={accountingPeriods.map(period => ({
+                value: period.id,
+                label: `${period.period_code}（${period.start_date} 至 ${period.end_date}，${period.status}）`,
+              }))}
+              optionFilterProp="label"
+              onChange={(value) => (value ? handleSelectPeriod(value) : setPeriodId(null))}
+              style={{ maxWidth: 520, width: '100%' }}
+            />
+            {periodSuggestion && <Alert title={periodSuggestion} type="info" showIcon />}
+            <Alert
+              title="期间选择说明"
+              description="系统会优先使用 open/reopened 期间；如果只有已结账期间，会按上一已结账期间建议下一自然月。下方手工创建入口仅作为没有可用期间时的补充路径。"
+              type="info"
+              showIcon
+            />
+            <Space wrap>
+              <Input
+                placeholder="期间编码，如 2026-01"
+                value={periodCode}
+                onChange={(e) => setPeriodCode(e.target.value)}
+                style={{ width: 180 }}
+              />
+              <DatePicker
+                value={periodStart ? dayjs(periodStart) : null}
+                placeholder="期间开始"
+                onChange={(date) => setPeriodStart(date ? date.format('YYYY-MM-DD') : '')}
+              />
+              <DatePicker
+                value={periodEnd ? dayjs(periodEnd) : null}
+                placeholder="期间结束"
+                onChange={(date) => setPeriodEnd(date ? date.format('YYYY-MM-DD') : '')}
+              />
+            </Space>
+            <Text type="secondary">会计期间用于限定凭证日期范围，也是后续复核、报表和导出的基础核算范围。</Text>
+          </>
+        )}
       </Space>
     </Card>
   )

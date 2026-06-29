@@ -1,6 +1,7 @@
-import { Card, Table, Button, Steps, Typography, Tag, Space, Checkbox, Input, Select, Alert, message } from 'antd'
+import { Card, Table, Button, Steps, Typography, Tag, Space, Checkbox, Input, Select, Alert, message, Modal } from 'antd'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import type { TablePaginationConfig } from 'antd/es/table'
 import type { ColumnsType } from 'antd/es/table'
 import { api, type AccountingEntry } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
@@ -27,17 +28,36 @@ export function Step4ReviewEntries() {
   const currentStep = 3
 
   const [entries, setEntries] = useState<AccountingEntry[]>([])
+  const [entryTotal, setEntryTotal] = useState(0)
+  const [verifiedTotal, setVerifiedTotal] = useState(0)
+  const [readyTotal, setReadyTotal] = useState(0)
+  const [unreviewedTotal, setUnreviewedTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(100)
   const [loading, setLoading] = useState(false)
   const [savingIds, setSavingIds] = useState<Set<number>>(new Set())
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
   const [batchStatus, setBatchStatus] = useState('verified')
 
-  const loadEntries = async () => {
+  const loadReviewStats = async () => {
+    if (!jobId) return
+    const stats = await api.getEntryReviewStats(jobId)
+    setEntryTotal(stats.total)
+    setVerifiedTotal(stats.verified)
+    setReadyTotal(stats.ready)
+    setUnreviewedTotal(stats.unreviewed)
+  }
+
+  const loadEntries = async (nextPage = page, nextPageSize = pageSize) => {
     if (!jobId) return
     setLoading(true)
     try {
-      const list = await api.listEntries(jobId)
-      setEntries(list)
+      const [result] = await Promise.all([
+        api.listEntries(jobId, undefined, undefined, undefined, undefined, nextPageSize, (nextPage - 1) * nextPageSize),
+        loadReviewStats(),
+      ])
+      setEntries(result.items)
+      setEntryTotal(result.total)
     } catch (error) {
       console.error('获取分录失败', error)
       message.error('获取分录失败')
@@ -47,7 +67,8 @@ export function Step4ReviewEntries() {
   }
 
   useEffect(() => {
-    void loadEntries()
+    void loadEntries(1, pageSize)
+    setPage(1)
   }, [jobId])
 
   const onSelectChange = (keys: React.Key[]) => {
@@ -59,6 +80,15 @@ export function Step4ReviewEntries() {
     onChange: onSelectChange,
   }
 
+  const handleTableChange = (pagination: TablePaginationConfig) => {
+    const nextPage = pagination.current || 1
+    const nextPageSize = pagination.pageSize || pageSize
+    setPage(nextPage)
+    setPageSize(nextPageSize)
+    setSelectedRowKeys([])
+    void loadEntries(nextPage, nextPageSize)
+  }
+
   const isVerified = (entry: AccountingEntry) => isVerifiedStatus(entry.review_status)
 
   const updateEntryStatus = async (entryId: number, reviewStatus: string) => {
@@ -66,6 +96,7 @@ export function Step4ReviewEntries() {
     try {
       const updated = await api.reviewEntry(entryId, reviewStatus)
       setEntries((prev) => prev.map((item) => (item.id === entryId ? updated : item)))
+      await loadReviewStats()
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       message.error(`更新复核状态失败：${detail}`)
@@ -92,6 +123,7 @@ export function Step4ReviewEntries() {
       setEntries((prev) =>
         prev.map((item) => (ids.includes(item.id) ? { ...item, review_status: batchStatus } : item))
       )
+      await loadReviewStats()
       setSelectedRowKeys([])
       message.success(`已批量更新 ${ids.length} 条分录`)
     } catch (error) {
@@ -100,6 +132,30 @@ export function Step4ReviewEntries() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const reviewAll = () => {
+    if (!jobId) return
+    Modal.confirm({
+      title: '确认全量更新复核状态？',
+      content: `将把当前任务全部 ${entryTotal} 条分录标记为「${REVIEW_STATUS_LABEL[batchStatus] || batchStatus}」。该操作会影响所有分页，不只是当前页。`,
+      okText: '确认更新全部',
+      cancelText: '取消',
+      onOk: async () => {
+        setLoading(true)
+        try {
+          const result = await api.reviewAllJobEntries(jobId, batchStatus)
+          await loadEntries(page, pageSize)
+          setSelectedRowKeys([])
+          message.success(`已全量更新 ${result.updated} 条分录`)
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          message.error(`全量复核失败：${detail}`)
+        } finally {
+          setLoading(false)
+        }
+      },
+    })
   }
 
   const columns: ColumnsType<AccountingEntry> = [
@@ -186,8 +242,8 @@ export function Step4ReviewEntries() {
     },
   ]
 
-  const verifiedCount = entries.filter((e) => isVerified(e)).length
-  const allVerified = entries.length > 0 && verifiedCount === entries.length
+  const verifiedCount = verifiedTotal + readyTotal
+  const allVerified = entryTotal > 0 && unreviewedTotal === 0
 
   const goPrev = () => {
     const params = new URLSearchParams()
@@ -219,13 +275,14 @@ export function Step4ReviewEntries() {
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev={stepPath(3)} onNext={goNext} nextDisabled={!jobId || entries.length === 0 || !allVerified} style={{ marginBottom: '16px' }} />
+      <FlowNav prev={stepPath(3)} onNext={goNext} nextDisabled={!jobId || entryTotal === 0 || !allVerified} style={{ marginBottom: '16px' }} />
 
       <Space style={{ marginBottom: '16px', width: '100%', justifyContent: 'space-between' }}>
         <Title level={4} style={{ margin: 0 }}>复核调整待复核凭证草稿</Title>
         <Tag color={allVerified ? 'green' : 'blue'}>
-          已复核 {verifiedCount}/{entries.length}
+          已复核 {verifiedCount}/{entryTotal || entries.length}
         </Tag>
+        {unreviewedTotal > 0 && <Tag color="orange">未复核 {unreviewedTotal}</Tag>}
       </Space>
 
       {!jobId && (
@@ -252,7 +309,14 @@ export function Step4ReviewEntries() {
             onClick={() => void batchVerify()}
             disabled={selectedRowKeys.length === 0}
           >
-            批量标记已复核 ({selectedRowKeys.length})
+            批量标记当前选择 ({selectedRowKeys.length})
+          </Button>
+          <Button
+            danger={batchStatus === 'draft'}
+            onClick={reviewAll}
+            disabled={!jobId || entryTotal === 0}
+          >
+            全量标记全部 {entryTotal} 条
           </Button>
           <Select value={batchStatus} onChange={setBatchStatus} style={{ width: 150 }}>
             <Select.Option value="draft">待复核</Select.Option>
@@ -266,7 +330,16 @@ export function Step4ReviewEntries() {
           columns={columns}
           dataSource={entries}
           rowKey="id"
-          pagination={{ pageSize: 10 }}
+          pagination={{
+            current: page,
+            pageSize,
+            total: entryTotal,
+            showSizeChanger: true,
+            pageSizeOptions: ['50', '100', '200', '500'],
+            showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${total} 条`,
+          }}
+          onChange={handleTableChange}
+          scroll={{ x: 1300, y: 560 }}
           size="small"
           locale={{ emptyText: jobId ? '暂无待复核凭证草稿，请先在上一步生成并保存草稿' : '请先选择或生成待复核凭证草稿' }}
         />
@@ -279,7 +352,7 @@ export function Step4ReviewEntries() {
         <Button
           type="primary"
           onClick={goNext}
-          disabled={!jobId || entries.length === 0 || !allVerified}
+          disabled={!jobId || entryTotal === 0 || !allVerified}
         >
           确认复核，进入确认入账与导出
         </Button>

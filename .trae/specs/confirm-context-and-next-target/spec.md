@@ -24,7 +24,7 @@
   - `audit-day-book-import`：存在 checklist 未勾选状态，需要优先核验是否已经完成并补齐状态。
   - `auto-generate-entries-from-source`：下一步 AI 生成规则将继续基于该能力扩展。
   - `entry-tag-vector-sync`：EntryTag 的业务语义需要进一步强化。
-  - `user-auth-system` / `team-multi-ledger-management`：首次登录临时角色与团队/账套匹配相关。
+  - `user-auth-system` / `team-multi-ledger-management`：首次登录临时角色与团队/账簿匹配相关。
 - Affected code:
   - 本 spec 本身不要求修改业务代码。
   - 后续目标可能影响：`entry_generation_service.py`、`Step2ImportSource.tsx`、`Step3GenerateEntries.tsx`、`EntryTag` 相关服务、登录/团队初始化流程。
@@ -41,7 +41,7 @@ The system SHALL provide a current-state confirmation of the project structure a
 - **THEN** 确认项目是前后端分离架构
 - **AND** 后端为 FastAPI + SQLAlchemy + SQLite/PostgreSQL + Qdrant
 - **AND** 前端为 React + TypeScript + Vite + Ant Design
-- **AND** 当前核心模块包括财务总账、凭证管理、报表、审计、风险识别、团队/账套/项目管理
+- **AND** 当前核心模块包括财务总账、凭证管理、报表、审计、风险识别、团队/账簿/项目管理
 
 ### Requirement: 确认角色边界
 
@@ -95,7 +95,7 @@ The system SHALL recommend one next execution target based on dependency and fin
 1. 核验 `audit-day-book-import` 实际代码与测试状态，并补齐 tasks/checklist。
 2. 新建立并实施「AI 原始资料充分性规则与 draft 暂存」spec。
 3. 再进入 EntryTag 语义体系增强。
-4. 再处理首次登录临时角色与团队/账套/项目匹配。
+4. 再处理首次登录临时角色与团队/账簿/项目匹配。
 
 ## REMOVED Requirements
 

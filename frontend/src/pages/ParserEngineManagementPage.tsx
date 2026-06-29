@@ -530,13 +530,13 @@ export function ParserEngineManagementPage() {
       ),
     },
     {
-      title: '项目/账套',
+      title: '项目/账簿',
       key: 'context',
       width: 190,
       render: (_: unknown, row: ParseTask) => (
         <Space direction="vertical" size={0}>
           <Text>{row.projectName || '未选择项目'}</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>{row.ledgerName || '未选择账套'}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{row.ledgerName || '未选择账簿'}</Text>
         </Space>
       ),
     },
@@ -575,7 +575,7 @@ export function ParserEngineManagementPage() {
   return (
     <div>
       <Title level={2}>解析引擎管理</Title>
-      <Text type="secondary">统一管理文件解析、批量解析草稿、项目账套归属与台账分配路径</Text>
+      <Text type="secondary">统一管理文件解析、批量解析草稿、项目账簿归属与台账分配路径</Text>
 
       <Divider />
 
@@ -644,7 +644,7 @@ export function ParserEngineManagementPage() {
           </Col>
           <Col span={8}>
             <Descriptions column={1} size="small">
-              <Descriptions.Item label="当前账套">{currentLedger?.name || '未选择账套'}</Descriptions.Item>
+              <Descriptions.Item label="当前账簿">{currentLedger?.name || '未选择账簿'}</Descriptions.Item>
               <Descriptions.Item label="默认项目">{defaultProject?.name || '未选择项目'}</Descriptions.Item>
             </Descriptions>
           </Col>
@@ -670,7 +670,7 @@ export function ParserEngineManagementPage() {
 
       <Card title="批量文件解析工作台" style={{ marginBottom: 24 }}>
         <Alert
-          message="上传后系统会为每个文件/工作表生成解析草稿ID，并默认关联当前项目和账套。正式入账或正式进入台账仍需要在对应模块复核确认。"
+          message="上传后系统会为每个文件/工作表生成解析草稿ID，并默认关联当前项目和账簿。正式入账或正式进入台账仍需要在对应模块复核确认。"
           type="info"
           showIcon
           style={{ marginBottom: 16 }}

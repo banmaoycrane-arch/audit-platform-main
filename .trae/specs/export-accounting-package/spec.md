@@ -1,8 +1,8 @@
-# 记账模式 Step5 真实导出账套 Spec
+# 记账模式 Step5 真实导出账簿 Spec
 
 ## Why
 
-[Step5Export.tsx](file:///e:/projects/finance-vector-audit/wroksapce20260616/frontend/src/pages/AccountingMode/Step5Export.tsx) 的「导出账套」按钮仅 `setTimeout(1500)` 后弹「导出成功」，没有任何后端调用，也没有真实文件下载。用户感知到的现象就是「方法失败，没有得到导出文件」。
+[Step5Export.tsx](file:///e:/projects/finance-vector-audit/wroksapce20260616/frontend/src/pages/AccountingMode/Step5Export.tsx) 的「导出账簿」按钮仅 `setTimeout(1500)` 后弹「导出成功」，没有任何后端调用，也没有真实文件下载。用户感知到的现象就是「方法失败，没有得到导出文件」。
 
 ## What Changes
 
@@ -59,7 +59,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Step5 导出账套
+### Requirement: Step5 导出账簿
 
 不再使用 `setTimeout` 模拟。Step5 SHALL 调用真实导出 API。
 

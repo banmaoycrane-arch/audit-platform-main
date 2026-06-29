@@ -118,7 +118,7 @@ def _seed_ledger(client: TestClient) -> tuple[dict, int]:
     team = client.post("/api/teams", json={"name": "函证团队", "type": "company"}, headers=headers)
     ledger = client.post(
         "/api/ledgers",
-        json={"team_id": team.json()["id"], "name": "函证账套"},
+        json={"team_id": team.json()["id"], "name": "函证账簿"},
         headers=headers,
     )
     ledger_id = ledger.json()["id"]

@@ -106,10 +106,26 @@ export function ParserEngineConfigPage() {
     }
   }
 
+  const normalizeConfigValues = (values: Record<string, unknown>) => ({
+    ...values,
+    ai_local_model_enabled: Boolean(values.ai_local_model_enabled),
+    ai_fallback_to_rules: Boolean(values.ai_fallback_to_rules),
+    llm_enable_parallel_parsing: Boolean(values.llm_enable_parallel_parsing),
+    llm_multi_engine_enabled: Boolean(values.llm_multi_engine_enabled),
+    llm_save_all_results: Boolean(values.llm_save_all_results),
+    llm_comparison_engines: typeof values.llm_comparison_engines === 'string'
+      ? values.llm_comparison_engines.split(',').map(item => item.trim()).filter(Boolean).join(',')
+      : values.llm_comparison_engines,
+    llm_engine_weights: typeof values.llm_engine_weights === 'string' && values.llm_engine_weights.trim()
+      ? JSON.stringify(JSON.parse(values.llm_engine_weights), null, 2)
+      : values.llm_engine_weights || '{}',
+  })
+
   const handleSave = async () => {
     try {
       const values = await form.validateFields()
-      const result = await api.saveParserEngineConfig(values)
+      const payload = normalizeConfigValues(values)
+      const result = await api.saveParserEngineConfig(payload)
       if (result.success) {
         message.success(result.message || '配置保存成功！')
         if (result.config) {
@@ -402,7 +418,7 @@ export function ParserEngineConfigPage() {
                   </Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item name="llm_save_all_results" label="保存所有结果">
+                  <Form.Item name="llm_save_all_results" label="保存所有结果" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Col>

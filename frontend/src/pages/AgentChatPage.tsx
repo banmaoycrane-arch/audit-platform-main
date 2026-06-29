@@ -336,7 +336,7 @@ export function AgentChatPage() {
     <div>
       <Title level={3}>Agent 助手</Title>
       <Paragraph type="secondary">
-        Agent 入口与传统页面共用同一套后端鉴权、账套权限和审计留痕；当前先提供任务规划与受控建议，不直接执行高风险动作。
+        Agent 入口与传统页面共用同一套后端鉴权、账簿权限和审计留痕；当前先提供任务规划与受控建议，不直接执行高风险动作。
       </Paragraph>
 
       <Card

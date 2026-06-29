@@ -50,7 +50,7 @@
 #### 2.1 导入服务增强（import_service.py）
 
 **变更内容**：
-1. `attach_file` 函数：新增自动关联账套ID逻辑
+1. `attach_file` 函数：新增自动关联账簿ID逻辑
    - 如果 ImportJob 没有 ledger_id，自动从同 organization 的其他 job 推断
 2. `_process_accounting_file` 函数：新增分录来源标记
    - 自动设置 `entry_source="auto"`
@@ -60,9 +60,9 @@
 #### 2.2 项目服务增强（project_service.py）
 
 **新增方法**：
-- `get_project_ledgers(db, project_id)`：获取项目关联的所有账套
-- `get_consolidated_report(db, project_id, period_start, period_end)`：跨账套汇总报告
-  - 按账套分组统计借贷方发生额
+- `get_project_ledgers(db, project_id)`：获取项目关联的所有账簿
+- `get_consolidated_report(db, project_id, period_start, period_end)`：跨账簿汇总报告
+  - 按账簿分组统计借贷方发生额
   - 按科目汇总借贷方发生额
   - 识别潜在内部交易
 
@@ -75,7 +75,7 @@
 #### 2.4 项目路由增强（routes_project.py）
 
 **新增 API**：
-- `GET /api/projects/{id}/consolidated-report`：跨账套汇总报告
+- `GET /api/projects/{id}/consolidated-report`：跨账簿汇总报告
 
 ---
 
@@ -138,7 +138,7 @@ python -m app.scripts.fix_entry_trace_data
 ### 步骤 3：验证 API 可用性
 
 ```bash
-# 测试跨账套汇总 API
+# 测试跨账簿汇总 API
 curl http://localhost:8000/api/projects/1/consolidated-report
 
 # 测试团队层级 API
@@ -161,7 +161,7 @@ alembic downgrade 0003
 ## 注意事项
 
 1. **向后兼容**：所有新增字段均为 nullable 或有默认值，不影响现有数据
-2. **性能影响**：跨账套汇总查询可能涉及大量数据，建议添加分页和缓存
+2. **性能影响**：跨账簿汇总查询可能涉及大量数据，建议添加分页和缓存
 3. **数据一致性**：数据修复脚本仅处理历史数据，新数据通过服务层自动维护
 
 ---

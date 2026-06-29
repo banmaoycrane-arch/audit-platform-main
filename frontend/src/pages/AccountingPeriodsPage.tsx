@@ -100,8 +100,8 @@ export function AccountingPeriodsPage() {
         <Alert
           type="warning"
           showIcon
-          title="请先选择账套"
-          description="会计期间按当前账套过滤，请先在顶部选择账套。"
+          title="请先选择账簿"
+          description="会计期间按当前账簿过滤，请先在顶部选择账簿。"
           style={{ marginBottom: 16 }}
         />
       )}

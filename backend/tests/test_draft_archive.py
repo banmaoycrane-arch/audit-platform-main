@@ -93,7 +93,7 @@ def test_auto_archive_persists_to_source_file_notes(client):
         db.add(project)
         db.flush()
 
-        ledger = Ledger(name="归档账套", team_id=team.id)
+        ledger = Ledger(name="归档账簿", team_id=team.id)
         db.add(ledger)
         db.flush()
 
@@ -152,7 +152,7 @@ def test_project_files_api_returns_archived_files(client):
         db.add(project)
         db.flush()
         project_id = project.id
-        ledger = Ledger(name="API账套", team_id=team.id)
+        ledger = Ledger(name="API账簿", team_id=team.id)
         db.add(ledger)
         db.flush()
         db.add(ProjectLedger(project_id=project.id, ledger_id=ledger.id))

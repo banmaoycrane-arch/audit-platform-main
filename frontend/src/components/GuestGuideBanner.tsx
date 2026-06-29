@@ -9,7 +9,7 @@ interface GuestGuideBannerProps {
 
 const bindingLabels: Record<string, string> = {
   team: '团队',
-  ledger: '账套',
+  ledger: '账簿',
   project: '项目',
   accounting_entity: '会计主体',
 }
@@ -23,7 +23,7 @@ export function GuestGuideBanner({ missingBindings }: GuestGuideBannerProps) {
       description={
         <div>
           <Text type="secondary">
-            您已经可以登录并查看系统模块和公共说明。由于尚未绑定以下内容，系统不会展示任何账套隔离数据：
+            您已经可以登录并查看系统模块和公共说明。由于尚未绑定以下内容，系统不会展示任何账簿隔离数据：
           </Text>
           <div style={{ marginTop: 8, marginBottom: 12 }}>
             {missingBindings.map((key) => (
@@ -45,7 +45,7 @@ export function GuestGuideBanner({ missingBindings }: GuestGuideBannerProps) {
             团队控制台（申请加入团队）
           </Button>
           <Button size="small" onClick={() => navigate('/ledger-management')}>
-            账套控制台（申请访问账套）
+            账簿控制台（申请访问账簿）
           </Button>
           <Button size="small" onClick={() => navigate('/projects')}>
             项目控制台（申请关联项目）

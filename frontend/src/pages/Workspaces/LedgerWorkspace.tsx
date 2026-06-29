@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Typography, Row, Col, Button, Statistic, Table, Select, Space, Tag, Empty } from 'antd'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Card, Row, Col, Button, Statistic, Table, Select, Space, Tag, Empty } from 'antd'
+import { useNavigate } from 'react-router-dom'
 import {
   BookOutlined,
   FileTextOutlined,
@@ -14,8 +14,7 @@ import {
 } from '@ant-design/icons'
 import { api, type AccountingEntry, type AccountingPeriod } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
-
-const { Title, Paragraph } = Typography
+import { WorkspaceShell } from '../../components/WorkspaceShell'
 
 const functionsList = [
   { key: 'vouchers', icon: <FileTextOutlined />, label: '凭证管理', path: '/ledger/vouchers/step/1' },
@@ -45,7 +44,7 @@ type PendingVoucherRow = {
 function groupPendingVouchers(entries: AccountingEntry[]): PendingVoucherRow[] {
   const byVoucher = new Map<string, AccountingEntry[]>()
   for (const entry of entries) {
-    if (!entry.voucher_no || entry.review_status === 'verified' || entry.review_status === 'ready') {
+    if (!entry.voucher_no) {
       continue
     }
     const list = byVoucher.get(entry.voucher_no) || []
@@ -81,7 +80,6 @@ const PERIOD_STATUS_LABEL: Record<string, { color: string; text: string }> = {
 }
 
 export function LedgerWorkspace() {
-  const location = useLocation()
   const navigate = useNavigate()
   const { currentLedgerId } = useAuthStore()
   const [periods, setPeriods] = useState<AccountingPeriod[]>([])
@@ -90,6 +88,23 @@ export function LedgerWorkspace() {
   const [openPeriodCount, setOpenPeriodCount] = useState(0)
   const [selectedPeriodCode, setSelectedPeriodCode] = useState<string>('')
   const [loading, setLoading] = useState(false)
+
+  const selectedPeriod = periods.find((p) => p.period_code === selectedPeriodCode)
+
+  const loadEntries = () => {
+    if (!currentLedgerId) return
+    setLoading(true)
+    let dateFrom: string | undefined
+    let dateTo: string | undefined
+    if (selectedPeriod) {
+      dateFrom = selectedPeriod.start_date
+      dateTo = selectedPeriod.end_date
+    }
+    api.listEntries(undefined, currentLedgerId, 'draft', dateFrom, dateTo, 50, 0)
+      .then(setEntries)
+      .catch(() => setEntries([]))
+      .finally(() => setLoading(false))
+  }
 
   useEffect(() => {
     if (!currentLedgerId) {
@@ -102,12 +117,10 @@ export function LedgerWorkspace() {
     setLoading(true)
     Promise.all([
       api.listAccountingPeriods(undefined, currentLedgerId),
-      api.listEntries(undefined, currentLedgerId),
       api.getDashboardSummary(currentLedgerId),
     ])
-      .then(([periodList, entryList, summary]) => {
+      .then(([periodList, summary]) => {
         setPeriods(periodList)
-        setEntries(entryList)
         setPendingCount(summary.module_status.ledger.pending_vouchers)
         setOpenPeriodCount(summary.module_status.ledger.unclosed_periods)
         if (periodList.length > 0) {
@@ -126,14 +139,18 @@ export function LedgerWorkspace() {
       .finally(() => setLoading(false))
   }, [currentLedgerId])
 
+  useEffect(() => {
+    loadEntries()
+  }, [selectedPeriodCode, currentLedgerId])
+
   const pendingVouchersData = useMemo(() => groupPendingVouchers(entries), [entries])
-  const selectedPeriod = periods.find((p) => p.period_code === selectedPeriodCode)
 
   return (
-    <div>
-      <Title level={4}>财务总账工作台</Title>
-      <Paragraph type="secondary">管理凭证、账簿、期间与科目余额</Paragraph>
-
+    <WorkspaceShell
+      title="财务总账工作台"
+      description="管理凭证、账簿、期间与科目余额"
+      functionsList={functionsList}
+    >
       <Card style={{ marginBottom: 16 }} loading={loading}>
         <Row justify="space-between" align="middle">
           <Col>
@@ -168,77 +185,55 @@ export function LedgerWorkspace() {
         </Row>
       </Card>
 
-      <Row gutter={16}>
-        <Col span={6}>
-          <Card title="功能导航" size="small">
-            <Space direction="vertical" style={{ width: '100%' }}>
-              {functionsList.map((fn) => (
-                <Button
-                  key={fn.key}
-                  type={location.pathname === fn.path ? 'primary' : 'text'}
-                  block
-                  icon={fn.icon}
-                  onClick={() => navigate(fn.path)}
-                >
-                  {fn.label}
-                </Button>
-              ))}
-            </Space>
+      <Row gutter={[16, 16]}>
+        <Col span={8}>
+          <Card loading={loading}>
+            <Statistic title="待处理凭证" value={pendingCount} valueStyle={{ color: '#cf1322' }} />
           </Card>
         </Col>
-
-        <Col span={18}>
-          <Row gutter={[16, 16]}>
-            <Col span={8}>
-              <Card loading={loading}>
-                <Statistic title="待处理凭证" value={pendingCount} valueStyle={{ color: '#cf1322' }} />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card loading={loading}>
-                <Statistic title="已开启期间" value={openPeriodCount} valueStyle={{ color: '#3f8600' }} />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card loading={loading}>
-                <Statistic title="科目余额异常" value={0} />
-              </Card>
-            </Col>
-          </Row>
-
-          <Card title="待处理凭证列表" style={{ marginTop: 16 }} loading={loading}>
-            {!currentLedgerId ? (
-              <Empty description="请先选择账套" />
-            ) : (
-              <Table
-                size="small"
-                columns={pendingVouchersColumns}
-                dataSource={pendingVouchersData}
-                pagination={false}
-                rowKey="key"
-                locale={{ emptyText: '暂无待处理凭证' }}
-              />
-            )}
+        <Col span={8}>
+          <Card loading={loading}>
+            <Statistic title="已开启期间" value={openPeriodCount} valueStyle={{ color: '#3f8600' }} />
           </Card>
-
-          <Card title="期间状态" style={{ marginTop: 16 }} loading={loading}>
-            {periods.length === 0 ? (
-              <Empty description="当前账套暂无会计期间" />
-            ) : (
-              <Space wrap>
-                {periods.map((period) => {
-                  const meta = PERIOD_STATUS_LABEL[period.status] || { color: 'default', text: period.status }
-                  return (
-                    <Tag key={period.id} color={meta.color}>
-                      {period.period_code} {meta.text}
-                    </Tag>
-                  )
-                })}
-              </Space>
-            )}
+        </Col>
+        <Col span={8}>
+          <Card loading={loading}>
+            <Statistic title="科目余额异常" value={0} />
           </Card>
         </Col>
       </Row>
-    </div>
+
+      <Card title="待处理凭证列表" style={{ marginTop: 16 }} loading={loading}>
+        {!currentLedgerId ? (
+          <Empty description="请先选择账簿" />
+        ) : (
+          <Table
+            size="small"
+            columns={pendingVouchersColumns}
+            dataSource={pendingVouchersData}
+            pagination={false}
+            rowKey="key"
+            locale={{ emptyText: '暂无待处理凭证' }}
+          />
+        )}
+      </Card>
+
+      <Card title="期间状态" style={{ marginTop: 16 }} loading={loading}>
+        {periods.length === 0 ? (
+          <Empty description="当前账簿暂无会计期间" />
+        ) : (
+          <Space wrap>
+            {periods.map((period) => {
+              const meta = PERIOD_STATUS_LABEL[period.status] || { color: 'default', text: period.status }
+              return (
+                <Tag key={period.id} color={meta.color}>
+                  {period.period_code} {meta.text}
+                </Tag>
+              )
+            })}
+          </Space>
+        )}
+      </Card>
+    </WorkspaceShell>
   )
 }

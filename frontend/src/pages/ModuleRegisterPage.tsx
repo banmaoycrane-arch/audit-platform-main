@@ -352,7 +352,7 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
           <div>
             <Title level={4} style={{ margin: 0 }}>{title}</Title>
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              按账套查询已持久化的模块台账数据（Phase A）。当前账套：
+              按账簿查询已持久化的模块台账数据（Phase A）。当前账簿：
               {userLedgers.find((item) => item.id === ledgerId)?.name || ledgerId || '未选择'}
             </Paragraph>
           </div>
@@ -369,7 +369,7 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
         </div>
 
         {!ledgerId && (
-          <Alert type="warning" showIcon title="尚未选择账套" description="请先在账套管理中选择账套后查看模块台账。" />
+          <Alert type="warning" showIcon title="尚未选择账簿" description="请先在账簿管理中选择账簿后查看模块台账。" />
         )}
 
         {!supportsRowOperations && (

@@ -49,7 +49,7 @@
 
 - [main.py](file:///e:/projects/finance-vector-audit/wroksapce20260616/backend/app/main.py)
 
-当前后端使用 FastAPI，并已挂载认证、导入、分录、文件、风险、会计期间、基础资料、报表、审计测试、审计导出、业务循环、内控、账套、团队、项目等 API 路由。
+当前后端使用 FastAPI，并已挂载认证、导入、分录、文件、风险、会计期间、基础资料、报表、审计测试、审计导出、业务循环、内控、账簿、团队、项目等 API 路由。
 
 关键观察：
 
@@ -70,7 +70,7 @@
 - [App.tsx](file:///e:/projects/finance-vector-audit/wroksapce20260616/frontend/src/App.tsx#L83-L154) 已经形成 SaaS Shell 下的完整业务路由。
 - 记账流程已有 Step1-Step5：[/accounting/step/1 - /accounting/step/5](file:///e:/projects/finance-vector-audit/wroksapce20260616/frontend/src/App.tsx#L98-L107)。
 - 审计流程已有 Step1-Step6：[/audit/step/1 - /audit/step/6](file:///e:/projects/finance-vector-audit/wroksapce20260616/frontend/src/App.tsx#L108-L113)。
-- 基础资料、期间、报表、账套、团队、Agent、风险、分录等页面入口已存在。
+- 基础资料、期间、报表、账簿、团队、Agent、风险、分录等页面入口已存在。
 
 ### 3. 总需求统计
 
@@ -95,7 +95,7 @@
 | 编号 | 需求域 | 管理含义 |
 |---|---|---|
 | D01 | 身份认证与访问控制 | 登录、注册、Token、路由守卫、权限边界 |
-| D02 | 团队、账套、项目、上下文 | Team、Ledger、Project、默认账套、onboarding |
+| D02 | 团队、账簿、项目、上下文 | Team、Ledger、Project、默认账簿、onboarding |
 | D03 | Shell、导航、工作台、模块入口 | MainShell、导航、高亮、模块工作台 |
 | D04 | 凭证生命周期 | 输入模式、原始资料、AI 草稿、人工录入、复核、落库、导出 |
 | D05 | 原始资料导入与解析 | 上传、导入任务、解析、质量报告 |
@@ -210,7 +210,7 @@ L6 测试与真实数据验证完成
 
 例子：
 
-- Ledger 账套边界。
+- Ledger 账簿边界。
 - AccountingPeriod 会计期间。
 - ChartOfAccounts 会计科目。
 - ImportJob / SourceFile 原始资料导入。
@@ -223,7 +223,7 @@ L6 测试与真实数据验证完成
 
 ```text
 身份认证与上下文
-  → 团队 / 账套 / 项目边界
+  → 团队 / 账簿 / 项目边界
   → 基础资料
   → 会计期间
   → 原始资料导入 / 人工录入
@@ -295,7 +295,7 @@ Out of Scope：不重构结账、不改报表、不改整个期间模型
 范围：
 
 - D01 登录 / 注册 / 鉴权失败。
-- D02 无法选择团队或账套。
+- D02 无法选择团队或账簿。
 - D04 凭证流程中断。
 - D08 期间、结账、报表关键错误。
 - D06 审计主流程无法继续。
@@ -313,7 +313,7 @@ Out of Scope：不重构结账、不改报表、不改整个期间模型
 1. D02 Team / Ledger / Project / 当前上下文确认。
 2. D07 会计科目、往来单位、期初余额边界确认。
 3. D08 会计期间归属边界确认。
-4. D04 凭证归属账套与期间确认。
+4. D04 凭证归属账簿与期间确认。
 
 对应重点文档：
 
@@ -387,7 +387,7 @@ Out of Scope：不重构结账、不改报表、不改整个期间模型
 推荐理由：
 
 - 这些模块最终都会影响凭证、报表和审计。
-- 如果凭证和账套边界没稳定，周边模块会反复返工。
+- 如果凭证和账簿边界没稳定，周边模块会反复返工。
 
 ### 六、运筹学视角的任务排序方法
 

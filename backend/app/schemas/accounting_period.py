@@ -71,3 +71,18 @@ class PeriodSnapshotRead(BaseModel):
 class PeriodSnapshotResponse(BaseModel):
     period: AccountingPeriodRead
     snapshots: list[PeriodSnapshotRead]
+
+
+class PeriodBatchCreateRequest(BaseModel):
+    organization_id: int | None = None
+    ledger_id: int | None = None
+    start_date: date
+    end_date: date
+    period_type: str = "monthly"
+
+
+class PeriodBatchCreateResponse(BaseModel):
+    created_count: int
+    skipped_count: int
+    created_periods: list[AccountingPeriodRead]
+    skipped_period_codes: list[str]

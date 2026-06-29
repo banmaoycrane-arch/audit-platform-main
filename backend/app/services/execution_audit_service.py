@@ -3,7 +3,7 @@
 模块功能：统一执行留痕服务
 业务场景：记录人工页面、CLI 命令、Agent 自动或辅助执行的关键业务动作
 政策依据：会计信息系统内部控制要求，关键操作应可追溯、可复核、可定位责任
-输入数据：执行来源、用户、账套、Agent 角色、工具名称、风险等级和执行结果
+输入数据：执行来源、用户、账簿、Agent 角色、工具名称、风险等级和执行结果
 输出结果：execution_audit_logs 表记录，用于事后审计追踪
 创建日期：2026-06-19
 更新记录：
@@ -36,14 +36,14 @@ def create_execution_audit_log(
 ) -> ExecutionAuditLog:
     """
     功能描述：记录一次关键业务动作的执行轨迹。
-    业务逻辑：把执行来源、人员、账套、工具、风险等级和执行结果统一写入日志表。
+    业务逻辑：把执行来源、人员、账簿、工具、风险等级和执行结果统一写入日志表。
     会计口径：日志用于还原业务执行过程，不替代凭证、报表或审计底稿本身。
 
     Args:
         db: 数据库会话。
         execution_source: 执行来源，manual_ui / cli_command / agent_auto / agent_assisted。
         user: 发起执行的登录用户。
-        ledger_id: 当前账套 ID。
+        ledger_id: 当前账簿 ID。
         tool_name: 工具或业务动作名称。
         service_name: 实际处理的后端服务名称。
         status: 执行结果，success / failed / cancelled。

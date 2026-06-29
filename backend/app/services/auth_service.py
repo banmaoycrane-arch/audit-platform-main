@@ -4,10 +4,11 @@ from secrets import randbelow
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.models.user import User
+from app.core.config import get_settings
 from app.core.security import get_password_hash, verify_password
 from app.db.models import Entity, SmsVerificationCode
 from app.models.user_ledger_auth import UserLedgerAuth
-from app.services import ledger_management_service, project_service
+from app.services import ledger_management_service, project_service, platform_permission_service
 
 
 def get_user_by_id(db: Session, user_id: int) -> User | None:
@@ -41,7 +42,7 @@ def register_user(
     db.add(user)
     db.commit()
     db.refresh(user)
-    return user
+    return sync_configured_super_admin(db, user)
 
 
 def get_password_login_user(db: Session, username: str) -> User | None:
@@ -50,13 +51,30 @@ def get_password_login_user(db: Session, username: str) -> User | None:
     ).first()
 
 
+def _split_config_values(value: str) -> set[str]:
+    return {item.strip() for item in value.split(",") if item.strip()}
+
+
+def sync_configured_super_admin(db: Session, user: User) -> User:
+    settings = get_settings()
+    configured_usernames = _split_config_values(settings.super_admin_usernames)
+    configured_phones = _split_config_values(settings.super_admin_phones)
+    if (user.username and user.username in configured_usernames) or (user.phone and user.phone in configured_phones):
+        if getattr(user, "platform_role", "user") != platform_permission_service.SUPER_ADMIN_ROLE:
+            user.platform_role = platform_permission_service.SUPER_ADMIN_ROLE
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+    return user
+
+
 def authenticate_user(db: Session, username: str, password: str) -> User | None:
     user = get_password_login_user(db, username)
     if not user or not user.hashed_password:
         return None
     if not verify_password(password, user.hashed_password):
         return None
-    return user
+    return sync_configured_super_admin(db, user)
 
 
 SMS_CODE_TTL_MINUTES = 5
@@ -111,7 +129,7 @@ def authenticate_user_by_sms(db: Session, phone: str, code: str) -> User | None:
         db.add(user)
         db.commit()
         db.refresh(user)
-    return user
+    return sync_configured_super_admin(db, user)
 
 
 def set_user_password(db: Session, user: User, password: str) -> User:
@@ -141,6 +159,8 @@ def get_auth_context(db: Session, user: User) -> dict:
     teams = ledger_management_service.get_teams_by_user(db, user.id)
     ledgers = ledger_management_service.get_ledgers_by_user(db, user.id)
     projects = project_service.list_projects_by_user(db, user.id)
+    is_super_admin = platform_permission_service.is_super_admin(user)
+    platform_role = getattr(user, "platform_role", "user")
 
     current_ledger_id = user.last_ledger_id
     if current_ledger_id and not any(ledger.id == current_ledger_id for ledger in ledgers):
@@ -178,6 +198,10 @@ def get_auth_context(db: Session, user: User) -> dict:
     else:
         next_action = "workspace"
 
+    if is_super_admin:
+        missing_bindings = []
+        next_action = "workspace"
+
     current_ledger_role = None
     current_team_type = None
     can_use_ledger_without_project = False
@@ -203,6 +227,8 @@ def get_auth_context(db: Session, user: User) -> dict:
             "phone": user.phone,
             "email": user.email,
             "has_password": bool(user.hashed_password),
+            "platform_role": platform_role,
+            "is_super_admin": is_super_admin,
         },
         "teams": [
             {
@@ -246,6 +272,8 @@ def get_auth_context(db: Session, user: User) -> dict:
         "current_ledger_role": current_ledger_role,
         "current_team_type": current_team_type,
         "can_use_ledger_without_project": can_use_ledger_without_project,
+        "platform_role": platform_role,
+        "is_super_admin": is_super_admin,
         "missing_bindings": missing_bindings,
         "requires_onboarding": next_action != "workspace",
         "next_action": next_action,

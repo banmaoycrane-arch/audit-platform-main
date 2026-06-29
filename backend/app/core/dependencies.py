@@ -37,28 +37,28 @@ def get_current_ledger(
     db: Session = Depends(get_db),
 ) -> int | None:
     """
-    获取当前账套ID。
+    获取当前账簿ID。
 
     业务逻辑：优先从请求 Header X-Ledger-Id 获取，
     若 Header 未提供，则回退到 user.last_ledger_id。
 
     Args:
-        x_ledger_id: 请求头中的账套ID
+        x_ledger_id: 请求头中的账簿ID
         current_user: 当前登录用户
         db: 数据库会话
 
     Returns:
-        int | None: 当前账套ID，若未指定则返回 None
+        int | None: 当前账簿ID，若未指定则返回 None
     """
     ledger_id = x_ledger_id or current_user.last_ledger_id
     if ledger_id is None:
         return None
 
-    # 验证用户是否有该账套访问权限
+    # 验证用户是否有该账簿访问权限
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"用户无权访问账套 {ledger_id}",
+            detail=f"用户无权访问账簿 {ledger_id}",
         )
 
     return ledger_id

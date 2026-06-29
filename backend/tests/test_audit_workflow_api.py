@@ -66,7 +66,7 @@ def _create_ledger_with_project(client: TestClient, headers: dict) -> tuple[dict
     )
     ledger = client.post(
         "/api/ledgers",
-        json={"team_id": team.json()["id"], "name": "工作流账套"},
+        json={"team_id": team.json()["id"], "name": "工作流账簿"},
         headers=headers,
     )
     ledger_id = ledger.json()["id"]

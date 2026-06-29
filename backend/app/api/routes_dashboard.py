@@ -36,7 +36,7 @@ def get_dashboard_summary(
     - module_status：各模块状态概览
     """
     # 优先使用显式传入的 ledger_id，其次使用依赖注入的 current_ledger_id。
-    # 当用户没有账套时返回空仪表盘；当用户显式请求无权账套时仍按权限规则拒绝。
+    # 当用户没有账簿时返回空仪表盘；当用户显式请求无权账簿时仍按权限规则拒绝。
     effective_ledger_id = ledger_id or current_ledger_id
     if ledger_id and not ledger_management_service.user_has_ledger_access(
         db,
@@ -45,7 +45,7 @@ def get_dashboard_summary(
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"用户无权访问账套 {ledger_id}",
+            detail=f"用户无权访问账簿 {ledger_id}",
         )
 
     # 凭证数

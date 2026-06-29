@@ -1,11 +1,11 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, Card, Descriptions, Empty, List, message, Result, Spin, Tag, Table, Collapse, Alert } from 'antd'
-import { ReloadOutlined, FileTextOutlined, ArrowRightOutlined, ExclamationCircleOutlined, ClockCircleOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons'
+import { Button, Card, Descriptions, Empty, List, message, Result, Spin, Tag, Table, Collapse, Alert, Row, Col } from 'antd'
+import { ReloadOutlined, FileTextOutlined, ArrowRightOutlined, ExclamationCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
 
 /**
- * 草稿页面组件 - 支持合同解析结果展示（基于 CAS 14 收入准则）
+ * 草稿页面组件 - 统一展示 parser-engine 解析结果
  */
 
 export function DraftPage() {
@@ -95,7 +95,7 @@ export function DraftPage() {
       const report = await api.getImportReport(Number(jobId))
       if (report && report.source_files) setSourceFiles(report.source_files)
     } catch (error) {
-      console.log('获取原始文件列表失败:', error)
+      // 原始文件列表失败不影响草稿主流程。
     }
   }
 
@@ -165,63 +165,38 @@ export function DraftPage() {
   const hasFileResults = fileResults.length > 0
   const isProcessing = draftData.status === 'processing'
   const isDraft = draftData.status === 'draft'
-
-  // 合同解析结果
-  const contractResult = draftData.draft_data?.contract_parse_result as {
-    contract_type: string
-    contract_valid: boolean
-    effective_conditions: string
-    commercial_substance: boolean
-    collection_probable: boolean
-    parties: Array<{ name: string; role: string; tax_id: string; legal_capacity: boolean }>
-    signing_date: string
-    period: { start_date: string; end_date: string; duration_days: number; termination_terms: string }
-    price: {
-      total_amount: string
-      amount_excl_tax: string
-      tax_rate: string
-      tax_amount: string
-      currency: string
-      variable_consideration: string
-      variable_type: string
-      back_to_back: boolean
-      payment_terms: string
-    }
-    performance_obligations: Array<{
-      item_no: number
-      description: string
-      quantity: string
-      unit: string
-      unit_price: string
-      total_price: string
-      distinct: boolean
-      highly_interdependent: boolean
-      integration_service: boolean
-      revenue_recognition_method: string
-      time_method_criteria: string[]
-      qualified_payment_right: boolean
-      irreplaceable_use: boolean
-      standalone_selling_price: string
-      allocation_ratio: string
-    }>
-    penalties: Array<{
-      penalty_clause: string
-      penalty_amount: string
-      is_probable: boolean
-      provision_required: boolean
-      provision_amount: string
-      impact_on_revenue: string
-    }>
-    contract_costs: Array<{ cost_type: string; amount: string; amortization_method: string }>
-    financial_assets: Array<{ asset_type: string; amount: string; expected_credit_loss: string; risk_rating: string }>
-    tax_treatment: { tax_type: string; tax_rate: string; tax_amount: string; special_treatment: string }
-    summary: string
-    accounting_notes: string
-    five_step_analysis: string
-    confidence_score: string
-  } | null
-
-  const contractValidationErrors = draftData.draft_data?.contract_validation_errors as string[] | null
+  const parserEngineResult = draftData.draft_data?.parser_engine_result as {
+    file_format?: string
+    document_type?: string
+    document_sub_type?: string | null
+    confidence?: number
+    engine_type?: string
+    data?: Record<string, unknown>
+    raw_text?: string | null
+    error_message?: string | null
+    parse_duration_ms?: number
+    stage_timings?: Record<string, number>
+    engine_comparison?: Record<string, unknown>
+    multi_llm_comparison?: Record<string, unknown>
+  } | undefined
+  const autoReviewResult = draftData.draft_data?.auto_review_result as {
+    passed?: boolean
+    confidence?: number
+    document_type?: string
+    risk_level?: string
+    rules?: Array<{ name: string; passed: boolean; message: string }>
+    reviewed_at?: string
+  } | undefined
+  const archiveResult = draftData.draft_data?.archive_result as {
+    archived?: boolean
+    status?: string
+    target?: string | null
+    record_id?: number | null
+    reason?: string
+    document_type?: string
+    archived_at?: string
+  } | undefined
+  const hasParserEngineResult = Boolean(parserEngineResult)
 
   return (
     <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
@@ -229,7 +204,7 @@ export function DraftPage() {
         title={
           <span>
             <ExclamationCircleOutlined style={{ color: '#faad14', marginRight: 8 }} />
-            凭证导入草稿 - {isProcessing ? '解析中' : '解析失败'}
+            凭证导入草稿 - {isProcessing ? '解析中' : archiveResult?.archived ? '已自动归档' : hasParserEngineResult ? '统一解析结果待复核' : '待处理'}
           </span>
         }
         extra={
@@ -240,11 +215,11 @@ export function DraftPage() {
         }
       >
         <Result
-          status={isProcessing ? 'info' : 'warning'}
-          title={isProcessing ? '文件上传成功，正在解析中...' : '文件上传成功，但解析失败'}
+          status={isProcessing ? 'info' : archiveResult?.archived ? 'success' : hasParserEngineResult ? 'success' : 'warning'}
+          title={isProcessing ? '文件上传成功，正在解析中...' : archiveResult?.archived ? '文件已自动复核通过并归档' : hasParserEngineResult ? '文件已由统一解析引擎完成解析' : '文件上传成功，等待处理'}
           subTitle={
             <div>
-              <p>{draftData.error_message || (isProcessing ? '系统正在处理文件，请稍候...' : '系统处理异常，请检查文件格式后重试')}</p>
+              <p>{draftData.error_message || (isProcessing ? '系统正在处理文件，请稍候...' : archiveResult?.archived ? `已归档到 ${archiveResult.target}，记录编号：${archiveResult.record_id}` : hasParserEngineResult ? '本页直接展示解析引擎管理页面同源输出；自动复核通过后会归档到对应业务台账。' : '系统处理异常，请检查文件格式后重试')}</p>
               {pollTimeout && (
                 <p style={{ color: '#f5222d', fontWeight: 'bold' }}>
                   解析超时：已达到最大等待时间（{maxPollCount * pollInterval / 1000} 秒），请尝试重新上传或手工录入
@@ -287,169 +262,124 @@ export function DraftPage() {
         </Card>
       )}
 
-      {/* 合同解析结果展示 */}
-      {contractResult && (
-        <Card title="合同解析结果（基于 CAS 14 收入准则）" style={{ marginTop: 16 }}>
-          {/* 合同成立判断 */}
-          <Alert
-            message="合同成立判断（CAS 14 第五条）"
-            description={
-              <div>
-                <p><CheckCircleOutlined style={{ color: contractResult.contract_valid ? '#52c41a' : '#f5222d' }} /> 合同是否成立：{contractResult.contract_valid ? '是' : '否'}</p>
-                <p>生效条件：{contractResult.effective_conditions || '无'}</p>
-                <p>商业实质：{contractResult.commercial_substance ? '有' : '无'}</p>
-                <p>对价很可能收回：{contractResult.collection_probable ? '是' : '否'}</p>
-              </div>
-            }
-            type={contractResult.contract_valid ? 'success' : 'error'}
-            style={{ marginBottom: 16 }}
-          />
-
-          {/* 合同主体 */}
-          <Card title="合同主体" size="small" style={{ marginBottom: 16 }}>
-            <Table
-              dataSource={contractResult.parties}
-              rowKey="name"
-              pagination={false}
-              columns={[
-                { title: '角色', dataIndex: 'role', key: 'role' },
-                { title: '名称', dataIndex: 'name', key: 'name' },
-                { title: '税号', dataIndex: 'tax_id', key: 'tax_id' },
-                { title: '行为能力', dataIndex: 'legal_capacity', key: 'legal_capacity', render: (v: boolean) => v ? '有' : '无' },
-              ]}
-            />
-          </Card>
-
-          {/* 时间信息 */}
-          <Card title="合同时间" size="small" style={{ marginBottom: 16 }}>
-            <Descriptions bordered column={2}>
-              <Descriptions.Item label="签署日期">{contractResult.signing_date || '-'}</Descriptions.Item>
-              <Descriptions.Item label="开始日期">{contractResult.period?.start_date || '-'}</Descriptions.Item>
-              <Descriptions.Item label="结束日期">{contractResult.period?.end_date || '-'}</Descriptions.Item>
-              <Descriptions.Item label="总天数">{contractResult.period?.duration_days || '-'}</Descriptions.Item>
-              <Descriptions.Item label="终止条款" span={2}>{contractResult.period?.termination_terms || '-'}</Descriptions.Item>
-            </Descriptions>
-          </Card>
-
-          {/* 交易价格（价税分离） */}
-          <Card title="交易价格（CAS 14 第十四条至第十九条）" size="small" style={{ marginBottom: 16 }}>
-            <Descriptions bordered column={2}>
-              <Descriptions.Item label="含税总价">{contractResult.price?.total_amount || '0.00'} {contractResult.price?.currency}</Descriptions.Item>
-              <Descriptions.Item label="不含税金额（交易价格）">{contractResult.price?.amount_excl_tax || '0.00'}</Descriptions.Item>
-              <Descriptions.Item label="税率">{(Number(contractResult.price?.tax_rate) * 100).toFixed(0)}%</Descriptions.Item>
-              <Descriptions.Item label="税额">{contractResult.price?.tax_amount || '0.00'}</Descriptions.Item>
-              <Descriptions.Item label="可变对价">{contractResult.price?.variable_consideration || '0.00'} ({contractResult.price?.variable_type || '无'})</Descriptions.Item>
-              <Descriptions.Item label="背靠背付款">{contractResult.price?.back_to_back ? '是' : '否'}</Descriptions.Item>
-              <Descriptions.Item label="付款条款" span={2}>{contractResult.price?.payment_terms || '-'}</Descriptions.Item>
-            </Descriptions>
-          </Card>
-
-          {/* 履约义务 */}
-          <Card title="履约义务（CAS 14 第九条、第十条）" size="small" style={{ marginBottom: 16 }}>
-            {contractResult.performance_obligations?.map((obligation, idx) => (
-              <Card key={idx} title={`履约义务 ${obligation.item_no}`} size="small" style={{ marginBottom: 8 }}>
-                <p><strong>描述：</strong>{obligation.description}</p>
-                <p><strong>数量：</strong>{obligation.quantity} {obligation.unit}</p>
-                <p><strong>单价：</strong>{obligation.unit_price}</p>
-                <p><strong>小计：</strong>{obligation.total_price}</p>
-                <p><strong>可明确区分：</strong>{obligation.distinct ? '是' : '否'}</p>
-                <p><strong>高度关联：</strong>{obligation.highly_interdependent ? '是' : '否'}</p>
-                <p><strong>重大整合服务：</strong>{obligation.integration_service ? '是' : '否'}</p>
-                <p><strong>收入确认方法：</strong><Tag color={obligation.revenue_recognition_method === '时段法' ? 'blue' : 'green'}>{obligation.revenue_recognition_method}</Tag></p>
-                <p><strong>时段法条件：</strong>{obligation.time_method_criteria?.join(', ') || '-'}</p>
-                <p><strong>合格收款权：</strong>{obligation.qualified_payment_right ? '有' : '无'}</p>
-                <p><strong>不可替代用途：</strong>{obligation.irreplaceable_use ? '有' : '无'}</p>
-                <p><strong>单独售价：</strong>{obligation.standalone_selling_price}</p>
-                <p><strong>分摊比例：</strong>{obligation.allocation_ratio}</p>
+      {hasParserEngineResult && parserEngineResult && (
+        <Card title="自动复核与归档结果" style={{ marginTop: 16 }}>
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col span={6}>
+              <Card size="small" title="自动复核">
+                <Tag color={autoReviewResult?.passed ? 'green' : 'orange'}>{autoReviewResult?.passed ? '通过' : '需人工复核'}</Tag>
               </Card>
-            ))}
-          </Card>
-
-          {/* 违约责任 */}
-          <Card title="违约责任（CAS 13 或有事项）" size="small" style={{ marginBottom: 16 }}>
-            {contractResult.penalties?.map((penalty, idx) => (
-              <Alert
-                key={idx}
-                message={penalty.penalty_type || '违约'}
-                description={
-                  <div>
-                    <p><strong>条款：</strong>{penalty.penalty_clause}</p>
-                    <p><strong>金额：</strong>{penalty.penalty_amount}</p>
-                    <p><strong>是否很可能发生：</strong>{penalty.is_probable ? '是' : '否'}</p>
-                    <p><strong>需预提：</strong>{penalty.provision_required ? '是' : '否'}</p>
-                    <p><strong>预提金额：</strong>{penalty.provision_amount}</p>
-                    <p><strong>对收入影响：</strong>{penalty.impact_on_revenue}</p>
-                  </div>
-                }
-                type={penalty.is_probable ? 'warning' : 'info'}
-                style={{ marginBottom: 8 }}
-              />
-            ))}
-          </Card>
-
-          {/* 合同成本 */}
-          <Card title="合同成本（CAS 14 第二十六条至第二十九条）" size="small" style={{ marginBottom: 16 }}>
-            <Table
-              dataSource={contractResult.contract_costs}
-              rowKey="cost_type"
-              pagination={false}
-              columns={[
-                { title: '成本类型', dataIndex: 'cost_type', key: 'cost_type' },
-                { title: '金额', dataIndex: 'amount', key: 'amount' },
-                { title: '摊销方法', dataIndex: 'amortization_method', key: 'amortization_method' },
-              ]}
-            />
-          </Card>
-
-          {/* 金融资产 */}
-          <Card title="金融资产（CAS 22）" size="small" style={{ marginBottom: 16 }}>
-            <Table
-              dataSource={contractResult.financial_assets}
-              rowKey="asset_type"
-              pagination={false}
-              columns={[
-                { title: '资产类型', dataIndex: 'asset_type', key: 'asset_type' },
-                { title: '金额', dataIndex: 'amount', key: 'amount' },
-                { title: '预期信用损失', dataIndex: 'expected_credit_loss', key: 'expected_credit_loss' },
-                { title: '风险评级', dataIndex: 'risk_rating', key: 'risk_rating' },
-              ]}
-            />
-          </Card>
-
-          {/* 税务处理 */}
-          <Card title="税务处理" size="small" style={{ marginBottom: 16 }}>
-            <Descriptions bordered column={2}>
-              <Descriptions.Item label="税种">{contractResult.tax_treatment?.tax_type || '-'}</Descriptions.Item>
-              <Descriptions.Item label="税率">{(Number(contractResult.tax_treatment?.tax_rate) * 100).toFixed(0)}%</Descriptions.Item>
-              <Descriptions.Item label="税额">{contractResult.tax_treatment?.tax_amount || '0.00'}</Descriptions.Item>
-              <Descriptions.Item label="特殊处理" span={2}>{contractResult.tax_treatment?.special_treatment || '-'}</Descriptions.Item>
-            </Descriptions>
-          </Card>
-
-          {/* 会计校验错误 */}
-          {contractValidationErrors && contractValidationErrors.length > 0 && (
+            </Col>
+            <Col span={6}>
+              <Card size="small" title="风险等级"><strong>{autoReviewResult?.risk_level || '-'}</strong></Card>
+            </Col>
+            <Col span={6}>
+              <Card size="small" title="归档状态">
+                <Tag color={archiveResult?.archived ? 'green' : 'orange'}>{archiveResult?.archived ? '已归档' : '未归档'}</Tag>
+              </Card>
+            </Col>
+            <Col span={6}>
+              <Card size="small" title="归档去向"><strong>{archiveResult?.target || '-'}</strong></Card>
+            </Col>
+          </Row>
+          {archiveResult?.archived ? (
             <Alert
-              message="会计校验警告"
-              description={
-                <ul>
-                  {contractValidationErrors.map((error, idx) => (
-                    <li key={idx}><WarningOutlined style={{ color: '#faad14' }} /> {error}</li>
-                  ))}
-                </ul>
-              }
+              type="success"
+              showIcon
+              message="自动归档完成"
+              description={`记录编号：${archiveResult.record_id}；归档时间：${archiveResult.archived_at ? new Date(archiveResult.archived_at).toLocaleString('zh-CN') : '-'}`}
+              style={{ marginBottom: 16 }}
+            />
+          ) : (
+            <Alert
               type="warning"
               showIcon
+              message="需要人工复核"
+              description={archiveResult?.reason || '自动复核未通过或该文档类型暂不支持自动归档'}
               style={{ marginBottom: 16 }}
             />
           )}
+          <Collapse
+            items={[
+              {
+                key: 'rules',
+                label: '自动复核规则明细',
+                children: autoReviewResult?.rules?.length ? (
+                  <List
+                    dataSource={autoReviewResult.rules}
+                    renderItem={(rule) => (
+                      <List.Item>
+                        <Tag color={rule.passed ? 'green' : 'red'}>{rule.passed ? '通过' : '未通过'}</Tag>
+                        <strong style={{ marginRight: 8 }}>{rule.name}</strong>
+                        <span>{rule.message}</span>
+                      </List.Item>
+                    )}
+                  />
+                ) : <Empty description="暂无自动复核规则记录" />,
+              },
+            ]}
+          />
+        </Card>
+      )}
 
-          {/* 摘要和会计说明 */}
-          <Card title="摘要与会计说明" size="small">
-            <p><strong>合同摘要：</strong>{contractResult.summary}</p>
-            <p><strong>会计处理说明：</strong>{contractResult.accounting_notes}</p>
-            <p><strong>五步法分析：</strong>{contractResult.five_step_analysis}</p>
-            <p><strong>置信度：</strong>{(Number(contractResult.confidence_score) * 100).toFixed(0)}%</p>
-          </Card>
+      {hasParserEngineResult && parserEngineResult && (
+        <Card title="统一解析引擎结果" style={{ marginTop: 16 }}>
+          <Alert
+            message="本结果来自解析引擎管理的通用兼容引擎"
+            description="凭证草稿页不再另起一套文件解析逻辑；这里展示的是 parser-engine 同源输出。正式凭证生成前，请按会计口径复核字段、金额、往来单位和业务类型。"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col span={4}><Card size="small" title="文件格式"><strong>{parserEngineResult.file_format || '未知'}</strong></Card></Col>
+            <Col span={4}><Card size="small" title="文档类型"><strong>{parserEngineResult.document_type || '未知'}</strong></Card></Col>
+            <Col span={4}><Card size="small" title="细分类型"><strong>{parserEngineResult.document_sub_type || '-'}</strong></Card></Col>
+            <Col span={4}><Card size="small" title="置信度"><strong>{((parserEngineResult.confidence || 0) * 100).toFixed(1)}%</strong></Card></Col>
+            <Col span={4}><Card size="small" title="引擎类型"><strong>{parserEngineResult.engine_type || '未知'}</strong></Card></Col>
+            <Col span={4}><Card size="small" title="耗时"><strong>{Math.round(parserEngineResult.parse_duration_ms || 0)} ms</strong></Card></Col>
+          </Row>
+          <Collapse
+            defaultActiveKey={['fields']}
+            items={[
+              {
+                key: 'fields',
+                label: '解析字段',
+                children: Object.keys(parserEngineResult.data || {}).length === 0 ? <Empty description="未提取到字段" /> : (
+                  <Row gutter={[16, 12]}>
+                    {Object.entries(parserEngineResult.data || {}).map(([key, value]) => (
+                      <Col span={8} key={key}>
+                        <div style={{ background: '#fafafa', padding: 8, borderRadius: 4 }}>
+                          <span style={{ color: '#666' }}>{key}：</span>
+                          <strong>{value !== null && value !== undefined ? String(value) : '空'}</strong>
+                        </div>
+                      </Col>
+                    ))}
+                  </Row>
+                ),
+              },
+              {
+                key: 'comparison',
+                label: '双引擎/多引擎对比',
+                children: parserEngineResult.engine_comparison || parserEngineResult.multi_llm_comparison ? (
+                  <pre style={{ fontSize: 12, background: '#f5f5f5', padding: 12, maxHeight: 320, overflowY: 'auto' }}>{JSON.stringify({
+                    engine_comparison: parserEngineResult.engine_comparison,
+                    multi_llm_comparison: parserEngineResult.multi_llm_comparison,
+                  }, null, 2)}</pre>
+                ) : <Empty description="本次结果未包含引擎对比信息" />,
+              },
+              {
+                key: 'raw',
+                label: '原始文本',
+                children: parserEngineResult.raw_text ? <pre style={{ fontSize: 12, background: '#f5f5f5', padding: 12, maxHeight: 320, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>{parserEngineResult.raw_text}</pre> : <Empty description="无原始文本" />,
+              },
+              {
+                key: 'json',
+                label: '完整 JSON',
+                children: <pre style={{ fontSize: 12, background: '#f5f5f5', padding: 12, maxHeight: 320, overflowY: 'auto' }}>{JSON.stringify(parserEngineResult, null, 2)}</pre>,
+              },
+            ]}
+          />
         </Card>
       )}
 

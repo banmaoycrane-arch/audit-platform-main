@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 模块功能：项目管理 API 测试
-业务场景：验证创建项目、关联账套、分配人员三个核心接口
+业务场景：验证创建项目、关联账簿、分配人员三个核心接口
 政策依据：会计师事务所质量控制准则——项目立项与人员分派
 输入数据：HTTP 请求（JSON 或路径参数）
 输出结果：测试断言结果
@@ -85,7 +85,7 @@ def _get_auth_headers(client: TestClient) -> dict:
 
 def _create_team_and_ledger(client: TestClient):
     """
-    在测试数据库中直接创建团队与账套记录。
+    在测试数据库中直接创建团队与账簿记录。
 
     业务逻辑：项目 API 依赖 team 和 ledger 外键，
     但当前系统未提供独立的 team/ledger 创建 API，
@@ -105,7 +105,7 @@ def _create_team_and_ledger(client: TestClient):
         db.commit()
         db.refresh(team)
 
-        ledger = Ledger(name="测试客户账套", team_id=team.id, status="active")
+        ledger = Ledger(name="测试客户账簿", team_id=team.id, status="active")
         db.add(ledger)
         db.commit()
         db.refresh(ledger)
@@ -197,9 +197,9 @@ def test_create_project_team_not_exist(client):
 
 def test_associate_ledger_to_project(client):
     """
-    测试：关联账套到项目。
+    测试：关联账簿到项目。
 
-    业务逻辑：创建项目后，将账套关联到项目，
+    业务逻辑：创建项目后，将账簿关联到项目，
     验证关联接口返回正确的 project_id 和 ledger_id。
     """
     headers = _get_auth_headers(client)
@@ -210,14 +210,14 @@ def test_associate_ledger_to_project(client):
         "/api/projects",
         json={
             "team_id": team_id,
-            "name": "关联账套测试项目",
+            "name": "关联账簿测试项目",
         },
         headers=headers,
     )
     assert project_resp.status_code == 200
     project_id = project_resp.json()["id"]
 
-    # 关联账套
+    # 关联账簿
     assoc_resp = client.post(
         f"/api/projects/{project_id}/ledgers",
         json={"ledger_id": ledger_id},
@@ -232,7 +232,7 @@ def test_associate_ledger_to_project(client):
 
 def test_associate_ledger_project_not_exist(client):
     """
-    测试：关联账套时项目不存在，返回 404 错误。
+    测试：关联账簿时项目不存在，返回 404 错误。
     """
     headers = _get_auth_headers(client)
     _, ledger_id = _create_team_and_ledger(client)
@@ -248,7 +248,7 @@ def test_associate_ledger_project_not_exist(client):
 
 def test_associate_ledger_not_exist(client):
     """
-    测试：关联账套时账套不存在，返回 400 错误。
+    测试：关联账簿时账簿不存在，返回 400 错误。
     """
     headers = _get_auth_headers(client)
     team_id, _ = _create_team_and_ledger(client)
@@ -266,7 +266,7 @@ def test_associate_ledger_not_exist(client):
         headers=headers,
     )
     assert resp.status_code == 400
-    assert "账套不存在" in resp.json()["detail"]
+    assert "账簿不存在" in resp.json()["detail"]
 
 
 def test_assign_member_to_project(client):

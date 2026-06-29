@@ -66,7 +66,7 @@ def test_binding_request_approval_writes_authorization_relationships(client: Tes
 
     ledger_response = client.post(
         "/api/ledgers",
-        json={"team_id": team_id, "name": "绑定审批测试账套"},
+        json={"team_id": team_id, "name": "绑定审批测试账簿"},
         headers=admin_headers,
     )
     assert ledger_response.status_code == 200
@@ -87,7 +87,7 @@ def test_binding_request_approval_writes_authorization_relationships(client: Tes
             "ledger_id": ledger_id,
             "project_id": project_id,
             "requested_role": "accountant",
-            "reason": "参与本项目记账，需要访问账套。",
+            "reason": "参与本项目记账，需要访问账簿。",
         },
         headers=visitor_headers,
     )

@@ -82,15 +82,15 @@ def run_path1(client: httpx.Client) -> None:
 
 
 def run_path2(client: httpx.Client) -> None:
-    print("\n=== 路径二：记账流程（账套范围 + 复核状态） ===")
+    print("\n=== 路径二：记账流程（账簿范围 + 复核状态） ===")
     token = login(client, "test_runner_001")
     ledgers = client.get("/api/ledgers", headers=auth_headers(token))
-    record("P2-1", "获取账套列表", ledgers.status_code == 200)
+    record("P2-1", "获取账簿列表", ledgers.status_code == 200)
     ledger_list = ledgers.json() if ledgers.status_code == 200 else []
-    record("P2-2", "至少两个账套", len(ledger_list) >= 2, f"count={len(ledger_list)}")
+    record("P2-2", "至少两个账簿", len(ledger_list) >= 2, f"count={len(ledger_list)}")
 
     ledger_a = next((l for l in ledger_list if l.get("name") == "2026山西尚德鑫"), ledger_list[0] if ledger_list else None)
-    ledger_b = next((l for l in ledger_list if l.get("name") == "新建账套"), ledger_list[-1] if ledger_list else None)
+    ledger_b = next((l for l in ledger_list if l.get("name") == "新建账簿"), ledger_list[-1] if ledger_list else None)
     if not ledger_a or not ledger_b:
         ledger_a, ledger_b = ledger_list[0], ledger_list[-1]
 
@@ -100,20 +100,20 @@ def run_path2(client: httpx.Client) -> None:
             headers=auth_headers(token, lid),
             params={"ledger_id": lid},
         )
-        record(f"P2-3-L{lid}", f"账套 {lid} 会计期间", periods.status_code == 200)
+        record(f"P2-3-L{lid}", f"账簿 {lid} 会计期间", periods.status_code == 200)
 
     switch = client.post(
         f"/api/ledgers/{ledger_a['id']}/switch",
         headers=auth_headers(token),
     )
-    record("P2-4", "切换当前账套", switch.status_code == 200)
+    record("P2-4", "切换当前账簿", switch.status_code == 200)
 
     entries_a = client.get(
         "/api/entries",
         headers=auth_headers(token, ledger_a["id"]),
         params={"ledger_id": ledger_a["id"], "limit": 5},
     )
-    record("P2-5", "按账套查询凭证", entries_a.status_code == 200)
+    record("P2-5", "按账簿查询凭证", entries_a.status_code == 200)
 
     periods = client.get(
         "/api/accounting-periods",
@@ -217,11 +217,11 @@ def run_path3(client: httpx.Client) -> None:
 
 
 def run_opening_balances(client: httpx.Client) -> None:
-    print("\n=== 期初余额：账套隔离 ===")
+    print("\n=== 期初余额：账簿隔离 ===")
     token = login(client, "test_runner_001")
     ledgers = client.get("/api/ledgers", headers=auth_headers(token)).json()
     if len(ledgers) < 2:
-        record("OB-0", "至少两个账套", False)
+        record("OB-0", "至少两个账簿", False)
         return
     ledger_a, ledger_b = ledgers[0], ledgers[1]
     lid_a, lid_b = ledger_a["id"], ledger_b["id"]
@@ -237,7 +237,7 @@ def run_opening_balances(client: httpx.Client) -> None:
         params={"ledger_id": lid_b},
     ).json()
     if not periods_a or not periods_b:
-        record("OB-0", "两账套均有期间", False)
+        record("OB-0", "两账簿均有期间", False)
         return
 
     pid_a, pid_b = periods_a[0]["id"], periods_b[0]["id"]
@@ -257,7 +257,7 @@ def run_opening_balances(client: httpx.Client) -> None:
             ],
         },
     )
-    record("OB-1", "账套A写入期初", bulk_a.status_code == 200)
+    record("OB-1", "账簿A写入期初", bulk_a.status_code == 200)
 
     bulk_b = client.post(
         "/api/opening-balances/bulk",
@@ -271,7 +271,7 @@ def run_opening_balances(client: httpx.Client) -> None:
             ],
         },
     )
-    record("OB-2", "账套B写入期初", bulk_b.status_code == 200)
+    record("OB-2", "账簿B写入期初", bulk_b.status_code == 200)
 
     list_a = client.get(
         "/api/opening-balances",
@@ -286,7 +286,7 @@ def run_opening_balances(client: httpx.Client) -> None:
     debit_b = next((x["debit_balance"] for x in list_b if x["account_code"] == "1002"), None)
     record(
         "OB-3",
-        "两账套期初互不影响",
+        "两账簿期初互不影响",
         debit_a == 11111 and debit_b == 22222,
         f"A={debit_a}, B={debit_b}",
     )
@@ -301,7 +301,7 @@ def run_opening_balances(client: httpx.Client) -> None:
     ).json()
     record(
         "OB-4",
-        "试算平衡按账套独立",
+        "试算平衡按账簿独立",
         trial_a.get("is_balanced") and trial_b.get("is_balanced"),
         f"A balanced={trial_a.get('is_balanced')}, B balanced={trial_b.get('is_balanced')}",
     )
@@ -315,7 +315,7 @@ def run_opening_balances(client: httpx.Client) -> None:
     cross_debit = next((x["debit_balance"] for x in cross_body if x.get("account_code") == "1002"), 0)
     record(
         "OB-5",
-        "错账套ID不串数据",
+        "错账簿ID不串数据",
         cross_debit != debit_a,
         f"cross_debit={cross_debit}, expected != {debit_a}",
     )

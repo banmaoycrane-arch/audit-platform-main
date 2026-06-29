@@ -89,7 +89,7 @@ const statusFilters = [
 
 export function LedgerManagementPage() {
   const navigate = useNavigate()
-  const { setUserLedgers, setCurrentLedger } = useAuthStore()
+  const { setUserLedgers, setCurrentLedger, refreshAuthContext } = useAuthStore()
   const [teams, setTeams] = useState<Team[]>([])
   const [ledgers, setLedgers] = useState<Ledger[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -133,7 +133,7 @@ export function LedgerManagementPage() {
           setSelectedLedgerId(ledgerRes[0].id)
         }
       })
-      .catch(() => message.error('加载账套管理数据失败'))
+      .catch(() => message.error('加载账簿管理数据失败'))
       .finally(() => setLoading(false))
   }
 
@@ -142,7 +142,7 @@ export function LedgerManagementPage() {
     api
       .getLedgerAuths(ledgerId)
       .then((res) => setAuths(res))
-      .catch(() => message.error('加载账套授权列表失败'))
+      .catch(() => message.error('加载账簿授权列表失败'))
       .finally(() => setAuthLoading(false))
   }
 
@@ -185,14 +185,16 @@ export function LedgerManagementPage() {
         is_accounting_entity: true,
         is_legal_entity: true,
       })
-      message.success(values.project_id ? '账套、项目关系和会计主体创建成功' : '账套和会计主体创建成功')
+      message.success(values.project_id ? '账簿、项目关系和会计主体创建成功' : '账簿和会计主体创建成功')
       setCreateOpen(false)
       createForm.resetFields()
       setSelectedLedgerId(ledger.id)
+      await api.switchLedger(ledger.id)
       setCurrentLedger(ledger.id)
+      await refreshAuthContext()
       loadBaseData()
     } catch (error: any) {
-      message.error(error.message || '账套创建失败')
+      message.error(error.message || '账簿创建失败')
     }
   }
 
@@ -215,9 +217,9 @@ export function LedgerManagementPage() {
     try {
       const updated = await api.updateLedgerLifecycle(reasonModal.ledgerId, reasonModal.action, reason)
       setLedgers((prev) => prev.map((ledger) => (ledger.id === updated.id ? { ...ledger, ...updated } : ledger)))
-      message.success(`${reasonModal.title}账套成功`)
+      message.success(`${reasonModal.title}账簿成功`)
     } catch (error: any) {
-      message.error(`${reasonModal.title}账套失败：${error.message}`)
+      message.error(`${reasonModal.title}账簿失败：${error.message}`)
     } finally {
       setReasonModal({ open: false, ledgerId: null, action: '', title: '' })
       setReason('')
@@ -232,12 +234,12 @@ export function LedgerManagementPage() {
         user_id: Number(values.user_id),
         role: values.role,
       })
-      message.success('账套授权成功')
+      message.success('账簿授权成功')
       setGrantOpen(false)
       grantForm.resetFields()
       loadAuths(selectedLedgerId)
     } catch (error: any) {
-      message.error(error.message || '账套授权失败')
+      message.error(error.message || '账簿授权失败')
     }
   }
 
@@ -245,7 +247,7 @@ export function LedgerManagementPage() {
     if (!selectedLedgerId) return
     try {
       await api.revokeLedgerAuth(selectedLedgerId, authId)
-      message.success('账套授权已撤销')
+      message.success('账簿授权已撤销')
       loadAuths(selectedLedgerId)
     } catch (error: any) {
       message.error(error.message || '撤销授权失败')
@@ -258,13 +260,13 @@ export function LedgerManagementPage() {
       setCurrentLedger(ledgerId)
       navigate('/ledger/files')
     } catch (error: any) {
-      message.error(error.message || '切换账套失败')
+      message.error(error.message || '切换账簿失败')
     }
   }
 
   const filteredProjects = projects.filter((project) => !selectedCreateTeamId || !project.team_id || project.team_id === selectedCreateTeamId)
 
-  // 账套卡片组件
+  // 账簿卡片组件
   const LedgerCard = ({ ledger }: { ledger: Ledger }) => {
     const isSelected = selectedLedgerId === ledger.id
     const borderColor = ledgerStatusBorderMap[ledger.status] || '#d9d9d9'
@@ -363,9 +365,9 @@ export function LedgerManagementPage() {
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
         <Col>
           <Title level={4} style={{ margin: 0 }}>
-            <BookOutlined /> 账套管理
+            <BookOutlined /> 账簿管理
           </Title>
-          <Paragraph type="secondary">账套对应独立核算主体，授权列表用于控制谁能查看和处理账务数据。</Paragraph>
+          <Paragraph type="secondary">账簿管理是团队、项目、账簿和会计主体的业务范围绑定中心。创建或切换账簿后会同步刷新全局上下文，确保凭证、报表和审计资料落到正确归属。</Paragraph>
         </Col>
         <Col>
           <Space>
@@ -380,7 +382,7 @@ export function LedgerManagementPage() {
                 }
               }}
             >
-              创建账套
+              创建账簿
             </Button>
           </Space>
         </Col>
@@ -389,10 +391,10 @@ export function LedgerManagementPage() {
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={14}>
           <Card 
-            title={<span><BookOutlined /> 账套列表</span>}
+            title={<span><BookOutlined /> 账簿列表</span>}
             extra={
               <Space>
-                <span style={{ fontSize: 12, color: '#999' }}>共 {filteredLedgers.length} 个账套</span>
+                <span style={{ fontSize: 12, color: '#999' }}>共 {filteredLedgers.length} 个账簿</span>
               </Space>
             }
           >
@@ -412,11 +414,11 @@ export function LedgerManagementPage() {
             
             {filteredLedgers.length === 0 ? (
               <Empty 
-                description={statusFilter === 'all' ? '暂无账套' : `暂无${statusFilters.find(f => f.key === statusFilter)?.label}的账套`}
+                description={statusFilter === 'all' ? '暂无账簿' : `暂无${statusFilters.find(f => f.key === statusFilter)?.label}的账簿`}
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
               >
                 <Button type="primary" onClick={() => setCreateOpen(true)}>
-                  创建第一个账套
+                  创建第一个账簿
                 </Button>
               </Empty>
             ) : (
@@ -446,7 +448,7 @@ export function LedgerManagementPage() {
             )}
           >
             {!selectedLedgerId ? (
-              <Empty description="请先选择一个账套" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <Empty description="请先选择一个账簿" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
               <Table
                 rowKey="id"
@@ -462,7 +464,7 @@ export function LedgerManagementPage() {
       </Row>
 
       <Modal
-        title="创建账套"
+        title="创建账簿"
         open={createOpen}
         onOk={handleCreateLedger}
         onCancel={() => {
@@ -499,14 +501,14 @@ export function LedgerManagementPage() {
               }))}
             />
           </Form.Item>
-          <Form.Item name="name" label="账套名称" rules={[{ required: true, message: '请输入账套名称' }]}>
-            <Input placeholder="例如：XX公司2026账套" />
+          <Form.Item name="name" label="账簿名称" rules={[{ required: true, message: '请输入账簿名称' }]}>
+            <Input placeholder="例如：XX公司2026账簿" />
           </Form.Item>
           <Form.Item
             name="accounting_start_date"
             label="会计时间线起点"
             initialValue={dayjs()}
-            tooltip="默认使用创建当天；补建历史账套时可调整为实际开账月份中的任意日期"
+            tooltip="默认使用创建当天；补建历史账簿时可调整为实际开账月份中的任意日期"
             rules={[{ required: true, message: '请选择会计时间线起点' }]}
           >
             <DatePicker style={{ width: '100%' }} />
@@ -526,7 +528,7 @@ export function LedgerManagementPage() {
             />
           </Form.Item>
           <Form.Item name="entity_name" label="会计主体名称">
-            <Input placeholder="默认使用账套名称；建议填写真实核算主体名称" />
+            <Input placeholder="默认使用账簿名称；建议填写真实核算主体名称" />
           </Form.Item>
           <Form.Item name="entity_code" label="统一社会信用代码 / 主体编码">
             <Input placeholder="可选，用于合同、发票、税务资料匹配" />
@@ -535,7 +537,7 @@ export function LedgerManagementPage() {
       </Modal>
 
       <Modal
-        title="授权用户访问账套"
+        title="授权用户访问账簿"
         open={grantOpen}
         onOk={handleGrantAuth}
         onCancel={() => setGrantOpen(false)}
@@ -546,7 +548,7 @@ export function LedgerManagementPage() {
           <Form.Item name="user_id" label="用户ID" rules={[{ required: true, message: '请输入用户ID' }]}>
             <Input placeholder="请输入被授权用户ID" />
           </Form.Item>
-          <Form.Item name="role" label="账套角色" rules={[{ required: true, message: '请选择账套角色' }]}>
+          <Form.Item name="role" label="账簿角色" rules={[{ required: true, message: '请选择账簿角色' }]}>
             <Select
               options={[
                 { value: 'admin', label: '管理员' },
@@ -560,7 +562,7 @@ export function LedgerManagementPage() {
       </Modal>
 
       <Modal
-        title={`${reasonModal.title}账套`}
+        title={`${reasonModal.title}账簿`}
         open={reasonModal.open}
         onOk={confirmLifecycleAction}
         onCancel={() => {
@@ -574,7 +576,7 @@ export function LedgerManagementPage() {
         <Input.TextArea
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          placeholder="例如：客户项目结束，归档账套"
+          placeholder="例如：客户项目结束，归档账簿"
           rows={3}
         />
       </Modal>

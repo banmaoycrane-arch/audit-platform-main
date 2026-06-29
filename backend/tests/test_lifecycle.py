@@ -88,11 +88,11 @@ def _get_auth_headers(client: TestClient) -> dict:
 
 def _create_team_and_ledger(client: TestClient, status: str = "active"):
     """
-    在测试数据库中直接创建团队与账套记录。
+    在测试数据库中直接创建团队与账簿记录。
 
     Args:
         client: FastAPI 测试客户端
-        status: 账套初始状态
+        status: 账簿初始状态
 
     Returns:
         tuple: (team_id, ledger_id)
@@ -105,7 +105,7 @@ def _create_team_and_ledger(client: TestClient, status: str = "active"):
         db.commit()
         db.refresh(team)
 
-        ledger = Ledger(name="测试客户账套", team_id=team.id, status=status)
+        ledger = Ledger(name="测试客户账簿", team_id=team.id, status=status)
         db.add(ledger)
         db.flush()
 
@@ -162,7 +162,7 @@ def _create_project(client: TestClient, status: str = "active") -> int:
 
 def test_ledger_activate(client):
     """
-    测试：激活账套。
+    测试：激活账簿。
     """
     headers = _get_auth_headers(client)
     _, ledger_id = _create_team_and_ledger(client, status="draft")
@@ -179,7 +179,7 @@ def test_ledger_activate(client):
 
 def test_ledger_suspend(client):
     """
-    测试：暂停账套。
+    测试：暂停账簿。
     """
     headers = _get_auth_headers(client)
     _, ledger_id = _create_team_and_ledger(client, status="active")
@@ -196,7 +196,7 @@ def test_ledger_suspend(client):
 
 def test_ledger_archive(client):
     """
-    测试：归档账套。
+    测试：归档账簿。
     """
     headers = _get_auth_headers(client)
     _, ledger_id = _create_team_and_ledger(client, status="active")
@@ -213,7 +213,7 @@ def test_ledger_archive(client):
 
 def test_ledger_restore_from_suspended(client):
     """
-    测试：从暂停状态恢复账套。
+    测试：从暂停状态恢复账簿。
     """
     headers = _get_auth_headers(client)
     _, ledger_id = _create_team_and_ledger(client, status="suspended")
@@ -230,7 +230,7 @@ def test_ledger_restore_from_suspended(client):
 
 def test_ledger_restore_from_archived(client):
     """
-    测试：从归档状态恢复账套。
+    测试：从归档状态恢复账簿。
     """
     headers = _get_auth_headers(client)
     _, ledger_id = _create_team_and_ledger(client, status="archived")
@@ -374,7 +374,7 @@ def test_project_cancel_then_reopen(client):
 
 def test_ledger_lifecycle_not_found(client):
     """
-    测试：对不存在的账套执行生命周期操作，返回 404。
+    测试：对不存在的账簿执行生命周期操作，返回 404。
     """
     headers = _get_auth_headers(client)
 
@@ -384,7 +384,7 @@ def test_ledger_lifecycle_not_found(client):
         headers=headers,
     )
     assert resp.status_code == 404
-    assert "账套不存在" in resp.json()["detail"]
+    assert "账簿不存在" in resp.json()["detail"]
 
 
 def test_project_lifecycle_not_found(client):

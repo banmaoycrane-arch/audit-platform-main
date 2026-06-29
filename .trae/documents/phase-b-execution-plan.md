@@ -11,7 +11,7 @@
 
 ## 1. 目标（一句话）
 
-在 Phase A「能按账套看台账」的基础上，让审计人员能**跑三条核心审计程序并看到差异清单**，不自动改账、结论需人工确认。
+在 Phase A「能按账簿看台账」的基础上，让审计人员能**跑三条核心审计程序并看到差异清单**，不自动改账、结论需人工确认。
 
 ```text
 银行调节表草稿     bank_cash_flow  ↔  GL 1001/1002
@@ -78,7 +78,7 @@
 |----|------|
 | **服务** | `three_way_match_service.py`：`match_purchase_cycle(ledger_id, contract_id?)` 返回 `{contract, inventory_docs[], invoices[], checks[], exceptions[]}` |
 | **匹配规则（MVP）** | 同一 `related_contract_id`；金额容差 0.01；数量容差可选；缺单标记 `missing_inventory` / `missing_invoice` / `amount_mismatch` |
-| **API** | `GET /api/audit/purchase-match?ledger_id=&contract_id=` 单合同<br>`GET /api/audit/purchase-match/summary?ledger_id=` 全账套异常汇总 |
+| **API** | `GET /api/audit/purchase-match?ledger_id=&contract_id=` 单合同<br>`GET /api/audit/purchase-match/summary?ledger_id=` 全账簿异常汇总 |
 | **前端** | 采购台账或 `/inventory/purchase-in` 增加「三单匹配」抽屉/页；差异清单表 |
 | **测试** | `test_three_way_match.py`：完整三单 / 缺发票 / 金额不一致 三场景 |
 | **验收** | 可导出差异清单 JSON；差异是审计发现，不触发自动冲销 |
@@ -122,7 +122,7 @@ B3 三单匹配 ────┘（依赖 Contract/Invoice/Inventory 外键链，
 | L2-1 | 银行调节 | 选定账户生成草稿，未达账项与账面差异可逐项对应 |
 | L2-2 | 往来函证 | 从余额视图生成控制表，回函后差异可计算 |
 | L2-3 | 三单匹配 | 采购合同下三单齐全则 matched；缺单或金额差则进 exceptions |
-| L2-4 | 账套隔离 | 账套 A 的程序/清单不出现在账套 B |
+| L2-4 | 账簿隔离 | 账簿 A 的程序/清单不出现在账簿 B |
 | L2-5 | 构建 | `pytest` 新增用例全绿；`pnpm build:frontend` 通过 |
 
 ---

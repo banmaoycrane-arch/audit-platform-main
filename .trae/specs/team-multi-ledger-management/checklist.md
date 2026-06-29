@@ -10,19 +10,19 @@
 - [x] ImportJob 增加 ledger_id 字段
 - [x] 其他关键业务表增加 ledger_id 字段
 - [x] 现有测试不因新增字段而失败
-- [x] POST /api/ledgers 可创建账套
-- [x] GET /api/ledgers 返回用户授权账套列表
-- [x] POST /api/ledgers/{id}/switch 可切换账套
+- [x] POST /api/ledgers 可创建账簿
+- [x] GET /api/ledgers 返回用户授权账簿列表
+- [x] POST /api/ledgers/{id}/switch 可切换账簿
 - [x] POST /api/ledgers/{id}/auth 可授权用户
 - [x] Dashboard API 根据 ledger_id 过滤数据
 - [x] get_current_ledger 依赖验证用户权限
 - [x] 前端 authStore 增加 currentLedgerId 和 userLedgers
 - [x] 前端 LedgerSelector 组件可用
-- [x] 登录后自动获取账套列表
-- [x] 有默认账套时自动进入
-- [x] 首页顶部显示账套选择器
-- [x] 切换账套后数据刷新
-- [x] 无授权账套时显示提示
+- [x] 登录后自动获取账簿列表
+- [x] 有默认账簿时自动进入
+- [x] 首页顶部显示账簿选择器
+- [x] 切换账簿后数据刷新
+- [x] 无授权账簿时显示提示
 - [x] 后端 ledger 测试通过
 - [x] 后端全量 pytest 通过
 - [x] 前端 npm run lint 通过

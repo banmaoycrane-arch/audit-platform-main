@@ -63,6 +63,16 @@ export type ChronologicalEntryListResponse = {
   offset: number
 }
 
+export type EntryListResponse = ChronologicalEntryListResponse
+
+export type EntryReviewStats = {
+  total: number
+  verified: number
+  ready: number
+  unreviewed: number
+  status_counts: Record<string, number>
+}
+
 export type VoucherCard = {
   voucher_no: string | null
   voucher_date: string | null
@@ -242,6 +252,8 @@ export type SourceFileRead = {
   ledger_id?: number | null
   counterparty_id?: number | null
   counterparty_name?: string | null
+  object_name?: string | null
+  object_names?: string[]
   filename: string
   file_type: string
   notes?: string | null
@@ -434,6 +446,16 @@ export type Project = {
   updated_at: string | null
 }
 
+export type ProjectTaskAssignee = {
+  id: number
+  username: string | null
+  email: string | null
+  phone: string | null
+  team_id: number | null
+  project_role: string | null
+  ledger_roles: string[]
+}
+
 export type EntityCreatePayload = {
   entity_name: string
   entity_code?: string | null
@@ -447,7 +469,15 @@ export type EntityCreatePayload = {
 }
 
 export type AuthContext = {
-  user: { id: number; username: string | null; phone: string | null; email: string | null; has_password?: boolean }
+  user: {
+    id: number
+    username: string | null
+    phone: string | null
+    email: string | null
+    has_password?: boolean
+    platform_role?: 'user' | 'super_admin' | string
+    is_super_admin?: boolean
+  }
   teams: Team[]
   ledgers: Ledger[]
   projects: Project[]
@@ -455,6 +485,8 @@ export type AuthContext = {
   current_ledger_role?: string | null
   current_team_type?: string | null
   can_use_ledger_without_project?: boolean
+  platform_role?: 'user' | 'super_admin' | string
+  is_super_admin?: boolean
   missing_bindings: string[]
   requires_onboarding: boolean
   next_action: 'create_team' | 'select_or_create_ledger' | 'select_or_create_project' | 'confirm_accounting_entity' | 'workspace'
@@ -492,6 +524,14 @@ export type BindingOptions = {
   teams: Array<{ id: number; name: string }>
   ledgers: Array<{ id: number; name: string }>
   projects: Array<{ id: number; name: string }>
+}
+
+export type SuperAdminOverview = {
+  user_count: number
+  team_count: number
+  ledger_count: number
+  project_count: number
+  pending_binding_request_count: number
 }
 
 export type OpeningBalance = {
@@ -1182,19 +1222,39 @@ async function getApiErrorMessage(response: Response): Promise<string> {
         })
         .join('；')
     }
-    if (data.detail) {
-      return JSON.stringify(data.detail)
-    }
-    if (typeof data.message === 'string') {
-      return data.message
+    if (data.detail && typeof data.detail === 'object') {
+      const detail = data.detail as { message?: unknown; unreviewed_count?: unknown; sample_entry_ids?: unknown }
+      if (typeof detail.message === 'string') {
+        const countText = typeof detail.unreviewed_count === 'number' ? `，未复核 ${detail.unreviewed_count} 条` : ''
+        const sampleText = Array.isArray(detail.sample_entry_ids) && detail.sample_entry_ids.length > 0
+          ? `，样例 entry_ids=${detail.sample_entry_ids.slice(0, 20).join(', ')}`
+          : ''
+        return `${detail.message}${countText}${sampleText}`
+      }
     }
     if (data && typeof data === 'object' && 'error' in data) {
-      const gatewayError = (data as { error?: { message?: string; request_id?: string } }).error
+      const gatewayError = (data as { error?: { message?: string; request_id?: string; details?: unknown } }).error
+      if (gatewayError?.details && typeof gatewayError.details === 'object') {
+        const details = gatewayError.details as { message?: unknown; unreviewed_count?: unknown; sample_entry_ids?: unknown }
+        if (typeof details.message === 'string') {
+          const countText = typeof details.unreviewed_count === 'number' ? `，未复核 ${details.unreviewed_count} 条` : ''
+          const sampleText = Array.isArray(details.sample_entry_ids) && details.sample_entry_ids.length > 0
+            ? `，样例 entry_ids=${details.sample_entry_ids.slice(0, 20).join(', ')}`
+            : ''
+          return `${details.message}${countText}${sampleText}`
+        }
+      }
       if (gatewayError?.message) {
         return gatewayError.request_id
           ? `${gatewayError.message}（请求编号：${gatewayError.request_id}）`
           : gatewayError.message
       }
+    }
+    if (data.detail) {
+      return JSON.stringify(data.detail)
+    }
+    if (typeof data.message === 'string') {
+      return data.message
     }
     return text
   } catch {
@@ -1326,6 +1386,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ review_comment: reviewComment || null })
     }),
+  getSuperAdminOverview: () => request<SuperAdminOverview>('/api/super-admin/overview'),
+  listSuperAdminBindingRequests: (status?: 'pending' | 'approved' | 'rejected' | 'all') =>
+    request<BindingRequest[]>(`/api/super-admin/binding-requests${status ? `?status=${status}` : ''}`),
   agentChat: (message: string) =>
     request<AgentChatResponse>('/api/agent/chat', {
       method: 'POST',
@@ -1402,12 +1465,17 @@ export const api = {
   getImportReport: (jobId: number) => request<any>(`/api/import-jobs/${jobId}/report`),
   getDayBookReport: (jobId: number) => request<DayBookReport>(`/api/import-jobs/${jobId}/day-book-report`),
   getImportPeriodSuggestion: (jobId: number) => request<ImportPeriodSuggestion>(`/api/import-jobs/${jobId}/period-suggestion`),
-  listEntries: (jobId?: number, ledgerId?: number) => {
+  listEntries: (jobId?: number, ledgerId?: number, reviewStatus?: string, dateFrom?: string, dateTo?: string, limit = 100, offset = 0) => {
     const params = new URLSearchParams()
     if (jobId) params.set('import_job_id', String(jobId))
     if (!jobId && ledgerId) params.set('ledger_id', String(ledgerId))
+    if (reviewStatus) params.set('review_status', reviewStatus)
+    if (dateFrom) params.set('date_from', dateFrom)
+    if (dateTo) params.set('date_to', dateTo)
+    params.set('limit', String(limit))
+    params.set('offset', String(offset))
     const query = params.toString()
-    return request<AccountingEntry[]>(`/api/entries${query ? `?${query}` : ''}`)
+    return request<EntryListResponse>(`/api/entries${query ? `?${query}` : ''}`)
   },
   listChronologicalEntries: (filters: ChronologicalEntryFilters) => {
     const params = new URLSearchParams()
@@ -1461,6 +1529,19 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ entry_ids: entryIds, review_status: reviewStatus }),
     }),
+  reviewAllJobEntries: (jobId: number, reviewStatus: string) =>
+    request<{ updated: number }>(`/api/entries/jobs/${jobId}/review-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ review_status: reviewStatus }),
+    }),
+  getEntryReviewStats: (jobId?: number, ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (jobId) params.set('import_job_id', String(jobId))
+    if (!jobId && ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<EntryReviewStats>(`/api/entries/review-stats${query ? `?${query}` : ''}`)
+  },
   listRisks: (jobId?: number, ledgerId?: number) => {
     const params = new URLSearchParams()
     if (jobId) params.set('import_job_id', String(jobId))
@@ -1537,16 +1618,20 @@ export const api = {
   listCounterparties: () => request<Counterparty[]>('/api/counterparties'),
   listLedgerFiles: (filters?: {
     ledger_id?: number | null
+    ledger_ids?: number[]
     project_id?: number | null
     counterparty_id?: number | null
+    object_name?: string
     file_type?: string
     parse_status?: string
     archive_category?: string
   }) => {
     const params = new URLSearchParams()
     if (filters?.ledger_id) params.set('ledger_id', String(filters.ledger_id))
+    if (filters?.ledger_ids?.length) params.set('ledger_ids', filters.ledger_ids.join(','))
     if (filters?.project_id) params.set('project_id', String(filters.project_id))
     if (filters?.counterparty_id) params.set('counterparty_id', String(filters.counterparty_id))
+    if (filters?.object_name) params.set('object_name', filters.object_name)
     if (filters?.file_type) params.set('file_type', filters.file_type)
     if (filters?.parse_status) params.set('parse_status', filters.parse_status)
     if (filters?.archive_category) params.set('archive_category', filters.archive_category)
@@ -1619,24 +1704,45 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     }),
+  batchCreateAccountingPeriods: (payload: {
+    organization_id?: number
+    ledger_id?: number
+    start_date: string
+    end_date: string
+    period_type?: string
+  }) =>
+    request<{
+      created_count: number
+      skipped_count: number
+      created_periods: AccountingPeriod[]
+      skipped_period_codes: string[]
+    }>('/api/accounting-periods/batch-create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }),
   generateEntries: (
     jobId: number,
-    periodId: number,
+    periodId?: number | null,
     accountingJudgmentPolicy: 'compliant_default' | 'revenue_first' | 'counterparty_first' = 'compliant_default',
+    periodStartDate?: string,
+    periodEndDate?: string,
   ) =>
     request<EntryDraft[]>(`/api/import-jobs/${jobId}/generate-entries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        period_id: periodId,
+        ...(periodId ? { period_id: periodId } : {}),
+        ...(periodStartDate ? { period_start_date: periodStartDate } : {}),
+        ...(periodEndDate ? { period_end_date: periodEndDate } : {}),
         accounting_judgment_policy: accountingJudgmentPolicy,
       }),
     }),
-  commitEntries: (jobId: number, periodId: number, drafts: EntryDraft[]) =>
+  commitEntries: (jobId: number, periodId: number | null | undefined, drafts: EntryDraft[]) =>
     request<{ count: number; entry_ids: number[]; job_id: number }>(`/api/import-jobs/${jobId}/commit-entries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ period_id: periodId, drafts })
+      body: JSON.stringify({ ...(periodId ? { period_id: periodId } : {}), drafts })
     }),
   logAiDraftManualSwitch: (jobId: number, payload: AiDraftManualSwitchLogPayload) =>
     request<AiDraftManualSwitchLogResult>(`/api/import-jobs/${jobId}/ai-draft/manual-switch-log`, {
@@ -1759,6 +1865,12 @@ export const api = {
   },
   listProjects: () => request<Project[]>('/api/projects'),
   listProjectLedgers: (projectId: number) => request<{ id: number; name: string }[]>(`/api/projects/${projectId}/ledgers`),
+  listProjectTaskAssignees: (projectId: number, ledgerId?: number | null) => {
+    const params = new URLSearchParams()
+    if (ledgerId != null) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<ProjectTaskAssignee[]>(`/api/projects/${projectId}/task-assignees${query ? `?${query}` : ''}`)
+  },
   associateProjectLedger: (projectId: number, ledgerId: number) =>
     request<{ id: number; project_id: number; ledger_id: number }>(`/api/projects/${projectId}/ledgers`, {
       method: 'POST',
@@ -2017,6 +2129,7 @@ export const api = {
     status?: string
     assignee_id?: number
     task_type?: string
+    priority?: string
     page?: number
     page_size?: number
   }) => {
@@ -2024,6 +2137,7 @@ export const api = {
     if (filters?.status) params.set('status', filters.status)
     if (filters?.assignee_id != null) params.set('assignee_id', String(filters.assignee_id))
     if (filters?.task_type) params.set('task_type', filters.task_type)
+    if (filters?.priority) params.set('priority', filters.priority)
     if (filters?.page != null) params.set('page', String(filters.page))
     if (filters?.page_size != null) params.set('page_size', String(filters.page_size))
     return request<AuditTaskListResponse>(`/api/audit/tasks?${params.toString()}`)

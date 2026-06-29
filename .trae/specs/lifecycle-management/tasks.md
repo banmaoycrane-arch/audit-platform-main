@@ -16,9 +16,9 @@
   - [x] SubTask 3.3: 新增 `backend/app/api/routes_lifecycle.py` — 查询生命周期日志端点
 
 - [x] Task 4: 前端生命周期状态展示
-  - [x] SubTask 4.1: 修改 `frontend/src/components/LedgerSelector.tsx` — 显示账套生命周期状态（Tag 颜色区分）
+  - [x] SubTask 4.1: 修改 `frontend/src/components/LedgerSelector.tsx` — 显示账簿生命周期状态（Tag 颜色区分）
   - [x] SubTask 4.2: 修改 `frontend/src/pages/ProjectsPage.tsx` — 显示项目生命周期状态，增加状态操作按钮
-  - [x] SubTask 4.3: 新增 `frontend/src/pages/LedgerLifecyclePage.tsx` — 账套生命周期管理页面
+  - [x] SubTask 4.3: 新增 `frontend/src/pages/LedgerLifecyclePage.tsx` — 账簿生命周期管理页面
 
 - [x] Task 5: 测试与验证
   - [x] SubTask 5.1: 新增 `backend/tests/test_lifecycle.py` — 生命周期转换测试

@@ -8,7 +8,7 @@
 
 ### Added / 新增
 
-- **账套会计时间线起点**：创建账套时可指定 `accounting_start_date`，作为该账套会计期间与报表的时间基准；未指定时默认创建当天。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
+- **账簿会计时间线起点**：创建账簿时可指定 `accounting_start_date`，作为该账簿会计期间与报表的时间基准；未指定时默认创建当天。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 - **审计范围持久化（Step1）**：导入任务支持保存审计范围（全量 / 按科目 / 按期间），新增 `PUT /api/import-jobs/{job_id}/audit-scope`；审计测试报告按已保存范围生成 scope 与 `audit_scope` 元数据。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 - **凭证入账与导出门禁**：分录新增 `post_status` 字段；Step5 通过 `POST /api/import-jobs/{job_id}/post` 将已复核分录入账，导出接口仅包含 `posted` 状态分录。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）
 - **会计判断策略**：AI 凭证生成 API 支持 `accounting_judgment_policy`（`compliant_default` / `revenue_first` / `counterparty_first`），按单据类型与策略生成差异化草稿分录。（PR [#94](https://github.com/banmaoycrane-arch/audit-platform-main/pull/94)）

@@ -40,7 +40,7 @@ Acceptance Level:
 | 编号 | 需求域 | 说明 |
 |---|---|---|
 | D01 | 身份认证与访问控制 | 登录、注册、Token、网关、路由守卫、权限边界 |
-| D02 | 团队、账套、项目、上下文 | Team、Ledger、Project、当前账套、默认账套、onboarding |
+| D02 | 团队、账簿、项目、上下文 | Team、Ledger、Project、当前账簿、默认账簿、onboarding |
 | D03 | Shell、导航、工作台、模块入口 | MainShell、导航顺序、高亮、模块工作台、首页入口 |
 | D04 | 凭证生命周期 | 输入模式、原始资料、AI 草稿、人工录入、复核、落库、导出 |
 | D05 | 原始资料导入与解析 | 文件上传、导入任务、CSV/Excel/PDF/图片解析、质量报告 |
@@ -66,17 +66,17 @@ Acceptance Level:
 
 边界规则：认证规格不应修改主导航顺序、凭证流程、审计导入、基础资料模型。
 
-## D02 团队、账套、项目、上下文
+## D02 团队、账簿、项目、上下文
 
 | Spec | 状态 | 角色 | 说明 |
 |---|---|---|---|
-| team-multi-ledger-management | active-main | 主规格 | 团队、多账套、用户授权、默认账套 |
-| formalize-user-onboarding-account-context | active-increment | 上下文规格 | 登录后团队/账套/项目/会计主体上下文 |
+| team-multi-ledger-management | active-main | 主规格 | 团队、多账簿、用户授权、默认账簿 |
+| formalize-user-onboarding-account-context | active-increment | 上下文规格 | 登录后团队/账簿/项目/会计主体上下文 |
 | ledger-register-project-concept-unification | active-increment | 概念规格 | Ledger、Register、Project 等概念统一 |
-| team-ledger-management-ui | active-increment | UI 增量 | 团队和账套管理页面 |
-| lifecycle-management | active-increment | 生命周期 | 账套或项目生命周期治理 |
+| team-ledger-management-ui | active-increment | UI 增量 | 团队和账簿管理页面 |
+| lifecycle-management | active-increment | 生命周期 | 账簿或项目生命周期治理 |
 
-边界规则：团队/账套/项目规格可以影响权限和上下文，但不应直接实现凭证生成、报表计算、AI 语义规则。
+边界规则：团队/账簿/项目规格可以影响权限和上下文，但不应直接实现凭证生成、报表计算、AI 语义规则。
 
 ## D03 Shell、导航、工作台、模块入口
 
@@ -102,7 +102,7 @@ Acceptance Level:
 | improve-step2-source-import-experience | active-increment | Step2 增量 | 原始资料上传、解析反馈、期间推荐 |
 | improve-manual-voucher-entry-ui | active-increment | 人工录入增量 | 人工凭证录入体验和部分提交问题 |
 | accounting-step4-real-review | active-increment | Step4 增量 | Step4 真实草稿复核 |
-| export-accounting-package | active-increment | Step5 增量 | 账套/凭证导出 |
+| export-accounting-package | active-increment | Step5 增量 | 账簿/凭证导出 |
 | entry-line-number | active-increment | 凭证行号 | 凭证分录连续行号规则 |
 | auto-generate-entries-from-source | mixed-needs-split | 核心但过宽 | AI 生成分录主线，但混入科目、往来、EntryTag、基础资料 |
 
@@ -114,7 +114,7 @@ Acceptance Level:
 |---|---|---|---|
 | adaptive-import-engine | active-main | 主规格 | 通用导入引擎、字段映射、质量报告 |
 | document-parsing-engine | mixed-needs-split | 架构型规格 | 文档解析范围过大，需拆成文件解析、收入准则、关联方、标签等子域 |
-| add-ledger-files-customer-context-coa-presets | mixed-needs-split | 混合规格 | 账套文件、客户上下文、行业科目模板混合 |
+| add-ledger-files-customer-context-coa-presets | mixed-needs-split | 混合规格 | 账簿文件、客户上下文、行业科目模板混合 |
 
 边界规则：导入解析域负责把资料变成结构化信息和质量报告，不直接决定正式入账、不直接修改导航、不重复定义审计测试规则。
 

@@ -74,8 +74,13 @@ export function ImportPage({ jobs, onChanged }: { jobs: ImportJob[]; onChanged: 
     if (!selectedJobId) return
     setLoading(true)
     try {
-      const job = await api.processImportJob(selectedJobId)
-      setMessage(`处理完成：${job.entry_count} 条分录，状态 ${job.status}`)
+      const files = await api.listImportFiles(selectedJobId)
+      const latestFile = [...files].sort((a, b) => b.id - a.id)[0]
+      if (!latestFile) {
+        throw new Error('当前任务没有可解析的上传文件')
+      }
+      await api.parseSourceFileWithEngine(selectedJobId, latestFile.id)
+      setMessage('统一解析引擎处理完成，结果已写入草稿')
 
       // 获取导入报告
       try {
@@ -109,7 +114,7 @@ export function ImportPage({ jobs, onChanged }: { jobs: ImportJob[]; onChanged: 
     <section>
       <h2>导入会计凭证与原始文件</h2>
       <div className="panel form-grid">
-        <label>企业/账套名称<input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} /></label>
+        <label>企业/账簿名称<input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} /></label>
         <button onClick={createJob}>新建导入批次</button>
         <label>选择批次
           <select value={selectedJobId ?? ''} onChange={(event) => setSelectedJobId(Number(event.target.value))}>

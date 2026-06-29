@@ -54,7 +54,7 @@ def test_import_jobs_reuse_organization_for_same_ledger(client):
     team = client.post("/api/teams", json={"name": "组织复用团队", "type": "company"}, headers=headers)
     ledger = client.post(
         "/api/ledgers",
-        json={"team_id": team.json()["id"], "name": "组织复用账套"},
+        json={"team_id": team.json()["id"], "name": "组织复用账簿"},
         headers=headers,
     )
     ledger_id = ledger.json()["id"]
@@ -80,13 +80,13 @@ def test_list_periods_can_filter_by_ledger_id(client):
     team = client.post("/api/teams", json={"name": "期间团队", "type": "company"}, headers=headers)
     ledger = client.post(
         "/api/ledgers",
-        json={"team_id": team.json()["id"], "name": "期间账套"},
+        json={"team_id": team.json()["id"], "name": "期间账簿"},
         headers=headers,
     )
     ledger_id = ledger.json()["id"]
     job = client.post(
         "/api/import-jobs",
-        json={"organization_name": "期间账套", "ledger_id": ledger_id},
+        json={"organization_name": "期间账簿", "ledger_id": ledger_id},
         headers=headers,
     )
     org_id = job.json()["organization_id"]

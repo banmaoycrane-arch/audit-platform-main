@@ -19,8 +19,8 @@
 
 - Affected specs:
   - `improve-manual-voucher-entry-ui`：手工凭证录入 UI 已完成，但基础资料加载出现运行时错误。
-  - `formalize-user-onboarding-account-context`：用户上下文已正式化，可能影响带权限/账套的基础资料加载。
-  - `add-ledger-files-customer-context-coa-presets`：会计科目、往来单位、账套文件等基础资料能力已完成。
+  - `formalize-user-onboarding-account-context`：用户上下文已正式化，可能影响带权限/账簿的基础资料加载。
+  - `add-ledger-files-customer-context-coa-presets`：会计科目、往来单位、账簿文件等基础资料能力已完成。
   - `audit-day-book-import`：仍存在 tasks/checklist 未勾选，属于次级状态一致性目标。
 - Affected code:
   - `frontend/src/pages/AccountingMode/Step2ImportSource.tsx`
@@ -54,7 +54,7 @@ The system SHALL identify the current codebase structure before choosing the nex
 - **WHEN** 读取当前代码库
 - **THEN** 系统 SHALL 确认后端为 FastAPI + SQLAlchemy + SQLite/PostgreSQL + Qdrant 相关服务
 - **AND** 前端为 React + TypeScript + Vite + Ant Design
-- **AND** 当前核心能力包括用户认证、团队/账套/项目、凭证导入、手工凭证、AI 生成、EntryTag、基础资料、报表、审计、风险识别
+- **AND** 当前核心能力包括用户认证、团队/账簿/项目、凭证导入、手工凭证、AI 生成、EntryTag、基础资料、报表、审计、风险识别
 
 ### Requirement: 确认工作区需求状态
 
@@ -70,7 +70,7 @@ The system SHALL summarize completed, incomplete, and inconsistent requirements 
   - 主科目、对方单位与重分类规则
   - 手工凭证录入 UI 优化
   - 首次登录用户上下文正式化
-  - 账套文件、客户上下文、行业预设科目
+  - 账簿文件、客户上下文、行业预设科目
 
 #### Scenario: 未完成或状态不一致需求确认
 

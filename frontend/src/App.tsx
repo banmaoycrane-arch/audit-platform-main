@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { ConfigProvider, Spin } from 'antd'
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { ConfigProvider, Spin, Result, Button, Space } from 'antd'
+import { BookOutlined, ProjectOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import { AuthProvider, useAuthStore } from './stores/authStore'
 import { HomePage } from './pages/HomePage'
@@ -63,6 +64,8 @@ import { LedgerBooksPage } from './pages/LedgerBooksPage'
 import { ScopeSettingsPage } from './pages/ScopeSettingsPage'
 import { ParserEngineManagementPage } from './pages/ParserEngineManagementPage'
 import { ParserEngineConfigPage } from './pages/ParserEngineConfigPage'
+import { UserSettingsPage } from './pages/UserSettingsPage'
+import { SuperAdminPage } from './pages/SuperAdminPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -85,18 +88,43 @@ function LoggedInRedirect({ children }: { children: React.ReactNode }) {
 
 function LedgerDataGuard({ children }: { children: React.ReactNode }) {
   const { userLedgers, authContext, authContextReady } = useAuthStore()
+  const location = useLocation()
+  const navigate = useNavigate()
   if (!authContextReady) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-        <Spin size="large" tip="正在加载账套信息..." />
+        <Spin size="large" tip="正在加载账簿信息..." />
       </div>
     )
   }
-  if (userLedgers.length === 0) {
-    if (authContext?.missing_bindings?.includes('team')) {
-      return <Navigate to="/onboarding-request" replace />
-    }
-    return <Navigate to="/onboarding" replace />
+  if (userLedgers.length === 0 && !authContext?.is_super_admin) {
+    const missingBindings = authContext?.missing_bindings || ['ledger']
+    const missingText = missingBindings
+      .map((key) => ({ team: '团队', ledger: '账簿', project: '项目', accounting_entity: '会计主体' }[key] || key))
+      .join('、')
+    return (
+      <Result
+        status="warning"
+        title="当前任务需要先补齐访问绑定"
+        subTitle={`访问 ${location.pathname} 需要可用账簿权限${missingText ? `，当前缺少：${missingText}` : ''}。请先到用户设置提交团队、账簿或项目绑定申请，审批通过后再继续。`}
+        extra={(
+          <Space wrap>
+            <Button type="primary" icon={<UserOutlined />} onClick={() => navigate('/user-settings?focus=binding')}>
+              去用户设置申请绑定
+            </Button>
+            <Button icon={<TeamOutlined />} onClick={() => navigate('/onboarding-request')}>
+              访客授权申请
+            </Button>
+            <Button icon={<BookOutlined />} onClick={() => navigate('/ledger-management')}>
+              账簿管理
+            </Button>
+            <Button icon={<ProjectOutlined />} onClick={() => navigate('/projects')}>
+              项目管理
+            </Button>
+          </Space>
+        )}
+      />
+    )
   }
   return <>{children}</>
 }
@@ -123,6 +151,8 @@ function AppRoutes() {
       <Route element={<AuthGuard><MainShell /></AuthGuard>}>
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/onboarding-request" element={<OnboardingRequestPage />} />
+        <Route path="/user-settings" element={<UserSettingsPage />} />
+        <Route path="/super-admin" element={<SuperAdminPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/team-management" element={<TeamManagementPage />} />
         <Route path="/ledger-management" element={<LedgerManagementPage />} />
@@ -352,7 +382,15 @@ function AppRoutes() {
 
 function App() {
   return (
-    <ConfigProvider locale={zhCN}>
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        token: {
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
+        },
+      }}
+    >
       <AuthProvider>
         <BrowserRouter>
           <AppRoutes />

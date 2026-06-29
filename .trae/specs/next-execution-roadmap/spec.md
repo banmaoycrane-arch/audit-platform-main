@@ -18,7 +18,7 @@
 - 盘点 6 个队列对应的现存 spec 状态：
   - 队列 1：[period-close-pl-transfer]（**已完成**，pytest 3/3 通过）— 不再做新工作。
   - 队列 2：**spec 缺失** → 本路线图新增 change-id `accounting-step4-real-review` 占位（不在本 spec 内写细节，留给后续 spec 文档实现）。
-  - 队列 3：**spec 缺失**（已有 `export-accounting-package` 是「记账模式 Step5 账套导出」，与「审计模式审计报告导出」不同）→ 新增 change-id `audit-report-export` 占位。
+  - 队列 3：**spec 缺失**（已有 `export-accounting-package` 是「记账模式 Step5 账簿导出」，与「审计模式审计报告导出」不同）→ 新增 change-id `audit-report-export` 占位。
   - 队列 4：[business-cycle-audit] 已有 spec，Task 1–4 完成，剩余 **Task 5（API）+ Task 6（测试）**。
   - 队列 5：[internal-control-audit] 已有 spec，Task 1–4 完成，剩余 **Task 5（API）+ Task 6（测试）**。
   - 队列 6：**spec 缺失** → 新增 change-id `dashboard-home-and-day-book-import` 占位（包含两个子主题：首页 dashboard 与审计模式 Step3 序时簿导入入口）。

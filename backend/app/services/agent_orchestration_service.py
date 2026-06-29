@@ -3,7 +3,7 @@
 模块功能：多 Agent 协同计划服务
 业务场景：以尽调审计任务为案例，由主控 Agent 拆解任务并分配给辅助 Agent
 政策依据：审计项目质量控制要求，最终结论、最终交付物和重大问题定性必须人工确认
-输入数据：用户自然语言任务、当前用户 ID、当前账套 ID
+输入数据：用户自然语言任务、当前用户 ID、当前账簿 ID
 输出结果：多 Agent 协同计划，不直接执行高风险动作
 创建日期：2026-06-19
 更新记录：
@@ -31,7 +31,7 @@ def build_due_diligence_orchestration_plan(
     Args:
         message: 用户自然语言任务。
         user_id: 当前登录用户 ID。
-        ledger_id: 当前账套 ID。
+        ledger_id: 当前账簿 ID。
 
     Returns:
         dict: 多 Agent 协同计划。

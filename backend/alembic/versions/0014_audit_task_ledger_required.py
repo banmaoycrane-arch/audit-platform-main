@@ -17,7 +17,7 @@ depends_on = None
 
 
 def upgrade():
-    """将 audit_tasks 的 ledger_id 改为非空，确保审计任务必须绑定账套。"""
+    """将 audit_tasks 的 ledger_id 改为非空，确保审计任务必须绑定账簿。"""
     op.alter_column('audit_tasks', 'ledger_id', nullable=False)
 
 

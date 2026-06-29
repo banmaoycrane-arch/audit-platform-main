@@ -83,7 +83,7 @@ export function ScopeSettingsPage() {
       ledgerForm.setFieldsValue(ledgerResp.settings)
       entityForm.setFieldsValue(entityResp.settings)
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载账套配置失败')
+      message.error(error instanceof Error ? error.message : '加载账簿配置失败')
     } finally {
       setLoading(false)
     }
@@ -131,7 +131,7 @@ export function ScopeSettingsPage() {
     setSaving(true)
     try {
       await api.updateLedgerSettings(ledgerId, values)
-      message.success('账套配置已保存')
+      message.success('账簿配置已保存')
     } catch (error) {
       message.error(error instanceof Error ? error.message : '保存失败')
     } finally {
@@ -192,7 +192,7 @@ export function ScopeSettingsPage() {
             <SettingOutlined /> 管理配置参数
           </Title>
           <Paragraph type="secondary">
-            按账套、团队、项目、主体分别维护常见管理策略。账套侧重会计政策与核算习惯；团队侧重成员兼任与授权；项目侧重合并与虚拟项目；主体侧重纳税与虚拟主体策略。
+            按账簿、团队、项目、主体分别维护常见管理策略。账簿侧重会计政策与核算习惯；团队侧重成员兼任与授权；项目侧重合并与虚拟项目；主体侧重纳税与虚拟主体策略。
           </Paragraph>
         </div>
 
@@ -201,13 +201,13 @@ export function ScopeSettingsPage() {
           items={[
             {
               key: 'ledger',
-              label: '账套',
+              label: '账簿',
               children: (
                 <Card loading={loading}>
                   <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                     <Select
                       style={{ width: 320 }}
-                      placeholder="选择账套"
+                      placeholder="选择账簿"
                       value={ledgerId ?? undefined}
                       options={ledgerOptions}
                       onChange={setLedgerId}
@@ -255,7 +255,7 @@ export function ScopeSettingsPage() {
                       </Form.Item>
                     </Form>
                     <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={saveLedgerSettings}>
-                      保存账套配置
+                      保存账簿配置
                     </Button>
                   </Space>
                 </Card>
@@ -289,7 +289,7 @@ export function ScopeSettingsPage() {
                       >
                         <Switch />
                       </Form.Item>
-                      <Form.Item name="default_ledger_role" label="新授权默认账套角色">
+                      <Form.Item name="default_ledger_role" label="新授权默认账簿角色">
                         <Select
                           options={[
                             { value: 'admin', label: '管理员' },
@@ -298,10 +298,10 @@ export function ScopeSettingsPage() {
                           ]}
                         />
                       </Form.Item>
-                      <Form.Item name="ledger_grant_policy" label="账套授权策略">
+                      <Form.Item name="ledger_grant_policy" label="账簿授权策略">
                         <Select
                           options={[
-                            { value: 'admin_only', label: '仅账套管理员可授权' },
+                            { value: 'admin_only', label: '仅账簿管理员可授权' },
                             { value: 'manager_can_grant', label: '团队经理可授权' },
                           ]}
                         />
@@ -367,7 +367,7 @@ export function ScopeSettingsPage() {
                   <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                     <Select
                       style={{ width: 320 }}
-                      placeholder="选择账套（主体策略按账套定义）"
+                      placeholder="选择账簿（主体策略按账簿定义）"
                       value={ledgerId ?? undefined}
                       options={ledgerOptions}
                       onChange={setLedgerId}
@@ -394,7 +394,7 @@ export function ScopeSettingsPage() {
                       </Form.Item>
                       <Form.Item
                         name="allow_multi_entity_per_ledger"
-                        label="账套下允许多个会计主体"
+                        label="账簿下允许多个会计主体"
                         valuePropName="checked"
                       >
                         <Switch />

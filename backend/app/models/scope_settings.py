@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""账套 / 团队 / 项目 / 主体 管理配置模型。"""
+"""账簿 / 团队 / 项目 / 主体 管理配置模型。"""
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, func
@@ -9,7 +9,7 @@ from app.db.session import Base
 
 
 class LedgerSettings(Base):
-    """账套级会计政策与核算习惯配置。"""
+    """账簿级会计政策与核算习惯配置。"""
 
     __tablename__ = "ledger_settings"
 
@@ -63,7 +63,7 @@ class ProjectSettings(Base):
 
 
 class EntityScopeSettings(Base):
-    """账套下会计主体（主体）管理策略配置。"""
+    """账簿下会计主体（主体）管理策略配置。"""
 
     __tablename__ = "entity_scope_settings"
 

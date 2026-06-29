@@ -59,6 +59,9 @@ const jobId = Number(searchParams.get('jobId') || 0)
 const periodId = Number(searchParams.get('periodId') || 0)
 const sourceTypes = (searchParams.get('sourceTypes') || '').split(',').filter(Boolean)
 const parseSummary = searchParams.get('parseSummary') || ''
+const periodMode = searchParams.get('periodMode') || 'fixed'
+const adaptiveStartDate = searchParams.get('adaptiveStartDate') || ''
+const adaptiveEndDate = searchParams.get('adaptiveEndDate') || ''
 const currentStep = 2
 const [drafts, setDrafts] = useState<EntryDraft[]>([])
 const [loading, setLoading] = useState(false)
@@ -70,27 +73,33 @@ const hasBlockedDraft = blockedDrafts.length > 0
 const hasPartialDraft = partialDrafts.length > 0
 
 useEffect(() => {
-if (!jobId || !periodId) return
+if (!jobId) return
 setLoading(true)
-api.generateEntries(jobId, periodId, accountingJudgmentPolicy)
+api.generateEntries(
+  jobId, 
+  periodMode === 'fixed' ? (periodId || undefined) : undefined, 
+  accountingJudgmentPolicy,
+  adaptiveStartDate || undefined,
+  adaptiveEndDate || undefined
+)
 .then(setDrafts)
 .catch((error) => {
 const detail = error instanceof Error ? error.message : String(error)
   message.error(`生成草稿失败：${detail}`)
       })
       .finally(() => setLoading(false))
-  }, [jobId, periodId, accountingJudgmentPolicy])
+  }, [jobId, periodId, accountingJudgmentPolicy, periodMode, adaptiveStartDate, adaptiveEndDate])
 
   const handleCommit = async () => {
-    if (!jobId || !periodId || hasBlockedDraft) return
+    if (!jobId || hasBlockedDraft) return
     setCommitting(true)
     try {
-      const result = await api.commitEntries(jobId, periodId, drafts)
+      const result = await api.commitEntries(jobId, periodId || undefined, drafts)
       message.success(`已保存 ${result.count} 条待复核凭证草稿`)
       const nextParams = new URLSearchParams()
       nextParams.set('inputMode', inputMode)
       nextParams.set('jobId', String(jobId))
-      nextParams.set('periodId', String(periodId))
+      if (periodId) nextParams.set('periodId', String(periodId))
       navigate(`${stepPath(4)}?${nextParams.toString()}`)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
@@ -139,6 +148,19 @@ const detail = error instanceof Error ? error.message : String(error)
     { title: '凭证号', dataIndex: 'voucher_no', key: 'voucher_no' },
     { title: '行号', dataIndex: 'entry_line_no', key: 'entry_line_no' },
     { title: '日期', dataIndex: 'voucher_date', key: 'voucher_date' },
+    {
+      title: '会计期间',
+      key: 'period_code',
+      render: (_, record) => {
+        const metadata = record.metadata || {}
+        const status = metadata.period_detection_status
+        const periodCode = String(metadata.period_code || '-')
+        if (status === 'matched') return <Tag color="green">{periodCode}</Tag>
+        if (status === 'missing_period') return <Tag color="orange">未维护 {periodCode}</Tag>
+        if (status === 'invalid_date') return <Tag color="red">日期异常</Tag>
+        return <Tag>{periodCode}</Tag>
+      }
+    },
     { title: '科目代码', dataIndex: 'account_code', key: 'account_code', render: (v) => v || '-' },
     { title: '科目', dataIndex: 'account_name', key: 'account_name', render: (v) => v || '-' },
     { title: '摘要', dataIndex: 'summary', key: 'summary' },
@@ -191,13 +213,23 @@ const detail = error instanceof Error ? error.message : String(error)
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev={stepPath(2)} onNext={handleCommit} nextDisabled={!jobId || !periodId || drafts.length === 0 || hasBlockedDraft || committing} style={{ marginBottom: '16px' }} />
+      <FlowNav prev={stepPath(2)} onNext={handleCommit} nextDisabled={!jobId || drafts.length === 0 || hasBlockedDraft || committing} style={{ marginBottom: '16px' }} />
 
-      {(!jobId || !periodId) && (
+      {!jobId && (
         <Alert
-          title="缺少导入任务或会计期间"
-          description="请从导入资料步骤重新进入并选择会计期间，否则无法生成草稿。"
+          title="缺少导入任务"
+          description="请从导入资料步骤重新进入；如仅缺少会计期间，系统会根据已识别分录日期自动匹配各分录期间。"
           type="warning"
+          showIcon
+          style={{ marginBottom: '16px' }}
+        />
+      )}
+
+      {periodId === 0 && jobId > 0 && (
+        <Alert
+          title="已启用按分录日期自动识别会计期间"
+          description="当前链接未指定单一会计期间。系统会按每条分录的凭证日期匹配对应期间；未维护的月份会在表格中标记为“未维护期间”，请先补建会计期间后再正式复核入账。"
+          type="info"
           showIcon
           style={{ marginBottom: '16px' }}
         />
@@ -292,11 +324,17 @@ const detail = error instanceof Error ? error.message : String(error)
           dataSource={drafts}
           rowKey={(r, idx) => `${r.voucher_no}-${r.entry_line_no}-${idx}`}
           loading={loading}
-          pagination={false}
+          pagination={{
+            defaultPageSize: 100,
+            showSizeChanger: true,
+            pageSizeOptions: ['50', '100', '200', '500'],
+            showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${total} 条`,
+          }}
+          scroll={{ x: 1400, y: 560 }}
           size="small"
         />
         <div style={{ marginTop: '16px', color: '#666', fontSize: '12px' }}>
-          <strong>说明：</strong>AI 生成的是待复核凭证草稿，请先检查科目、摘要、借贷金额与对方单位，再保存草稿并进入复核；正式确认入账在复核完成后的确认入账与导出步骤进行。凭证字按\"银/收/付/工/转/记\"规则生成；凭证日期已夹紧到所选会计期间；二级科目语义改为标签表达。
+          <strong>说明：</strong>AI 生成的是待复核凭证草稿，请先检查科目、摘要、借贷金额与对方单位，再保存草稿并进入复核；正式确认入账在复核完成后的确认入账与导出步骤进行。凭证字按"银/收/付/工/转/记"规则生成；未指定单一会计期间时，系统按分录凭证日期识别对应期间。
         </div>
       </Card>
 
@@ -308,7 +346,7 @@ const detail = error instanceof Error ? error.message : String(error)
           type="primary"
           loading={committing}
           onClick={handleCommit}
-          disabled={!jobId || !periodId || drafts.length === 0 || hasBlockedDraft}
+          disabled={!jobId || drafts.length === 0 || hasBlockedDraft}
         >
           保存草稿并进入复核
         </Button>

@@ -107,7 +107,7 @@ export function HomePage() {
           <Title level={4}>记账模式</Title>
           <Paragraph type="secondary">
             从原始资料（发票、银行流水、合同等）自动生成会计分录，
-            支持凭证复核与调整，最终导出标准账套。
+            支持凭证复核与调整，最终导出标准账簿。
           </Paragraph>
         </Card>
 

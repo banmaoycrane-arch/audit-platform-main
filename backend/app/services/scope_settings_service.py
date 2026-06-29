@@ -1,4 +1,4 @@
-"""账套 / 团队 / 项目 / 主体 管理配置服务。"""
+"""账簿 / 团队 / 项目 / 主体 管理配置服务。"""
 from __future__ import annotations
 
 from copy import deepcopy
@@ -52,7 +52,7 @@ DEFAULT_ENTITY_SCOPE_SETTINGS: dict[str, Any] = {
 
 SETTINGS_CATALOG: dict[str, Any] = {
     "ledger": {
-        "label": "账套配置",
+        "label": "账簿配置",
         "description": "会计政策、会计假设与核算习惯",
         "fields": {
             "currency_mode": {
@@ -103,7 +103,7 @@ SETTINGS_CATALOG: dict[str, Any] = {
                 "type": "boolean",
             },
             "default_ledger_role": {
-                "label": "新授权默认账套角色",
+                "label": "新授权默认账簿角色",
                 "type": "select",
                 "options": [
                     {"value": "admin", "label": "管理员"},
@@ -112,10 +112,10 @@ SETTINGS_CATALOG: dict[str, Any] = {
                 ],
             },
             "ledger_grant_policy": {
-                "label": "账套授权策略",
+                "label": "账簿授权策略",
                 "type": "select",
                 "options": [
-                    {"value": "admin_only", "label": "仅账套管理员可授权"},
+                    {"value": "admin_only", "label": "仅账簿管理员可授权"},
                     {"value": "manager_can_grant", "label": "团队经理可授权"},
                 ],
             },
@@ -166,7 +166,7 @@ SETTINGS_CATALOG: dict[str, Any] = {
                 ],
             },
             "allow_multi_entity_per_ledger": {
-                "label": "账套下允许多个会计主体",
+                "label": "账簿下允许多个会计主体",
                 "type": "boolean",
             },
         },

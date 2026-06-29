@@ -7,14 +7,14 @@
 ## What Changes
 
 - 输出当前角色定位和项目总需求的验收视角。
-- 按“先基础环境，再账户账套，再原始资料导入，再凭证生成，再报表审计”的稳妥顺序安排测试。
+- 按“先基础环境，再账户账簿，再原始资料导入，再凭证生成，再报表审计”的稳妥顺序安排测试。
 - 列出每个测试目标对应的前端页面路径。
 - 明确每个页面验收时应观察的关键结果。
 - 不新增业务功能，不修改正式代码。
 
 ## Impact
 
-- Affected specs: 用户验收、功能测试、工作台导航、账套文件管理、凭证管理、基础资料、审计流程、报表流程
+- Affected specs: 用户验收、功能测试、工作台导航、账簿文件管理、凭证管理、基础资料、审计流程、报表流程
 - Affected code: 无直接代码影响；参考前端路由 `frontend/src/App.tsx` 和 `frontend/src/layout/MainShell.tsx`
 
 ## ADDED Requirements
@@ -35,7 +35,7 @@ The system SHALL order tests by accounting business dependency, not by random pa
 #### Scenario: 业务闭环测试
 
 - **WHEN** 用户开始人工验收
-- **THEN** 应先验证登录/工作台/团队账套，再验证基础资料、会计期间、原始资料导入、凭证生成、账套文件、报表、审计和 AI 助手
+- **THEN** 应先验证登录/工作台/团队账簿，再验证基础资料、会计期间、原始资料导入、凭证生成、账簿文件、报表、审计和 AI 助手
 
 ### Requirement: 明确角色和总需求
 

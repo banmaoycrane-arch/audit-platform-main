@@ -12,7 +12,7 @@
 
 - [x] Task 3: 输出页面路径
   - [x] SubTask 3.1: 输出登录、注册、工作台、onboarding 页面
-  - [x] SubTask 3.2: 输出团队、账套、账套文件、基础资料页面
+  - [x] SubTask 3.2: 输出团队、账簿、账簿文件、基础资料页面
   - [x] SubTask 3.3: 输出凭证管理 Step1-Step5 页面
   - [x] SubTask 3.4: 输出报表、审计、AI 助手页面
 

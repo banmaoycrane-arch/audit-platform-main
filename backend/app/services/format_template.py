@@ -27,7 +27,7 @@ ACCOUNTING_TEMPLATES: dict[str, dict[str, Any]] = {
             "voucher_date": ["凭证日期", "记账日期", "日期", "业务日期", "制单日期"],
             "summary": ["摘要", "说明", "描述", "交易描述", "事由"],
             "account_code": ["科目编码", "科目代码", "科目号", "会计科目编码"],
-            "account_name": ["科目名称", "会计科目", "科目", "账户名称", "会计科目名称"],
+            "account_name": ["科目", "科目名称", "会计科目", "账户名称", "会计科目名称"],
             "debit_amount": ["借方金额", "借方", "借发生额", "借方发生额", " debit"],
             "credit_amount": ["贷方金额", "贷方", "贷发生额", "贷方发生额", "credit"],
             "counterparty": ["往来单位", "供应商", "客户", "对方单位", "交易对方", "单位"],
@@ -118,24 +118,23 @@ def normalize_header(header: str) -> str:
     return str(header).strip().lower()
 
 
-def build_alias_index() -> dict[str, dict[str, str]]:
+def build_alias_index() -> dict[str, str]:
     """构建别名索引（别名 -> 标准字段名）"""
-    index: dict[str, dict[str, str]] = {}
+    index: dict[str, str] = {}
     for template_name, template in ACCOUNTING_TEMPLATES.items():
         for field_name, aliases in template["fields"].items():
-            if field_name not in index:
-                index[field_name] = {}
             for alias in aliases:
                 key = normalize_header(alias)
-                index[key] = field_name
+                if key not in index:
+                    index[key] = field_name
     return index
 
 
 # 全局别名索引（延迟初始化）
-_alias_index: dict[str, dict[str, str]] | None = None
+_alias_index: dict[str, str] | None = None
 
 
-def get_alias_index() -> dict[str, dict[str, str]]:
+def get_alias_index() -> dict[str, str]:
     """获取别名索引（单例）"""
     global _alias_index
     if _alias_index is None:
@@ -161,8 +160,8 @@ def match_header(header: str, template: dict[str, Any] | None = None) -> str | N
     if normalized in index:
         return index[normalized]
 
-    # 模糊匹配（包含）
-    for alias, field in index.items():
+    # 模糊匹配优先使用更长别名，避免“科目”抢先匹配“科目编码/科目名称”
+    for alias, field in sorted(index.items(), key=lambda item: len(item[0]), reverse=True):
         if normalized in alias or alias in normalized:
             return field
 

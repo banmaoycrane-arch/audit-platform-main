@@ -42,7 +42,7 @@ export function Step5Export() {
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
-      message.success('确认入账与账套导出成功')
+      message.success('确认入账与账簿导出成功')
       setExported(true)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
@@ -142,7 +142,7 @@ export function Step5Export() {
             onClick={handleExport}
             disabled={!jobId}
           >
-            {exporting ? '正在确认入账并导出...' : '确认入账并导出账套'}
+            {exporting ? '正在确认入账并导出...' : '确认入账并导出账簿'}
           </Button>
         </Space>
       </Card>

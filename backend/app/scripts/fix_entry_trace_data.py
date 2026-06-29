@@ -6,7 +6,7 @@
 2. 数据库有历史数据需要修复
 
 修复内容：
-1. 为 source_files 表中 ledger_id 为空的记录补充账套ID
+1. 为 source_files 表中 ledger_id 为空的记录补充账簿ID
 2. 为 accounting_entries 表中 entry_source 为空的记录设置默认值
 
 使用方法：

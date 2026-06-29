@@ -53,7 +53,7 @@ contract_register    purchase/sales           counterparty_ledger  bank_cash_flo
 
 核心原则（与边界文档一致）：
 
-- **Register（业务台账）≠ Ledger（会计账套）≠ AccountingEntry（会计分录）**
+- **Register（业务台账）≠ Ledger（会计账簿）≠ AccountingEntry（会计分录）**
 - 底稿（SourceFile）是证据载体；台账是业务事实登记；分录是会计确认结果
 - 审计工作流在 **Project** 边界内编排，正式数据以 **ledger_id** 过滤
 
@@ -328,7 +328,7 @@ WorkpaperLink           # 底稿勾稽
 
 ## 8. 实施路线图（建议）
 
-### Phase A — 台账持久化与账套边界（基础）✅ 已合入 main（PR #8）
+### Phase A — 台账持久化与账簿边界（基础）✅ 已合入 main（PR #8）
 
 - [x] Register 表增加 `ledger_id`；module ledger 查询 API 落库
 - [x] `counterparty_ledger` 提供按单位+科目方向余额视图

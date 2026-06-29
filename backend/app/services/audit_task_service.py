@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.db.models import AuditTask
 from app.models.project_ledger import ProjectLedger
 from app.schemas.audit_workflow import AuditTaskCreate, AuditTaskUpdate
-from app.services import audit_notification_service
+from app.services import audit_notification_service, project_service
 
 
 STATUS_LABELS = {
@@ -124,6 +124,7 @@ def get_task_list(
     status: str | None = None,
     assignee_id: int | None = None,
     task_type: str | None = None,
+    priority: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> dict[str, Any]:
@@ -149,6 +150,8 @@ def get_task_list(
         query = query.filter(AuditTask.assignee_id == assignee_id)
     if task_type is not None:
         query = query.filter(AuditTask.task_type == task_type)
+    if priority is not None:
+        query = query.filter(AuditTask.priority == priority)
 
     total = query.count()
     offset = (page - 1) * page_size
@@ -191,7 +194,7 @@ def create_task(
     """创建审计任务。
 
     自动生成项目内唯一的任务编号，初始状态为 open。
-    校验账套归属：任务绑定的账套必须属于该项目。
+    校验账簿归属：任务绑定的账簿必须属于该项目。
 
     Args:
         db: 数据库会话
@@ -202,7 +205,7 @@ def create_task(
         创建后的任务详情字典
 
     Raises:
-        ValueError: 账套不属于该项目
+        ValueError: 账簿不属于该项目
     """
     ledger_in_project = (
         db.query(ProjectLedger)
@@ -213,7 +216,17 @@ def create_task(
         .first()
     )
     if not ledger_in_project:
-        raise ValueError("账套不属于该项目，请选择项目关联的账套")
+        raise ValueError("账簿不属于该项目，请选择项目关联的账簿")
+
+    if task_data.assignee_id is not None:
+        eligible_ids = {
+            item["id"]
+            for item in project_service.list_project_task_assignees(
+                db, task_data.project_id, task_data.ledger_id
+            )
+        }
+        if task_data.assignee_id not in eligible_ids:
+            raise ValueError("负责人必须同时属于当前项目、项目团队，并拥有所选账簿权限")
 
     task_no = _generate_task_no(db, task_data.project_id)
 
@@ -322,6 +335,15 @@ def assign_task(
         raise ValueError(
             f"当前状态「{STATUS_LABELS.get(task.status, task.status)}」不允许重新分配"
         )
+
+    eligible_ids = {
+        item["id"]
+        for item in project_service.list_project_task_assignees(
+            db, task.project_id, task.ledger_id
+        )
+    }
+    if assignee_id not in eligible_ids:
+        raise ValueError("负责人必须同时属于当前项目、项目团队，并拥有任务账簿权限")
 
     task.assignee_id = assignee_id
     task.status = "todo"

@@ -1,0 +1,15 @@
+warning: in the working copy of 'backend/.env', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/alembic/versions/0015_add_draft_data_to_import_jobs.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/api/routes_config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/api/routes_parser_engine.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/schemas/parser_engine.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/services/import_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/api/client.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/layout/MainShell.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/Audit/AuditTaskDetailPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/Audit/AuditTasksPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/Audit/ReviewDetailPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/Audit/ReviewRequestsPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/Audit/WorkpapersPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/ModuleRegisterPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/ParserEngineManagementPage.tsx', LF will be replaced by CRLF the next time Git touches it

@@ -33,7 +33,7 @@ const { Title, Paragraph } = Typography
 
 function getBankActionBlockMessage(currentLedgerId: number | null, accountCount: number): string | null {
   if (!currentLedgerId) {
-    return '请先选择账套，再录入银行流水或生成银行调节表。'
+    return '请先选择账簿，再录入银行流水或生成银行调节表。'
   }
   if (accountCount === 0) {
     return '请先维护银行账户，再录入银行流水或生成银行调节表。'
@@ -300,7 +300,7 @@ export function BankReconciliationPage() {
               showIcon
               style={{ marginBottom: 16 }}
               message="调节表存在差异，需先核实差异原因"
-              description="请逐项检查未匹配银行流水、未匹配账套分录、银行手续费、利息收入、企业已收银行未收、银行已付企业未付等事项。确认属于应入账事项后，再由人工在凭证复核流程中编制差异凭证。"
+              description="请逐项检查未匹配银行流水、未匹配账簿分录、银行手续费、利息收入、企业已收银行未收、银行已付企业未付等事项。确认属于应入账事项后，再由人工在凭证复核流程中编制差异凭证。"
             />
           )}
           <Descriptions bordered size="small" column={{ xs: 1, sm: 2, md: 3 }}>
@@ -348,7 +348,7 @@ export function BankReconciliationPage() {
               showIcon
               style={{ marginBottom: 16 }}
               message="自动对账发现差异，请先核实后处理"
-              description="建议按顺序检查：1. 未匹配银行流水是否为手续费、利息、未入账收付款；2. 未匹配账套分录是否缺少银行流水或日期金额不一致；3. 确认属于应入账差异后，再人工编制差异凭证并复核，不由系统自动入账。"
+              description="建议按顺序检查：1. 未匹配银行流水是否为手续费、利息、未入账收付款；2. 未匹配账簿分录是否缺少银行流水或日期金额不一致；3. 确认属于应入账差异后，再人工编制差异凭证并复核，不由系统自动入账。"
               action={(
                 <Space direction="vertical">
                   <Button size="small" onClick={handleOpenDraftModal}>生成调节表草稿</Button>
@@ -372,9 +372,9 @@ export function BankReconciliationPage() {
             </Card>
           </Col>
           <Col xs={24} lg={12}>
-            <Card title={`未匹配账套分录（${result.unmatched_entries.length}）`} size="small">
+            <Card title={`未匹配账簿分录（${result.unmatched_entries.length}）`} size="small">
               {result.unmatched_entries.length === 0 ? (
-                <Paragraph type="secondary">暂无未匹配账套分录</Paragraph>
+                <Paragraph type="secondary">暂无未匹配账簿分录</Paragraph>
               ) : (
                 result.unmatched_entries.map((item) => (
                   <div key={item.id} style={{ marginBottom: 8 }}>

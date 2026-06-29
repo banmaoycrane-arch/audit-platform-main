@@ -25,15 +25,18 @@ import {
   DashboardOutlined,
   CheckSquareOutlined,
   BellOutlined,
+  CrownOutlined,
 } from '@ant-design/icons'
 import { LedgerSelector } from '../components/LedgerSelector'
 import { RouteTabs } from '../components/RouteTabs'
 import { api, type AuditNotification } from '../api/client'
+import { useAuthStore } from '../stores/authStore'
 
 const { Header, Sider, Content } = Layout
 const { Title } = Typography
 
-const navItems = [
+function buildNavItems(isSuperAdmin: boolean) {
+  return [
   { key: '/workspace', icon: <HomeOutlined />, label: <Link to="/workspace">工作台</Link> },
   { key: '/agent', icon: <RobotOutlined />, label: <Link to="/agent">Agent 助手</Link> },
   {
@@ -149,12 +152,13 @@ const navItems = [
     label: '管理中心',
     children: [
       { key: '/team-management', icon: <TeamOutlined />, label: <Link to="/team-management">团队管理</Link> },
-      { key: '/ledger-management', icon: <BookOutlined />, label: <Link to="/ledger-management">账套管理</Link> },
+      { key: '/ledger-management', icon: <BookOutlined />, label: <Link to="/ledger-management">账簿管理</Link> },
       { key: '/scope-settings', icon: <SettingOutlined />, label: <Link to="/scope-settings">管理配置</Link> },
       { key: '/parser-engine', icon: <ExperimentOutlined />, label: <Link to="/parser-engine">解析引擎管理</Link> },
       { key: '/parser-engine/config', icon: <SettingOutlined />, label: <Link to="/parser-engine/config">解析引擎配置</Link> },
       { key: '/ledger/files', icon: <FileTextOutlined />, label: <Link to="/ledger/files">支持性文件</Link> },
       { key: '/projects', icon: <AppstoreOutlined />, label: <Link to="/projects">项目管理</Link> },
+      ...(isSuperAdmin ? [{ key: '/super-admin', icon: <CrownOutlined />, label: <Link to="/super-admin">开发者超级管理员</Link> }] : []),
     ],
   },
   {
@@ -168,6 +172,7 @@ const navItems = [
     ],
   }
 ]
+}
 
 const selectedKeyAliases: Record<string, string> = {
   '/entries': '/ledger/entries',
@@ -218,6 +223,8 @@ function getSelectedKey(pathname: string) {
 export function MainShell() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { authContext } = useAuthStore()
+  const navItems = buildNavItems(Boolean(authContext?.is_super_admin))
   const selectedKey = getSelectedKey(location.pathname)
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [notifications, setNotifications] = useState<AuditNotification[]>([])

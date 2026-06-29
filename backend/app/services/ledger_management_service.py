@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-模块功能：账套管理数据库操作服务
-业务场景：创建账套、授权用户、切换账套、查询用户账套列表
-政策依据：会计信息系统内部控制规范——账套隔离与权限管理
-输入数据：账套名称、团队ID、用户ID、角色
-输出结果：账套记录、授权记录、用户当前账套
+模块功能：账簿管理数据库操作服务
+业务场景：创建账簿、授权用户、切换账簿、查询用户账簿列表
+政策依据：会计信息系统内部控制规范——账簿隔离与权限管理
+输入数据：账簿名称、团队ID、用户ID、角色
+输出结果：账簿记录、授权记录、用户当前账簿
 创建日期：2026-06-18
 更新记录：
-    2026-06-18  初始创建账套管理服务
+    2026-06-18  初始创建账簿管理服务
 """
 from datetime import date
 
@@ -27,18 +27,18 @@ def create_ledger(
     accounting_start_date: date | None = None,
 ) -> Ledger:
     """
-    创建新账套。
+    创建新账簿。
 
-    业务逻辑：在指定团队下创建独立账套，并按会计起始日期种子化首个开放期间
-    会计口径：每个账套对应独立的会计核算主体与时间线
+    业务逻辑：在指定团队下创建独立账簿，并按会计起始日期种子化首个开放期间
+    会计口径：每个账簿对应独立的会计核算主体与时间线
 
     Args:
         team_id: 所属团队ID
-        name: 账套名称
+        name: 账簿名称
         accounting_start_date: 会计时间线起点，默认当天
 
     Returns:
-        Ledger: 新创建的账套对象
+        Ledger: 新创建的账簿对象
 
     注意事项：
         1. 团队必须存在
@@ -60,16 +60,16 @@ def create_ledger(
 
 def get_ledgers_by_user(db: Session, user_id: int) -> list[Ledger]:
     """
-    获取用户有权限访问的账套列表。
+    获取用户有权限访问的账簿列表。
 
-    业务逻辑：通过 user_ledger_auths 表查询用户被授权的所有账套
-    会计口径：用户只能看到自己有权限的账套，符合职责分离原则
+    业务逻辑：通过 user_ledger_auths 表查询用户被授权的所有账簿
+    会计口径：用户只能看到自己有权限的账簿，符合职责分离原则
 
     Args:
         user_id: 用户ID
 
     Returns:
-        list[Ledger]: 用户授权账套列表
+        list[Ledger]: 用户授权账簿列表
     """
     auths = db.query(UserLedgerAuth).filter(UserLedgerAuth.user_id == user_id).all()
     if not auths:
@@ -80,33 +80,33 @@ def get_ledgers_by_user(db: Session, user_id: int) -> list[Ledger]:
 
 def get_ledger_by_id(db: Session, ledger_id: int) -> Ledger | None:
     """
-    根据ID获取账套。
+    根据ID获取账簿。
 
     Args:
-        ledger_id: 账套ID
+        ledger_id: 账簿ID
 
     Returns:
-        Ledger | None: 账套对象或 None
+        Ledger | None: 账簿对象或 None
     """
     return db.query(Ledger).filter(Ledger.id == ledger_id).first()
 
 
 def switch_ledger(db: Session, user_id: int, ledger_id: int) -> User:
     """
-    切换用户当前账套。
+    切换用户当前账簿。
 
-    业务逻辑：更新 user.last_ledger_id 字段，记录用户当前操作的账套
-    会计口径：每次操作必须明确归属账套，防止跨账套数据混淆
+    业务逻辑：更新 user.last_ledger_id 字段，记录用户当前操作的账簿
+    会计口径：每次操作必须明确归属账簿，防止跨账簿数据混淆
 
     Args:
         user_id: 用户ID
-        ledger_id: 目标账套ID
+        ledger_id: 目标账簿ID
 
     Returns:
         User: 更新后的用户对象
 
     注意事项：
-        1. 用户必须对该账套有访问权限
+        1. 用户必须对该账簿有访问权限
     """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -121,13 +121,13 @@ def authorize_user_to_ledger(
     db: Session, ledger_id: int, user_id: int, role: str, granted_by: int | None = None
 ) -> UserLedgerAuth:
     """
-    授权用户访问账套。
+    授权用户访问账簿。
 
     业务逻辑：在 user_ledger_auths 表中新增授权记录
     会计口径：符合内部控制规范——不相容职务分离，操作留痕
 
     Args:
-        ledger_id: 账套ID
+        ledger_id: 账簿ID
         user_id: 被授权用户ID
         role: 角色（如 admin, viewer, accountant）
         granted_by: 授权人用户ID（可选）
@@ -136,7 +136,7 @@ def authorize_user_to_ledger(
         UserLedgerAuth: 授权记录
 
     注意事项：
-        1. 同一用户对同一账套重复授权时，更新角色
+        1. 同一用户对同一账簿重复授权时，更新角色
     """
     existing = (
         db.query(UserLedgerAuth)
@@ -159,11 +159,11 @@ def authorize_user_to_ledger(
 
 def user_has_ledger_access(db: Session, user_id: int, ledger_id: int) -> bool:
     """
-    检查用户是否有账套访问权限。
+    检查用户是否有账簿访问权限。
 
     Args:
         user_id: 用户ID
-        ledger_id: 账套ID
+        ledger_id: 账簿ID
 
     Returns:
         bool: 是否有权限
@@ -178,17 +178,17 @@ def user_has_ledger_access(db: Session, user_id: int, ledger_id: int) -> bool:
 
 def get_ledger_auths(db: Session, ledger_id: int) -> list[UserLedgerAuth]:
     """
-    获取账套授权列表。
+    获取账簿授权列表。
 
-    业务逻辑：查询 user_ledger_auths 表中指定账套的所有授权记录
-    会计口径：账套授权列表对应实务中的"权限分配表"，需可追溯
+    业务逻辑：查询 user_ledger_auths 表中指定账簿的所有授权记录
+    会计口径：账簿授权列表对应实务中的"权限分配表"，需可追溯
 
     Args:
         db: 数据库会话
-        ledger_id: 账套ID
+        ledger_id: 账簿ID
 
     Returns:
-        list[UserLedgerAuth]: 账套授权记录列表
+        list[UserLedgerAuth]: 账簿授权记录列表
     """
     return (
         db.query(UserLedgerAuth)
@@ -201,22 +201,22 @@ def revoke_ledger_auth(
     db: Session, auth_id: int, ledger_id: int | None = None
 ) -> UserLedgerAuth:
     """
-    撤销账套授权。
+    撤销账簿授权。
 
     业务逻辑：从 user_ledger_auths 表中删除指定授权记录
-    会计口径：权限撤销需限定在指定账套内，避免误删其他账套权限
+    会计口径：权限撤销需限定在指定账簿内，避免误删其他账簿权限
 
     Args:
         db: 数据库会话
         auth_id: 授权记录ID
-        ledger_id: 账套ID（可选，用于校验授权归属）
+        ledger_id: 账簿ID（可选，用于校验授权归属）
 
     Returns:
         UserLedgerAuth: 被撤销的授权记录
 
     注意事项：
         1. 授权记录必须存在
-        2. 传入账套ID时，授权记录必须归属该账套
+        2. 传入账簿ID时，授权记录必须归属该账簿
     """
     query = db.query(UserLedgerAuth).filter(UserLedgerAuth.id == auth_id)
     if ledger_id is not None:
@@ -247,7 +247,7 @@ def create_team(db: Session, name: str, team_type: str) -> Team:
     创建新团队。
 
     业务逻辑：在系统中创建一个新的团队（事务所/企业/虚拟团队）
-    会计口径：团队是账套的上级组织单位，对应核算主体归属
+    会计口径：团队是账簿的上级组织单位，对应核算主体归属
 
     Args:
         name: 团队名称
@@ -377,25 +377,25 @@ def add_team_member(
 
 def activate_ledger(db: Session, ledger_id: int, reason: str | None = None) -> Ledger:
     """
-    激活账套。
+    激活账簿。
 
-    业务逻辑：将账套状态设置为 active，并记录激活时间
-    会计口径：账套激活后方可进行记账、审计等操作
+    业务逻辑：将账簿状态设置为 active，并记录激活时间
+    会计口径：账簿激活后方可进行记账、审计等操作
 
     Args:
         db: 数据库会话
-        ledger_id: 账套ID
+        ledger_id: 账簿ID
         reason: 生命周期变更原因（可选）
 
     Returns:
-        Ledger: 更新后的账套对象
+        Ledger: 更新后的账簿对象
 
     注意事项：
-        1. 账套必须存在
+        1. 账簿必须存在
     """
     ledger = get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise ValueError("账套不存在，无法激活")
+        raise ValueError("账簿不存在，无法激活")
     from datetime import datetime, timezone
     ledger.status = "active"
     ledger.activated_at = datetime.now(timezone.utc)
@@ -407,25 +407,25 @@ def activate_ledger(db: Session, ledger_id: int, reason: str | None = None) -> L
 
 def suspend_ledger(db: Session, ledger_id: int, reason: str | None = None) -> Ledger:
     """
-    暂停账套。
+    暂停账簿。
 
-    业务逻辑：将账套状态设置为 suspended，并记录暂停时间
+    业务逻辑：将账簿状态设置为 suspended，并记录暂停时间
     会计口径：暂停期间禁止新增凭证，但可查询历史数据
 
     Args:
         db: 数据库会话
-        ledger_id: 账套ID
+        ledger_id: 账簿ID
         reason: 生命周期变更原因（可选）
 
     Returns:
-        Ledger: 更新后的账套对象
+        Ledger: 更新后的账簿对象
 
     注意事项：
-        1. 账套必须存在
+        1. 账簿必须存在
     """
     ledger = get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise ValueError("账套不存在，无法暂停")
+        raise ValueError("账簿不存在，无法暂停")
     from datetime import datetime, timezone
     ledger.status = "suspended"
     ledger.suspended_at = datetime.now(timezone.utc)
@@ -437,25 +437,25 @@ def suspend_ledger(db: Session, ledger_id: int, reason: str | None = None) -> Le
 
 def archive_ledger(db: Session, ledger_id: int, reason: str | None = None) -> Ledger:
     """
-    归档账套。
+    归档账簿。
 
-    业务逻辑：将账套状态设置为 archived，并记录归档时间
-    会计口径：归档后账套进入只读状态，数据不可修改，符合档案管理要求
+    业务逻辑：将账簿状态设置为 archived，并记录归档时间
+    会计口径：归档后账簿进入只读状态，数据不可修改，符合档案管理要求
 
     Args:
         db: 数据库会话
-        ledger_id: 账套ID
+        ledger_id: 账簿ID
         reason: 生命周期变更原因（可选）
 
     Returns:
-        Ledger: 更新后的账套对象
+        Ledger: 更新后的账簿对象
 
     注意事项：
-        1. 账套必须存在
+        1. 账簿必须存在
     """
     ledger = get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise ValueError("账套不存在，无法归档")
+        raise ValueError("账簿不存在，无法归档")
     from datetime import datetime, timezone
     ledger.status = "archived"
     ledger.archived_at = datetime.now(timezone.utc)
@@ -467,25 +467,25 @@ def archive_ledger(db: Session, ledger_id: int, reason: str | None = None) -> Le
 
 def restore_ledger(db: Session, ledger_id: int, reason: str | None = None) -> Ledger:
     """
-    恢复账套。
+    恢复账簿。
 
-    业务逻辑：将 suspended 或 archived 状态的账套恢复为 active
-    会计口径：恢复后账套可重新进行记账和审计操作
+    业务逻辑：将 suspended 或 archived 状态的账簿恢复为 active
+    会计口径：恢复后账簿可重新进行记账和审计操作
 
     Args:
         db: 数据库会话
-        ledger_id: 账套ID
+        ledger_id: 账簿ID
         reason: 生命周期变更原因（可选）
 
     Returns:
-        Ledger: 更新后的账套对象
+        Ledger: 更新后的账簿对象
 
     注意事项：
-        1. 账套必须存在
+        1. 账簿必须存在
     """
     ledger = get_ledger_by_id(db, ledger_id)
     if not ledger:
-        raise ValueError("账套不存在，无法恢复")
+        raise ValueError("账簿不存在，无法恢复")
     from datetime import datetime, timezone
     ledger.status = "active"
     ledger.activated_at = datetime.now(timezone.utc)

@@ -71,7 +71,7 @@ The system SHALL place management center after business and master data modules.
 
 - **WHEN** 用户查看左侧导航
 - **THEN** 管理中心 SHALL 位于基础资料之后、自定义模块之前
-- **AND** 管理中心 SHALL 继续包含团队管理、账套管理、账套文件、项目管理等管理类入口
+- **AND** 管理中心 SHALL 继续包含团队管理、账簿管理、账簿文件、项目管理等管理类入口
 
 ### Requirement: 自定义模块预留
 

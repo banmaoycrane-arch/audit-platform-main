@@ -1,6 +1,6 @@
-"""账套会计期间时间线初始化。
+"""账簿会计期间时间线初始化。
 
-每个账套在创建时对齐会计起始时间线（默认创建当日），并种子化首个开放会计期间。
+每个账簿在创建时对齐会计起始时间线（默认创建当日），并种子化首个开放会计期间。
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def initialize_ledger_timeline(
     *,
     organization_name: str | None = None,
 ) -> tuple[Organization, AccountingPeriod]:
-    """为新建账套创建组织容器与首个会计期间。"""
+    """为新建账簿创建组织容器与首个会计期间。"""
     anchor = ledger.accounting_start_date or date.today()
     organization = Organization(
         name=organization_name or ledger.name,

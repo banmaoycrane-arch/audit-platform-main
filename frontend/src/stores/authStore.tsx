@@ -5,6 +5,8 @@ interface User {
   id: number
   username: string
   phone: string
+  platform_role?: string
+  is_super_admin?: boolean
 }
 
 interface Ledger {
@@ -26,6 +28,8 @@ interface AuthContextState {
   current_ledger_role?: string | null
   current_team_type?: string | null
   can_use_ledger_without_project?: boolean
+  platform_role?: string
+  is_super_admin?: boolean
 }
 
 interface AuthState {
@@ -98,6 +102,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       id: context.user.id,
       username: context.user.username || '',
       phone: context.user.phone || '',
+      platform_role: context.user.platform_role || context.platform_role || 'user',
+      is_super_admin: Boolean(context.user.is_super_admin || context.is_super_admin),
     })
     setUserLedgersState(context.ledgers)
     setCurrentLedgerIdState(nextLedgerId)
@@ -116,6 +122,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       current_ledger_role: context.current_ledger_role,
       current_team_type: context.current_team_type,
       can_use_ledger_without_project: context.can_use_ledger_without_project,
+      platform_role: context.platform_role || context.user.platform_role || 'user',
+      is_super_admin: Boolean(context.is_super_admin || context.user.is_super_admin),
     })
     if (nextLedgerId !== null) {
       localStorage.setItem('current_ledger_id', String(nextLedgerId))

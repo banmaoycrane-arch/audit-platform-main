@@ -1,10 +1,38 @@
 import { useEffect, useState } from 'react'
-import { Button, Card, Col, Form, Input, InputNumber, message, Modal, Row, Select, Space, Table, Tag, Typography } from 'antd'
+import { Button, Card, Col, Form, Input, InputNumber, message, Modal, Row, Select, Space, Table, Tag, Typography, AutoComplete } from 'antd'
 import { PlusOutlined, BankOutlined } from '@ant-design/icons'
 import { api, type BankAccount } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
 
 const { Title, Paragraph } = Typography
+
+const DEFAULT_BANK_OPTIONS = [
+  '中国工商银行',
+  '中国农业银行',
+  '中国银行',
+  '中国建设银行',
+  '交通银行',
+  '中国邮政储蓄银行',
+  '招商银行',
+  '浦发银行',
+  '中信银行',
+  '中国光大银行',
+  '华夏银行',
+  '中国民生银行',
+  '广发银行',
+  '平安银行',
+  '兴业银行',
+  '浙商银行',
+  '渤海银行',
+  '恒丰银行',
+  '北京银行',
+  '上海银行',
+  '江苏银行',
+  '宁波银行',
+  '南京银行',
+  '杭州银行',
+  '徽商银行',
+].map((name) => ({ value: name }))
 
 export function BankAccountsPage() {
   const { currentLedgerId } = useAuthStore()
@@ -29,7 +57,7 @@ export function BankAccountsPage() {
 
   const handleCreate = async () => {
     if (!currentLedgerId) {
-      message.warning('请先在顶部切换账套')
+      message.warning('请先在顶部切换账簿')
       return
     }
     const values = await form.validateFields()
@@ -84,8 +112,15 @@ export function BankAccountsPage() {
 
       <Modal title="新增银行账户" open={open} onOk={handleCreate} onCancel={() => setOpen(false)} okText="保存" cancelText="取消">
         <Form form={form} layout="vertical" initialValues={{ coa_account_code: '1002', opening_balance: 0 }}>
-          <Form.Item name="bank_name" label="开户银行" rules={[{ required: true, message: '请输入开户银行' }]}>
-            <Input placeholder="例如：中国工商银行" />
+          <Form.Item name="bank_name" label="开户银行" rules={[{ required: true, message: '请选择或输入开户银行' }]}>
+            <AutoComplete
+              options={DEFAULT_BANK_OPTIONS}
+              placeholder="请选择或输入开户银行，例如：中国工商银行"
+              filterOption={(inputValue, option) =>
+                String(option?.value || '').toLowerCase().includes(inputValue.toLowerCase())
+              }
+              allowClear
+            />
           </Form.Item>
           <Form.Item name="account_no" label="银行账号" rules={[{ required: true, message: '请输入银行账号' }]}>
             <Input placeholder="6222..." />

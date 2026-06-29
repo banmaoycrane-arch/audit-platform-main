@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/audit/purchase-match", tags=["purchase-match"])
 
 def require_ledger(ledger_id: int | None = Depends(get_current_ledger)) -> int:
     if ledger_id is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先选择账套")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先选择账簿")
     return ledger_id
 
 
