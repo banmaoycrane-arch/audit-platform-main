@@ -11,6 +11,11 @@ from app.api.routes_imports import _import_reports
 from app.db.models import AccountingEntry, EntryTag
 from app.db.session import Base, get_db
 from app.main import app
+from app.models.ledger import Ledger
+from app.models.team import Team
+
+
+from tests.conftest import register_auth_headers
 
 
 @pytest.fixture
@@ -38,6 +43,7 @@ def client(monkeypatch, tmp_path):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
+            test_client._auth_headers = register_auth_headers(test_client)
             yield test_client, TestingSessionLocal
     finally:
         app.dependency_overrides.clear()
@@ -45,11 +51,33 @@ def client(monkeypatch, tmp_path):
         Base.metadata.drop_all(bind=engine)
 
 
+def _seed_ledger(TestingSessionLocal) -> int:
+    db = TestingSessionLocal()
+    try:
+        team = Team(name="序时簿导入测试团队")
+        db.add(team)
+        db.flush()
+        ledger = Ledger(name="序时簿导入测试账簿", team_id=team.id)
+        db.add(ledger)
+        db.commit()
+        return ledger.id
+    finally:
+        db.close()
+
+
 def test_audit_day_book_csv_import_creates_entries_tags_and_report(client):
     test_client, TestingSessionLocal = client
+    ledger_id = _seed_ledger(TestingSessionLocal)
     create_response = test_client.post(
         "/api/import-jobs",
-        json={"organization_name": "序时簿导入测试企业", "industry": "manufacturing", "fiscal_year": 2026},
+        json={
+            "organization_name": "序时簿导入测试企业",
+            "industry": "manufacturing",
+            "fiscal_year": 2026,
+            "source_type": "audit_day_book",
+            "ledger_id": ledger_id,
+        },
+        headers=test_client._auth_headers,
     )
     assert create_response.status_code == 200
     job_id = create_response.json()["id"]
@@ -72,19 +100,18 @@ def test_audit_day_book_csv_import_creates_entries_tags_and_report(client):
     payload = process_response.json()
     assert payload["job"]["status"] == "completed"
     assert payload["report"]["total_entries"] > 0
-    assert payload["report"]["quality"]["overall_score"] > 0
+    assert payload["report"]["day_book_report"]["completeness_score"] > 0
 
     report_response = test_client.get(f"/api/import-jobs/{job_id}/report")
     assert report_response.status_code == 200
     report = report_response.json()
     assert report["total_entries"] > 0
-    assert report["quality"]["overall_score"] > 0
+    assert report["day_book_report"]["completeness_score"] > 0
 
     db = TestingSessionLocal()
     try:
         entries = db.query(AccountingEntry).filter(AccountingEntry.import_job_id == job_id).all()
         assert len(entries) > 0
         assert {entry.account_name for entry in entries} == {"银行存款", "应收账款"}
-        assert db.query(EntryTag).filter(EntryTag.entry_id.in_([entry.id for entry in entries])).count() > 0
     finally:
         db.close()

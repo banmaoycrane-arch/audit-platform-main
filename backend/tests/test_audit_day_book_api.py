@@ -11,6 +11,11 @@ from app.api.routes_imports import _day_book_reports, _import_reports
 from app.db.models import AccountingEntry, ImportJob
 from app.db.session import Base, get_db
 from app.main import app
+from app.models.ledger import Ledger
+from app.models.team import Team
+
+
+from tests.conftest import register_auth_headers
 
 
 @pytest.fixture
@@ -40,6 +45,7 @@ def client(monkeypatch, tmp_path):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
+            test_client._auth_headers = register_auth_headers(test_client)
             yield test_client, TestingSessionLocal
     finally:
         app.dependency_overrides.clear()
@@ -48,7 +54,22 @@ def client(monkeypatch, tmp_path):
         Base.metadata.drop_all(bind=engine)
 
 
-def _create_day_book_job(test_client: TestClient) -> int:
+def _seed_ledger(TestingSessionLocal) -> int:
+    db = TestingSessionLocal()
+    try:
+        team = Team(name="序时簿测试团队")
+        db.add(team)
+        db.flush()
+        ledger = Ledger(name="序时簿测试账簿", team_id=team.id)
+        db.add(ledger)
+        db.commit()
+        return ledger.id
+    finally:
+        db.close()
+
+
+def _create_day_book_job(test_client: TestClient, TestingSessionLocal) -> int:
+    ledger_id = _seed_ledger(TestingSessionLocal)
     response = test_client.post(
         "/api/import-jobs",
         json={
@@ -56,7 +77,9 @@ def _create_day_book_job(test_client: TestClient) -> int:
             "industry": "manufacturing",
             "fiscal_year": 2026,
             "source_type": "audit_day_book",
+            "ledger_id": ledger_id,
         },
+        headers=test_client._auth_headers,
     )
     assert response.status_code == 200
     payload = response.json()
@@ -75,7 +98,7 @@ def _upload_day_book_csv(test_client: TestClient, job_id: int, csv_text: str) ->
 
 def test_create_audit_day_book_job_stores_source_type(client):
     test_client, TestingSessionLocal = client
-    job_id = _create_day_book_job(test_client)
+    job_id = _create_day_book_job(test_client, TestingSessionLocal)
 
     db = TestingSessionLocal()
     try:
@@ -88,7 +111,7 @@ def test_create_audit_day_book_job_stores_source_type(client):
 
 def test_audit_day_book_groups_entries_and_returns_report(client):
     test_client, TestingSessionLocal = client
-    job_id = _create_day_book_job(test_client)
+    job_id = _create_day_book_job(test_client, TestingSessionLocal)
     csv_text = "\n".join([
         "凭证号,日期,摘要,科目编码,科目名称,借方,贷方,对方单位",
         "记-001,2026-01-03,收到客户货款,1002,银行存款,12000,0,客户A",
@@ -123,8 +146,8 @@ def test_audit_day_book_groups_entries_and_returns_report(client):
 
 
 def test_audit_day_book_marks_unbalanced_vouchers(client):
-    test_client, _ = client
-    job_id = _create_day_book_job(test_client)
+    test_client, TestingSessionLocal = client
+    job_id = _create_day_book_job(test_client, TestingSessionLocal)
     csv_text = "\n".join([
         "凭证号,日期,摘要,科目编码,科目名称,借方,贷方,对方单位",
         "记-001,2026-01-03,收到客户货款,1002,银行存款,12000,0,客户A",
@@ -149,6 +172,7 @@ def test_day_book_report_rejects_voucher_import_job(client):
     response = test_client.post(
         "/api/import-jobs",
         json={"organization_name": "普通凭证导入测试企业"},
+        headers=test_client._auth_headers,
     )
     assert response.status_code == 200
     job_id = response.json()["id"]
@@ -160,12 +184,15 @@ def test_day_book_report_rejects_voucher_import_job(client):
 
 def test_ledger_day_book_import_generates_entries_and_period_suggestion(client):
     test_client, TestingSessionLocal = client
+    ledger_id = _seed_ledger(TestingSessionLocal)
     response = test_client.post(
         "/api/import-jobs",
         json={
             "organization_name": "记账序时簿测试企业",
             "source_type": "ledger_day_book",
+            "ledger_id": ledger_id,
         },
+        headers=test_client._auth_headers,
     )
     assert response.status_code == 200
     job_id = response.json()["id"]
@@ -212,6 +239,7 @@ def test_ai_generated_structured_file_does_not_create_entries(client):
             "organization_name": "AI路径结构化文件测试",
             "source_type": "ai_generated",
         },
+        headers=test_client._auth_headers,
     )
     assert response.status_code == 200
     job_id = response.json()["id"]

@@ -1,8 +1,10 @@
 from sqlalchemy import inspect, text
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 from app.core.gateway import configure_gateway
+from app.core.config import get_settings
 from app.api.routes_accounting_periods import router as accounting_periods_router
 from app.api.routes_accounting_units import router as accounting_units_router
 from app.api.routes_agent import router as agent_router
@@ -212,6 +214,34 @@ def _ensure_local_sqlite_schema() -> None:
             for column_name, ddl in entry_missing_columns.items():
                 if column_name not in entry_columns:
                     connection.execute(text(ddl))
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_accounting_entries_ledger_voucher "
+                    "ON accounting_entries (ledger_id, voucher_date, voucher_no)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_accounting_entries_ledger_review "
+                    "ON accounting_entries (ledger_id, review_status)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_accounting_entries_ledger_date "
+                    "ON accounting_entries (ledger_id, voucher_date)"
+                )
+            )
+
+        if "audit_risks" in table_names:
+            risk_columns = {column["name"] for column in inspector.get_columns("audit_risks")}
+            risk_missing_columns = {
+                "ledger_id": "ALTER TABLE audit_risks ADD COLUMN ledger_id INTEGER",
+                "status": "ALTER TABLE audit_risks ADD COLUMN status VARCHAR(40) DEFAULT 'pending_review' NOT NULL",
+            }
+            for column_name, ddl in risk_missing_columns.items():
+                if column_name not in risk_columns:
+                    connection.execute(text(ddl))
 
         register_table_columns = {
             "contracts": {
@@ -307,9 +337,15 @@ app = FastAPI(
     default_response_class=JSONResponse,
 )
 configure_gateway(app)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+_cors_origins = [
+    origin.strip()
+    for origin in get_settings().cors_allow_origins.split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins or ["http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

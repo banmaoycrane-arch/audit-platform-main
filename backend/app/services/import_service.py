@@ -1124,6 +1124,8 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
                     )
                 
                 result = parse_result_to_source_document_result(parse_result, source_file.filename)
+                if (result.document_type or "unknown") in {"unknown", "general"} or float(result.confidence or 0) < 0.3:
+                    result = classify_document(source_file.storage_path, source_file.filename)
             except Exception as e:
                 logger.warning(f"新解析引擎调用失败，降级到旧引擎: {e}")
                 result = classify_document(source_file.storage_path, source_file.filename)

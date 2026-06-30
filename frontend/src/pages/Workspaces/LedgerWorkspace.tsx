@@ -101,7 +101,7 @@ export function LedgerWorkspace() {
       dateTo = selectedPeriod.end_date
     }
     api.listEntries(undefined, currentLedgerId, 'draft', dateFrom, dateTo, 50, 0)
-      .then(setEntries)
+      .then((result) => setEntries(result.items))
       .catch(() => setEntries([]))
       .finally(() => setLoading(false))
   }

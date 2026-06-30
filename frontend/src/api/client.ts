@@ -81,7 +81,11 @@ export type VoucherCard = {
   debit_total: number
   credit_total: number
   summary_preview: string | null
-  lines: AccountingEntry[]
+  lines?: AccountingEntry[]
+}
+
+export type VoucherLinesResponse = {
+  items: AccountingEntry[]
 }
 
 export type VoucherQueryFilters = {
@@ -102,6 +106,7 @@ export type VoucherQueryFilters = {
   credit_max?: number
   total_min?: number
   total_max?: number
+  include_lines?: boolean
   limit?: number
   offset?: number
 }
@@ -111,6 +116,16 @@ export type VoucherQueryResponse = {
   total: number
   limit: number
   offset: number
+}
+
+export type VoucherDeleteKey = {
+  voucher_no: string | null
+  voucher_date: string | null
+}
+
+export type VoucherBatchDeleteResponse = {
+  deleted_vouchers: number
+  deleted_entries: number
 }
 
 export type AccountingEntryUpdate = Partial<Pick<
@@ -1275,6 +1290,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
+  if (
+    options?.body
+    && typeof options.body === 'string'
+    && !headers['Content-Type']
+    && !(options.body instanceof FormData)
+  ) {
+    headers['Content-Type'] = 'application/json'
+  }
   let response: Response
   try {
     response = await fetch(`${API_BASE}${path}`, {
@@ -1518,10 +1541,24 @@ export const api = {
     if (filters.credit_max != null) params.set('credit_max', String(filters.credit_max))
     if (filters.total_min != null) params.set('total_min', String(filters.total_min))
     if (filters.total_max != null) params.set('total_max', String(filters.total_max))
+    if (filters.include_lines != null) params.set('include_lines', String(filters.include_lines))
     if (filters.limit != null) params.set('limit', String(filters.limit))
     if (filters.offset != null) params.set('offset', String(filters.offset))
     return request<VoucherQueryResponse>(`/api/entries/vouchers?${params.toString()}`)
   },
+  getVoucherLines: (ledgerId: number, voucherNo: string | null, voucherDate: string | null) => {
+    const params = new URLSearchParams()
+    params.set('ledger_id', String(ledgerId))
+    if (voucherNo) params.set('voucher_no', voucherNo)
+    if (voucherDate) params.set('voucher_date', voucherDate)
+    return request<VoucherLinesResponse>(`/api/entries/vouchers/lines?${params.toString()}`)
+  },
+  deleteVouchersBatch: (ledgerId: number, vouchers: VoucherDeleteKey[]) =>
+    request<VoucherBatchDeleteResponse>('/api/entries/vouchers/batch-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ledger_id: ledgerId, vouchers }),
+    }),
   updateEntry: (entryId: number, payload: AccountingEntryUpdate) =>
     request<AccountingEntry>(`/api/entries/${entryId}`, {
       method: 'PATCH',

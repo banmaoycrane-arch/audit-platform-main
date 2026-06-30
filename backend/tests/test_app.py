@@ -64,9 +64,17 @@ def test_ensure_local_sqlite_schema_adds_missing_user_columns(monkeypatch, tmp_p
         temporary_engine.dispose()
 
 
+from tests.conftest import register_auth_headers
+
+
 def test_create_import_job() -> None:
     client = TestClient(app)
-    response = client.post("/api/import-jobs", json={"organization_name": "测试企业", "fiscal_year": 2026})
+    headers = register_auth_headers(client, username="import_job_user", phone="13800138001")
+    response = client.post(
+        "/api/import-jobs",
+        json={"organization_name": "测试企业", "fiscal_year": 2026},
+        headers=headers,
+    )
     assert response.status_code == 200
     assert response.json()["status"] == "created"
     assert response.json()["source_type"] == "voucher_import"
@@ -74,9 +82,11 @@ def test_create_import_job() -> None:
 
 def test_upload_pdf_source_file() -> None:
     client = TestClient(app)
+    headers = register_auth_headers(client, username="upload_pdf_user", phone="13800138002")
     job_response = client.post(
         "/api/import-jobs",
         json={"organization_name": "测试企业", "fiscal_year": 2026, "source_type": "ai_generated"},
+        headers=headers,
     )
     job_id = job_response.json()["id"]
 

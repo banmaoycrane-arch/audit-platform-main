@@ -47,6 +47,16 @@ class GatewayMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def _sanitize_json_value(value):
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, list):
+        return [_sanitize_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _sanitize_json_value(item) for key, item in value.items()}
+    return value
+
+
 def build_error_response(
     request: Request,
     status_code: int,
@@ -112,18 +122,30 @@ def configure_gateway(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException | StarletteHTTPException):
-        message = exc.detail if isinstance(exc.detail, str) else "请求处理失败"
+        if isinstance(exc.detail, str):
+            message = exc.detail
+            legacy_detail = exc.detail
+            details = None
+        elif isinstance(exc.detail, dict):
+            message = str(exc.detail.get("message") or "请求处理失败")
+            legacy_detail = exc.detail
+            details = exc.detail
+        else:
+            message = "请求处理失败"
+            legacy_detail = exc.detail
+            details = exc.detail
         return build_error_response(
             request=request,
             status_code=exc.status_code,
             message=message,
             error_code="http_error",
-            details=None if isinstance(exc.detail, str) else exc.detail,
+            details=details,
+            legacy_detail=legacy_detail,
         )
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        validation_details = exc.errors()
+        validation_details = _sanitize_json_value(exc.errors())
         return build_error_response(
             request=request,
             status_code=422,

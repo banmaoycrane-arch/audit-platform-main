@@ -124,10 +124,15 @@ def login_sms(payload: LoginSmsRequest, db: Session = Depends(get_db)):
     return TokenResponse(access_token=token)
 
 
-@router.post("/sms/code", response_model=SmsCodeResponse)
+@router.post("/sms/code")
 def sms_code(payload: SmsCodeRequest, db: Session = Depends(get_db)):
+    from app.core.config import get_settings
+
     code = auth_service.get_sms_code(db, payload.phone)
-    return SmsCodeResponse(code=code, sms_code=code, message="验证码已生成")
+    settings = get_settings()
+    if settings.sms_return_code_in_dev:
+        return SmsCodeResponse(code=code, sms_code=code, message="验证码已生成（开发模式）")
+    return SmsCodeResponse(code="", sms_code="", message="验证码已发送，请查收短信")
 
 
 @router.get("/me", response_model=UserResponse)

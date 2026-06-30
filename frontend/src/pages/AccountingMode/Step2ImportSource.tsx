@@ -1,4 +1,4 @@
-import { Card, Upload, Button, Steps, Typography, message, Tag, Space, Modal, Input, List, DatePicker, Alert, Select, Statistic } from 'antd'
+import { Card, Upload, Button, Steps, Typography, message, Tag, Space, Modal, Input, List, DatePicker, Alert, Select, Statistic, Radio } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { InboxOutlined, PlusOutlined, RobotOutlined } from '@ant-design/icons'
@@ -22,6 +22,49 @@ const SOURCE_DOCUMENT_TYPES = [
   { type: 'expense', label: '费用单据', icon: '📝', description: '差旅费、业务招待费等' },
   { type: 'other', label: '其他凭证', icon: '📋', description: '自定义原始凭证类型' },
 ]
+
+type StructuredKind =
+  | 'day_book'
+  | 'standard_entries'
+  | 'trial_balance'
+  | 'subsidiary_ledger'
+  | 'financial_reports'
+
+const STRUCTURED_KIND_META: Record<
+  StructuredKind,
+  { label: string; hint: string; uploadTitle: string; columnHint: string }
+> = {
+  day_book: {
+    label: '序时簿 / 日记账',
+    hint: '按凭证号、日期排列的分录流水',
+    uploadTitle: '序时簿 / 日记账文件',
+    columnHint: '请保留凭证号、日期、科目、借贷金额、对方单位等列。系统会按凭证号合并、校验借贷平衡并检测跳号。',
+  },
+  standard_entries: {
+    label: '标准格式分录文件',
+    hint: '凭证号、科目、借贷金额等标准列',
+    uploadTitle: '标准分录文件',
+    columnHint: '请保留凭证号、分录行号、摘要、科目编码/名称、借方金额、贷方金额等标准列。规则引擎先映射列，再由智能解析引擎校验与补全。',
+  },
+  trial_balance: {
+    label: '科目余额表',
+    hint: '期初、本期发生、期末余额',
+    uploadTitle: '科目余额表',
+    columnHint: '请保留科目编码、科目名称、期初余额、本期借方、本期贷方、期末余额等列。规则识别表头后，智能解析引擎校验勾稽关系。',
+  },
+  subsidiary_ledger: {
+    label: '明细账',
+    hint: '按科目展开的分录明细',
+    uploadTitle: '明细账文件',
+    columnHint: '请保留科目、凭证号、日期、摘要、借方、贷方等列。系统先按科目归集，再由智能解析引擎生成或校验分录。',
+  },
+  financial_reports: {
+    label: '标准财务报表',
+    hint: '资产负债表、利润表等导出表',
+    uploadTitle: '财务报表导出文件',
+    columnHint: '支持财务软件导出的资产负债表、利润表等 Excel/CSV。规则识别报表结构后，智能解析引擎提取勾稽与辅助分录线索。',
+  },
+}
 
 const VOUCHER_TYPE_OPTIONS = ['记', '银', '收', '付', '转', '工'].map(value => ({ value, label: value }))
 const CURRENT_ACCOUNT_CODES = ['1122', '2203', '2202', '1123', '1221', '2241']
@@ -145,11 +188,23 @@ export function Step2AccountingImportSource() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { currentLedgerId, user } = useAuthStore()
   const inputMode = searchParams.get('inputMode') || 'ai_generated'
+  const structuredKindParam = searchParams.get('structuredKind') || 'day_book'
+  const structuredKind = (
+    structuredKindParam in STRUCTURED_KIND_META ? structuredKindParam : 'day_book'
+  ) as StructuredKind
+  const structuredMeta = STRUCTURED_KIND_META[structuredKind]
   const isManualEntry = inputMode === 'manual_entry'
   const isAiGenerated = inputMode === 'ai_generated'
   const isDayBookImport = inputMode === 'day_book_import'
   const needsPeriodPicker = isManualEntry || isAiGenerated
   const stepPath = (step: number) => location.pathname.startsWith('/ledger/vouchers/step/') ? `/ledger/vouchers/step/${step}` : `/accounting/step/${step}`
+  const buildStepQuery = (extra?: Record<string, string>) => {
+    const params = new URLSearchParams({ inputMode, ...(extra || {}) })
+    if (isDayBookImport) {
+      params.set('structuredKind', structuredKind)
+    }
+    return params.toString()
+  }
   const currentStep = 1
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
@@ -352,35 +407,32 @@ export function Step2AccountingImportSource() {
         setCurrentOrgId(job.organization_id)
       }
 
-      const sourceFile = await api.uploadFile(jobId, file)
-      setUploadedFiles(prev => [...prev, { name: file.name, size: file.size, fileType: file.type || 'unknown', jobId, fileId: sourceFile.id }])
+      await api.uploadFile(jobId, file)
+      setUploadedFiles(prev => [...prev, { name: file.name, size: file.size, fileType: file.type || 'unknown', jobId }])
 
-      message.loading({ content: '正在调用统一解析引擎解析序时簿...', key: 'daybook-parse' })
-      const parseResult = await api.parseSourceFileWithEngine(jobId, sourceFile.id) as {
-        parser_engine_result?: {
-          data?: Record<string, unknown>
-          error_message?: string | null
-        }
-        job_status?: string
+      message.loading({
+        content: `正在规则预识别并解析${structuredMeta.label}，生成会计分录...`,
+        key: 'daybook-parse',
+      })
+      const result = await api.processImportJobSync(jobId)
+      const reportSummary = result.report as {
+        output_path?: string
+        total_entries?: number
+        failed_files?: number
+        error_message?: string
+        period_suggestion?: ImportPeriodSuggestion
+        day_book_report?: DayBookReport
+        parse_diagnostics?: ParseDiagnostics
+        file_summary?: Array<{ error?: string; parse_diagnostics?: ParseDiagnostics }>
       }
-      const parserResult = parseResult.parser_engine_result
-      const reportSummary = {
-        output_path: 'parser_engine_draft',
-        total_entries: 0,
-        failed_files: parserResult?.error_message ? 1 : 0,
-        error_message: parserResult?.error_message || undefined,
-        parse_diagnostics: {
-          source: 'parser_engine',
-          data: parserResult?.data || {},
-        } as ParseDiagnostics,
-      }
-      const jobStatus = parseResult.job_status
 
       const diagnostics = reportSummary.parse_diagnostics
         || reportSummary.file_summary?.find((item) => item.parse_diagnostics)?.parse_diagnostics
         || null
       const totalEntries = reportSummary.total_entries || 0
-      const failed = (reportSummary.failed_files ?? 0) > 0 || jobStatus === 'failed' || totalEntries === 0
+      const failed = (reportSummary.failed_files ?? 0) > 0
+        || result.job.status === 'failed'
+        || totalEntries === 0
 
       setOutputPath(reportSummary.output_path || 'direct_entries')
       setEntryCount(totalEntries)
@@ -407,7 +459,7 @@ export function Step2AccountingImportSource() {
       }
 
       message.success({
-        content: `序时簿解析完成，已生成 ${totalEntries} 条分录`,
+        content: `${structuredMeta.label}解析完成，已生成 ${totalEntries} 条分录`,
         key: 'daybook-parse',
       })
     } catch (error) {
@@ -566,7 +618,7 @@ export function Step2AccountingImportSource() {
   const handleNext = async () => {
     if (isDayBookImport) {
       if (!currentJobId || entryCount === 0) {
-        message.warning('请先上传序时簿并完成解析')
+        message.warning('请先上传结构化文件并完成解析')
         return
       }
       let usePeriodId = periodId
@@ -590,10 +642,10 @@ export function Step2AccountingImportSource() {
           return
         }
       }
-      const nextParams = new URLSearchParams()
-      nextParams.set('inputMode', inputMode)
-      nextParams.set('jobId', String(currentJobId))
-      nextParams.set('periodId', String(usePeriodId))
+      const nextParams = new URLSearchParams(buildStepQuery({
+        jobId: String(currentJobId),
+        periodId: String(usePeriodId),
+      }))
       navigate(`${stepPath(4)}?${nextParams.toString()}`)
       return
     }
@@ -1064,7 +1116,7 @@ export function Step2AccountingImportSource() {
         />
 
         <div style={{ marginTop: '16px' }} className="no-print">
-          <Button onClick={() => navigate(`${stepPath(1)}?inputMode=${inputMode}`)}>
+          <Button onClick={() => navigate(`${stepPath(1)}?${buildStepQuery()}`)}>
             返回选择模式
           </Button>
         </div>
@@ -1079,7 +1131,7 @@ export function Step2AccountingImportSource() {
           current={currentStep}
           items={[
             { title: '选择模式' },
-            { title: '序时簿导入' },
+            { title: '导入资料' },
             { title: '生成草稿' },
             { title: '复核调整' },
             { title: '确认导出' }
@@ -1088,27 +1140,27 @@ export function Step2AccountingImportSource() {
         />
 
         <FlowNav
-          prev={stepPath(1)}
+          prev={`${stepPath(1)}?${buildStepQuery()}`}
           onNext={handleNext}
           nextDisabled={entryCount === 0 || !currentJobId}
           style={{ marginBottom: '16px' }}
         />
 
-        <Title level={4}>序时簿导入生成会计凭证</Title>
+        <Title level={4}>导入结构化财务文件 · {structuredMeta.label}</Title>
         <Text type="secondary">
-          上传按日期顺序登记的序时簿（Excel/CSV），系统将按凭证号分组生成正式会计分录，并自动识别主要会计月份。
+          {structuredMeta.hint}。上传 Excel/CSV 等标准表格：先用规则引擎识别表头与列映射以保证速度，再调用项目统一智能解析引擎做校验、补全与异常提示。
         </Text>
 
         <Alert
-          title="稳定输出路径"
-          description="序时簿导入走 direct_entries 路径：解析后直接生成 accounting_entries，跳过 AI 草稿步骤，进入复核调整。"
+          title="规则预识别 + 智能解析引擎"
+          description={`当前文件类型：${structuredMeta.label}。解析成功后走 direct_entries 路径，直接生成 accounting_entries 并进入复核调整；如需更换类型请返回 Step 1。`}
           type="info"
           showIcon
           style={{ marginTop: '16px' }}
         />
 
         <Card style={{ marginTop: '16px' }}>
-          <Title level={5}>1. 上传序时簿文件</Title>
+          <Title level={5}>1. 上传{structuredMeta.uploadTitle}</Title>
           <Dragger
             name="daybook"
             multiple={false}
@@ -1120,10 +1172,8 @@ export function Step2AccountingImportSource() {
             <p className="ant-upload-drag-icon">
               <InboxOutlined />
             </p>
-            <p className="ant-upload-text">点击或拖拽序时簿文件到此区域</p>
-            <p className="ant-upload-hint">
-              请保留凭证号、日期、科目、借贷金额、对方单位等列。系统会按凭证号合并、校验借贷平衡并检测跳号。
-            </p>
+            <p className="ant-upload-text">点击或拖拽文件到此区域</p>
+            <p className="ant-upload-hint">{structuredMeta.columnHint}</p>
           </Dragger>
 
           {uploadedFiles.length > 0 && (
@@ -1141,13 +1191,13 @@ export function Step2AccountingImportSource() {
             />
           )}
           {renderParseGuidance(parseGuidance, {
-            onSwitchDayBook: () => navigate(`${stepPath(1)}?inputMode=day_book_import`),
+            onSwitchDayBook: () => navigate(`${stepPath(1)}?${buildStepQuery()}`),
           })}
         </Card>
 
         {dayBookReport && (
           <Card style={{ marginTop: '16px' }}>
-            <Title level={5}>2. 序时簿检测报告</Title>
+            <Title level={5}>2. 结构化文件检测报告</Title>
             <Space wrap size="large">
               <Statistic title="凭证总数" value={dayBookReport.total_vouchers} />
               <Statistic title="分录行数" value={dayBookReport.total_entries} />
@@ -1201,12 +1251,12 @@ export function Step2AccountingImportSource() {
                 onChange={(date) => setPeriodEnd(date ? date.format('YYYY-MM-DD') : '')}
               />
             </Space>
-            <Text type="secondary">系统根据序时簿凭证日期自动推荐期间；如无匹配 open 期间，提交时将创建新期间。</Text>
+            <Text type="secondary">系统根据文件中的凭证日期自动推荐期间；如无匹配 open 期间，提交时将创建新期间。</Text>
           </Space>
         </Card>
 
         <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
-          <Button onClick={() => navigate(`${stepPath(1)}?inputMode=${inputMode}`)}>
+          <Button onClick={() => navigate(`${stepPath(1)}?${buildStepQuery()}`)}>
             上一步
           </Button>
           <Button
@@ -1237,9 +1287,9 @@ export function Step2AccountingImportSource() {
 
       <FlowNav prev={stepPath(1)} onNext={handleNext} nextDisabled={uploadedFiles.length === 0 || !currentJobId || !periodId} style={{ marginBottom: '16px' }} />
 
-      <Title level={4}>导入原始资料</Title>
+      <Title level={4}>导入非结构化 · 支持性原始文件</Title>
         <Text type="secondary">
-          当前为 AI 智能生成路径。系统会先对底稿做语义分解（收入/成本/发票/往来/资金等维度），自动登记到一个或多个功能模块台账，并按项目自动归档底稿资料，便于后续在项目中检索管理；不直接写入会计分录。
+          当前路径调用项目统一智能解析引擎：对 PDF、图片、扫描件及非标准表格做 OCR 与语义分解（收入/成本/发票/往来/资金等维度），登记到功能模块台账并按项目归档底稿；不直接写入会计分录，下一步生成待复核凭证草稿。
         </Text>
 
       {outputPath && (
@@ -1249,8 +1299,8 @@ export function Step2AccountingImportSource() {
             outputPath === 'register_ledger'
               ? '原始资料（PDF/图片等）识别后登记到功能模块台账（非会计分录），下一步结合台账证据生成凭证草稿。'
               : outputPath === 'structured_preview'
-                ? `已识别结构化表格 ${structuredPreviewCount > 0 ? `（${structuredPreviewCount} 条分录预览）` : ''}。Excel/CSV 序时簿请切换到「序时簿导入」模式生成正式会计凭证。`
-                : '结构化文件已解析为分录预览，请改用序时簿导入模式生成正式凭证。'
+                ? `已识别结构化表格 ${structuredPreviewCount > 0 ? `（${structuredPreviewCount} 条分录预览）` : ''}。标准 Excel/CSV 财务文件请返回 Step 1 选择「结构化 · 标准化财务文件」。`
+                : '结构化文件已解析为分录预览，请返回 Step 1 选择「结构化 · 标准化财务文件」生成正式凭证。'
           }
           type={outputPath === 'structured_preview' ? 'warning' : 'info'}
           showIcon
@@ -1259,7 +1309,7 @@ export function Step2AccountingImportSource() {
       )}
 
       {renderParseGuidance(parseGuidance, {
-        onSwitchDayBook: () => navigate(`${stepPath(1)}?inputMode=day_book_import`),
+        onSwitchDayBook: () => navigate(`${stepPath(1)}?inputMode=day_book_import&structuredKind=day_book`),
       })}
 
       <Card style={{ marginTop: '16px' }}>

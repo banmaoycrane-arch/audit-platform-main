@@ -2,6 +2,7 @@
 
 import io
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -19,8 +20,11 @@ from app.services.ledger_service import ledger_service
 from app.services.source_document_service import SourceDocumentResult
 
 
+from tests.conftest import register_auth_headers
+
+
 @pytest.fixture
-def client():
+def client(monkeypatch, tmp_path):
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -37,8 +41,10 @@ def client():
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    monkeypatch.setattr("app.storage.local_storage.get_settings", lambda: SimpleNamespace(upload_dir=str(tmp_path)))
     try:
         with TestClient(app) as test_client:
+            test_client._auth_headers = register_auth_headers(test_client)
             test_client._SessionLocal = TestingSessionLocal  # type: ignore[attr-defined]
             yield test_client
     finally:
@@ -119,6 +125,7 @@ def test_ai_import_persists_ledger_id_on_contract(mock_classify, client):
     job = test_client.post(
         "/api/import-jobs",
         json={"organization_name": "PhaseA导入", "source_type": "ai_generated", "ledger_id": ledger_id},
+        headers=test_client._auth_headers,
     ).json()
 
     test_client.post(

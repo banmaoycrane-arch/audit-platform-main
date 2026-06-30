@@ -22,4 +22,7 @@ def save_upload(file: UploadFile) -> str:
     with target.open("wb") as buffer:
         while chunk := file.file.read(1024 * 1024):
             buffer.write(chunk)
-    return str(target.relative_to(BACKEND_DIR))
+    try:
+        return str(target.relative_to(BACKEND_DIR))
+    except ValueError:
+        return str(target.resolve())

@@ -4,12 +4,29 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.global_settings import GlobalSettings
+from app.models.user import User
 from app.services.parser_engine.config_service import get_runtime_parser_engine_config
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/config", tags=["config"])
+
+
+def _mask_api_key(value: str | None) -> str | None:
+    if not value:
+        return None
+    if len(value) <= 4:
+        return "****"
+    return f"{'*' * (len(value) - 4)}{value[-4:]}"
+
+
+def _mask_parser_engine_config(config: dict[str, Any]) -> dict[str, Any]:
+    masked = dict(config)
+    if masked.get("ai_api_key"):
+        masked["ai_api_key"] = _mask_api_key(str(masked["ai_api_key"]))
+    return masked
 
 
 class ParserEngineConfig(BaseModel):
@@ -49,7 +66,10 @@ class TestConnectionRequest(BaseModel):
 
 
 @router.get("/parser-engine", response_model=ParserEngineConfig)
-def get_parser_engine_config(db: Session = Depends(get_db)):
+def get_parser_engine_config(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """获取当前解析引擎配置"""
     settings = get_settings()
     
@@ -58,9 +78,9 @@ def get_parser_engine_config(db: Session = Depends(get_db)):
     ).first()
     
     if db_config and db_config.settings_value:
-        return db_config.settings_value
+        return _mask_parser_engine_config(db_config.settings_value)
     
-    return {
+    return _mask_parser_engine_config({
         "ai_provider": settings.ai_provider,
         "ai_base_url": settings.ai_base_url,
         "ai_model": settings.ai_model,
@@ -88,11 +108,14 @@ def get_parser_engine_config(db: Session = Depends(get_db)):
         "llm_engine_weights": settings.llm_engine_weights,
         "llm_agreement_threshold": settings.llm_agreement_threshold,
         "llm_save_all_results": settings.llm_save_all_results,
-    }
+    })
 
 
 @router.post("/parser-engine/test-connection")
-def test_ai_connection(request: TestConnectionRequest):
+def test_ai_connection(
+    request: TestConnectionRequest,
+    current_user: User = Depends(get_current_user),
+):
     """
     测试AI模型连接是否可用。
 
@@ -401,7 +424,11 @@ def delete_llm_engine(engine_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/parser-engine/llm-comparison-config")
-def update_llm_comparison_config(config: LLMComparisonConfigRequest, db: Session = Depends(get_db)):
+def update_llm_comparison_config(
+    config: LLMComparisonConfigRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """更新LLM对比配置"""
     from app.services.llm_engine_config_service import (
         get_llm_engines_config,
@@ -423,6 +450,7 @@ def update_llm_comparison_config(config: LLMComparisonConfigRequest, db: Session
 def save_parser_engine_config(
     config: ParserEngineConfig,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """保存解析引擎配置到数据库"""
     db_config = db.query(GlobalSettings).filter(
@@ -446,5 +474,5 @@ def save_parser_engine_config(
     return {
         "success": True,
         "message": "配置已保存成功！",
-        "config": db_config.settings_value,
+        "config": _mask_parser_engine_config(db_config.settings_value),
     }

@@ -107,7 +107,11 @@ def test_post_job_rejects_draft_entries(client):
 
     response = test_client.post(f"/api/import-jobs/{job_id}/post")
     assert response.status_code == 400
-    assert "未复核通过" in response.json()["detail"]
+    detail = response.json()["detail"]
+    if isinstance(detail, dict):
+        assert "未复核通过" in detail.get("message", "")
+    else:
+        assert "未复核通过" in detail
 
 
 def test_post_job_unknown_job_404(client):

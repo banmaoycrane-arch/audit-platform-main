@@ -175,7 +175,7 @@ def test_sms_code() -> None:
     assert len(data["code"]) == 6
     assert data["code"].isdigit()
     assert data["sms_code"] == data["code"]
-    assert data["message"] == "验证码已生成"
+    assert data["message"] in {"验证码已生成", "验证码已生成（开发模式）"}
 
 
 def test_login_sms_success_and_auto_create() -> None:

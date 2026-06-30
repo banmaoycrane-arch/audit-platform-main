@@ -12,6 +12,9 @@ from app.main import app
 from app.services.import_service import process_import_job
 
 
+from tests.conftest import register_auth_headers
+
+
 @pytest.fixture
 def client():
     engine = create_engine(
@@ -32,6 +35,7 @@ def client():
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
+            test_client._auth_headers = register_auth_headers(test_client)
             yield test_client, TestingSessionLocal
     finally:
         app.dependency_overrides.clear()
@@ -63,6 +67,7 @@ def _create_job(test_client: TestClient) -> int:
     response = test_client.post(
         "/api/import-jobs",
         json={"organization_name": "行号测试企业", "industry": "general", "fiscal_year": 2026},
+        headers=test_client._auth_headers,
     )
     assert response.status_code == 200
     return response.json()["id"]
@@ -74,6 +79,13 @@ def _upload_csv(test_client: TestClient, job_id: int, csv_bytes: bytes, filename
         files={"file": (filename, BytesIO(csv_bytes), "text/csv")},
     )
     assert response.status_code == 200
+
+
+def _list_entries(test_client: TestClient, job_id: int) -> list[dict]:
+    payload = test_client.get(f"/api/entries?import_job_id={job_id}").json()
+    if isinstance(payload, dict):
+        return payload.get("items", [])
+    return payload
 
 
 def _process(SessionLocal, job_id: int) -> None:
@@ -101,7 +113,7 @@ def test_same_voucher_assigns_continuous_line_numbers(client):
     _upload_csv(test_client, job_id, csv_bytes)
     _process(SessionLocal, job_id)
 
-    entries = test_client.get(f"/api/entries?import_job_id={job_id}").json()
+    entries = _list_entries(test_client, job_id)
     line_nos = [e["entry_line_no"] for e in entries if e["voucher_no"] == "记-001"]
     assert sorted(line_nos) == [1, 2, 3]
 
@@ -118,7 +130,7 @@ def test_different_vouchers_have_independent_line_numbers(client):
     _upload_csv(test_client, job_id, csv_bytes)
     _process(SessionLocal, job_id)
 
-    entries = test_client.get(f"/api/entries?import_job_id={job_id}").json()
+    entries = _list_entries(test_client, job_id)
     by_voucher: dict[str, list[int]] = {}
     for entry in entries:
         by_voucher.setdefault(entry["voucher_no"], []).append(entry["entry_line_no"])
@@ -136,6 +148,6 @@ def test_missing_voucher_no_defaults_to_one(client):
     _upload_csv(test_client, job_id, csv_bytes)
     _process(SessionLocal, job_id)
 
-    entries = test_client.get(f"/api/entries?import_job_id={job_id}").json()
+    entries = _list_entries(test_client, job_id)
     line_nos = [e["entry_line_no"] for e in entries]
     assert line_nos and all(no == 1 for no in line_nos)

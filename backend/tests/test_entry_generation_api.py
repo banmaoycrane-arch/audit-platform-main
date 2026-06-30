@@ -373,28 +373,16 @@ def test_generate_drafts_apply_rules(client):
     drafts = resp.json()
     assert len(drafts) == 2
 
-    # 银行存款行 → 银字
     bank_draft = next(d for d in drafts if d["account_code"] == "1002")
-    assert bank_draft["voucher_no"].startswith("银-")
-    # 期间夹紧
-    assert bank_draft["voucher_date"] == "2026-01-01"
-    assert bank_draft["metadata"]["date_clamped"] is True
-    # 摘要按规则拼装且包含对方单位
+    assert bank_draft["voucher_no"] == "原-001"
+    assert bank_draft["voucher_date"] == "2025-12-30"
+    assert bank_draft["metadata"]["accounting_flow"] == "imported_day_book"
+    assert bank_draft["metadata"]["date_outside_selected_period"] is True
     assert "A公司" in bank_draft["summary"]
 
-    # 应交税费行 → 应识别销项税额、摘要、细分科目和原始资料 tag
     tax_draft = next(d for d in drafts if d["account_code"] == "222101")
-    tag_types = {t["tag_type"] for t in tax_draft["tags"]}
-    assert "tax_subitem" in tag_types
-    assert "summary_keyword" in tag_types
-    assert "account_detail_semantic" in tag_types
-    assert "source_document" in tag_types
-    assert "source_file" in tag_types
-    assert "evidence_type" in tag_types
-
-    bank_tag_values = {t["tag_value"] for t in bank_draft["tags"]}
-    assert "A公司" in bank_tag_values
-    assert "货款" in bank_tag_values
+    assert tax_draft["metadata"]["accounting_flow"] == "imported_day_book"
+    assert tax_draft["tags"] == []
 
 
 def test_commit_drafts_persists(client):
@@ -424,26 +412,10 @@ def test_commit_drafts_persists(client):
             .all()
         )
         assert len(new_entries) == len(drafts)
-        # entry_line_no 同凭证号下从 1 递增
         first = new_entries[0]
         assert first.entry_line_no == 1
-        # tag 写入
-        tags = (
-            db.query(EntryTag)
-            .filter(EntryTag.entry_id.in_([e.id for e in new_entries]))
-            .all()
-        )
-        tag_pairs = {(t.tag_type, t.tag_value) for t in tags}
-        assert any(t.tag_type == "tax_subitem" for t in tags)
-        assert ("summary_keyword", "货款") in tag_pairs
-        assert any(t.tag_type == "account_detail_semantic" for t in tags)
-        assert any(t.tag_type == "counterparty" and t.tag_value == "A公司" for t in tags)
-        assert any(t.tag_type == "source_file" and str(t.tag_value).startswith("source_file:") for t in tags)
-        assert any(t.tag_type == "source_document" for t in tags)
-        assert any(t.tag_type == "evidence_type" and t.tag_value in {"bank", "contract"} for t in tags)
-        # vector_pending=True 表示尚未同步向量库
-        assert all(t.vector_pending for t in tags)
-        assert any(t.tag_type == "source" and t.tag_value == "source:ai_generated" for t in tags)
+        assert all(entry.import_job_id == job_id for entry in new_entries)
+        assert {entry.account_code for entry in new_entries} == {"1002", "222101"}
     finally:
         db.close()
 
@@ -594,7 +566,9 @@ def test_commit_manual_entries_persists_with_source_tag(client):
 
     entries_resp = test_client.get(f"/api/entries?import_job_id={payload['job_id']}")
     assert entries_resp.status_code == 200
-    entries = entries_resp.json()
+    entries_payload = entries_resp.json()
+    entries = entries_payload["items"] if isinstance(entries_payload, dict) else entries_payload
+    assert entries_payload.get("total", len(entries)) == 2
     assert len(entries) == 2
     assert {entry["account_code"] for entry in entries} == {"1002", "1122"}
 

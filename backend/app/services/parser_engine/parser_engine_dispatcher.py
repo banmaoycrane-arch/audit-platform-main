@@ -299,13 +299,13 @@ def _determine_sub_type(document_type: DocumentType, data: dict[str, Any]) -> Do
     elif document_type == DocumentType.BANK_STATEMENT:
         transactions = data.get("transactions", [])
         if len(transactions) > 10:
-            return DocumentSubType.BANK_STATEMENT_DETAIL
-        return DocumentSubType.BANK_STATEMENT_SUMMARY
+            return DocumentSubType.BANK_TRANSACTION_LIST
+        return DocumentSubType.BANK_STATEMENT
     
     elif document_type == DocumentType.CONTRACT:
         amount = data.get("contract_amount")
         if amount and amount > 100000:
-            return DocumentSubType.CONTRACT_MAJOR
+            return DocumentSubType.CONTRACT_STANDARD
         return DocumentSubType.CONTRACT_STANDARD
     
     return None

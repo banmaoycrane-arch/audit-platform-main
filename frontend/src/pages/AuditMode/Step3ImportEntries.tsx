@@ -34,8 +34,8 @@ export function Step3ImportEntries() {
     if (!jobId) return
     setLoading(true)
     try {
-      const list = await api.listEntries(jobId)
-      setEntries(list)
+      const result = await api.listEntries(jobId)
+      setEntries(result.items)
     } catch (error) {
       console.error('获取分录失败', error)
       message.error('获取分录失败')

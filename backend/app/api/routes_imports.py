@@ -13,10 +13,18 @@ from app.models.team import Team
 from app.models.user_ledger_auth import UserLedgerAuth
 from app.db.session import SessionLocal, get_db
 from app.schemas.import_job import AuditScopeUpdate, DayBookReportRead, ImportJobCreate, ImportJobRead
-from app.services.import_service import attach_file, create_import_job
+from app.services.import_service import (
+    attach_file,
+    create_import_job,
+    get_import_summary,
+    process_import_job,
+    _process_source_file,
+    _process_ai_register_file,
+    _is_source_file,
+)
 from app.services.audit_day_book_service import DayBookReport, process_day_book_import
 from app.services.entry_generation_service import _normalize_evidence_type
-from app.services.import_routing_service import is_day_book_source_type
+from app.services.import_routing_service import get_import_output_path, is_day_book_source_type, AI_EVIDENCE_SOURCE_TYPES
 from app.services.period_detection_service import suggest_period_for_job
 from app.services.parser_engine.unified_parser_service import (
     get_latest_source_file,
@@ -286,6 +294,44 @@ def parse_uploaded_file(job_id: int, file_id: int, db: Session = Depends(get_db)
     if not source_file or source_file.import_job_id != job_id:
         raise HTTPException(status_code=404, detail="上传文件不存在")
 
+    if is_day_book_source_type(job.source_type):
+        try:
+            report = process_import_job(db, job)
+            summary = get_import_summary(report)
+            _import_reports[job.id] = summary
+            if report.day_book_report is not None:
+                _day_book_reports[job.id] = report.day_book_report
+            db.refresh(source_file)
+            db.refresh(job)
+            return {
+                **_source_file_response(source_file),
+                "job_status": job.status,
+                "report": summary,
+            }
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"序时簿导入失败: {str(exc)}") from exc
+
+    if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
+        try:
+            _process_ai_register_file(db, job, source_file)
+            db.commit()
+            db.refresh(source_file)
+            return _source_file_response(source_file)
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"原始资料登记失败: {str(exc)}") from exc
+
+    if _is_source_file(source_file.file_type):
+        try:
+            _process_source_file(db, job, source_file)
+            db.commit()
+            db.refresh(source_file)
+            return _source_file_response(source_file)
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"原始资料解析失败: {str(exc)}") from exc
+
     try:
         result_dict, summary = parse_source_file_with_unified_engine(db, job, source_file)
         _import_reports[job.id] = summary
@@ -323,7 +369,7 @@ def process_job(
 
 @router.post("/{job_id}/process/sync")
 def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict:
-    """同步处理导入任务，统一委托 parser-engine 通用兼容引擎。"""
+    """同步处理导入任务：序时簿走专用导入逻辑，其余类型走统一解析引擎。"""
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
@@ -331,11 +377,41 @@ def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict:
     source_file = get_latest_source_file(db, job_id)
     if not source_file:
         raise HTTPException(status_code=400, detail="导入任务尚未上传文件")
+    if is_day_book_source_type(job.source_type):
+        try:
+            report = process_import_job(db, job)
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"序时簿导入失败: {str(exc)}") from exc
+        summary = get_import_summary(report)
+        _import_reports[job.id] = summary
+        if report.day_book_report is not None:
+            _day_book_reports[job.id] = report.day_book_report
+        db.refresh(job)
+        return {
+            "job": ImportJobRead.model_validate(job).model_dump(mode="json"),
+            "report": summary,
+        }
+    if get_import_output_path(job.source_type) in {"register_ledger", "direct_entries"}:
+        try:
+            report = process_import_job(db, job)
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"原始资料登记失败: {str(exc)}") from exc
+        summary = get_import_summary(report)
+        _import_reports[job.id] = summary
+        db.refresh(job)
+        return {
+            "job": ImportJobRead.model_validate(job).model_dump(mode="json"),
+            "report": summary,
+        }
     try:
         result_dict, summary = parse_source_file_with_unified_engine(db, job, source_file)
         _import_reports[job.id] = summary
     except Exception as exc:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"统一解析引擎解析失败: {str(exc)}") from exc
+    db.refresh(job)
     return {
         "job": ImportJobRead.model_validate(job).model_dump(mode="json"),
         "report": summary,
@@ -441,7 +517,7 @@ def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
             "id": sf.id,
             "filename": sf.filename,
             "file_type": sf.file_type,
-            "file_size": sf.file_size,
+            "file_size": getattr(sf, "file_size", None),
             "created_at": sf.created_at.isoformat() if sf.created_at else None,
         }
         for sf in source_files
@@ -468,7 +544,7 @@ def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
 
     if entry_dicts:
         quality_report = generate_quality_report(entry_dicts)
-        return {
+        response = {
             "job_id": job_id,
             "total_entries": len(entry_dicts),
             "source_files": source_file_list,
@@ -480,13 +556,18 @@ def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
                 "recommendations": quality_report.recommendations,
             },
         }
+    else:
+        response = {
+            "job_id": job_id,
+            "total_entries": 0,
+            "source_files": source_file_list,
+            "quality": None,
+        }
 
-    return {
-        "job_id": job_id,
-        "total_entries": 0,
-        "source_files": source_file_list,
-        "quality": None,
-    }
+    for key in ("day_book_report", "output_path", "period_suggestion", "register_summary", "file_summary", "total_files", "success_files", "failed_files"):
+        if key in report and key not in response:
+            response[key] = report[key]
+    return response
 
 
 @router.get("/{job_id}/day-book-report", response_model=DayBookReportRead)

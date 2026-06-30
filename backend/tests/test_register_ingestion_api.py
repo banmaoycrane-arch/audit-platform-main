@@ -16,6 +16,9 @@ from app.main import app
 from app.services.ledger_service import ledger_service
 
 
+from tests.conftest import register_auth_headers
+
+
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     engine = create_engine(
@@ -58,6 +61,7 @@ def client(monkeypatch, tmp_path):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
+            test_client._auth_headers = register_auth_headers(test_client)
             yield test_client, TestingSessionLocal
     finally:
         app.dependency_overrides.clear()
@@ -70,6 +74,7 @@ def test_ai_upload_registers_tax_invoice_module(client):
     create_response = test_client.post(
         "/api/import-jobs",
         json={"organization_name": "台账登记测试", "source_type": "ai_generated"},
+        headers=test_client._auth_headers,
     )
     job_id = create_response.json()["id"]
 
@@ -121,6 +126,7 @@ def test_ai_upload_contract_registers_multiple_modules(client, monkeypatch):
     create_response = test_client.post(
         "/api/import-jobs",
         json={"organization_name": "采购合同台账测试", "source_type": "ai_generated"},
+        headers=test_client._auth_headers,
     )
     job_id = create_response.json()["id"]
 

@@ -1,4 +1,4 @@
-"""凭证聚合查询 API 测试。"""
+"""凭证批量删除 API 测试。"""
 from datetime import date
 
 import pytest
@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db.models import AccountingEntry, AccountingPeriod, Organization
+from app.db.models import AccountingEntry, Organization
 from app.db.session import Base, get_db
 from app.main import app
 
@@ -53,19 +53,9 @@ def _register(client: TestClient, username: str, phone: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _seed_vouchers(db_factory, ledger_id: int, org_id: int) -> None:
+def _seed_entries(db_factory, ledger_id: int, org_id: int) -> None:
     db = db_factory()
     try:
-        db.add(
-            AccountingPeriod(
-                organization_id=org_id,
-                ledger_id=ledger_id,
-                period_code="2026-02",
-                start_date=date(2026, 2, 1),
-                end_date=date(2026, 2, 28),
-                status="open",
-            )
-        )
         entries = [
             AccountingEntry(
                 organization_id=org_id,
@@ -109,20 +99,6 @@ def _seed_vouchers(db_factory, ledger_id: int, org_id: int) -> None:
                 normalized_text="收-020",
                 entry_line_no=1,
             ),
-            AccountingEntry(
-                organization_id=org_id,
-                import_job_id=1,
-                ledger_id=ledger_id,
-                voucher_no="收-020",
-                voucher_date=date(2026, 2, 8),
-                summary="收服务费",
-                account_code="6001",
-                account_name="主营业务收入",
-                debit_amount=0,
-                credit_amount=5000,
-                normalized_text="收-020",
-                entry_line_no=2,
-            ),
         ]
         db.add_all(entries)
         db.commit()
@@ -130,76 +106,74 @@ def _seed_vouchers(db_factory, ledger_id: int, org_id: int) -> None:
         db.close()
 
 
-def test_voucher_query_line_mode_returns_cards(client):
+def test_batch_delete_vouchers_removes_all_lines(client):
     test_client, db_factory = client
-    headers = _register(test_client, "voucher_query", "13800139200")
-    team = test_client.post("/api/teams", json={"name": "凭证查询团队", "type": "firm"}, headers=headers).json()
+    headers = _register(test_client, "delete_user", "13800001001")
+
+    team = test_client.post("/api/teams", json={"name": "删除测试团队", "type": "firm"}, headers=headers).json()
     ledger = test_client.post(
         "/api/ledgers",
-        json={"team_id": team["id"], "name": "凭证查询账簿"},
+        json={"team_id": team["id"], "name": "删除测试账簿"},
         headers=headers,
     ).json()
-
+    ledger_id = ledger["id"]
     db = db_factory()
-    org = Organization(name="凭证企业", fiscal_year=2026)
+    org = Organization(name="删除测试企业", fiscal_year=2026)
     db.add(org)
     db.flush()
     org_id = org.id
     db.close()
-    _seed_vouchers(db_factory, ledger["id"], org_id)
+    _seed_entries(db_factory, ledger_id, org_id)
 
-    by_account = test_client.get(
-        f"/api/entries/vouchers?ledger_id={ledger['id']}&filter_mode=line&account_code=6601",
+    resp = test_client.post(
+        "/api/entries/vouchers/batch-delete",
         headers=headers,
-    )
-    assert by_account.status_code == 200
-    body = by_account.json()
-    assert body["total"] == 1
-    card = body["items"][0]
-    assert card["voucher_no"] == "记-010"
-    assert card["line_count"] == 2
-    assert card["debit_total"] == 800
-    assert card.get("lines", []) == []
-
-    lines_resp = test_client.get(
-        f"/api/entries/vouchers/lines?ledger_id={ledger['id']}&voucher_no=记-010&voucher_date=2026-02-03",
-        headers=headers,
-    )
-    assert lines_resp.status_code == 200
-    assert len(lines_resp.json()["items"]) == 2
-
-    by_month = test_client.get(
-        f"/api/entries/vouchers?ledger_id={ledger['id']}&month=2026-02",
-        headers=headers,
-    )
-    assert by_month.status_code == 200
-    assert by_month.json()["total"] == 2
-
-
-def test_voucher_query_voucher_mode_filters_totals(client):
-    test_client, db_factory = client
-    headers = _register(test_client, "voucher_total", "13800139201")
-    team = test_client.post("/api/teams", json={"name": "合计团队", "type": "firm"}, headers=headers).json()
-    ledger = test_client.post(
-        "/api/ledgers",
-        json={"team_id": team["id"], "name": "合计账簿"},
-        headers=headers,
-    ).json()
-
-    db = db_factory()
-    org = Organization(name="合计企业", fiscal_year=2026)
-    db.add(org)
-    db.flush()
-    org_id = org.id
-    db.close()
-    _seed_vouchers(db_factory, ledger["id"], org_id)
-
-    resp = test_client.get(
-        f"/api/entries/vouchers?ledger_id={ledger['id']}&filter_mode=voucher&total_min=1000",
-        headers=headers,
+        json={
+            "ledger_id": ledger_id,
+            "vouchers": [{"voucher_no": "记-010", "voucher_date": "2026-02-03"}],
+        },
     )
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["total"] == 1
-    assert body["items"][0]["voucher_no"] == "收-020"
-    assert body["items"][0]["credit_total"] == 5000
+    payload = resp.json()
+    assert payload["deleted_vouchers"] == 1
+    assert payload["deleted_entries"] == 2
+
+    list_resp = test_client.get(f"/api/entries?ledger_id={ledger_id}", headers=headers)
+    assert list_resp.status_code == 200
+    assert list_resp.json()["total"] == 1
+
+
+def test_batch_delete_is_all_or_nothing(client):
+    test_client, db_factory = client
+    headers = _register(test_client, "delete_user2", "13800001002")
+
+    team = test_client.post("/api/teams", json={"name": "删除测试团队2", "type": "firm"}, headers=headers).json()
+    ledger = test_client.post(
+        "/api/ledgers",
+        json={"team_id": team["id"], "name": "删除测试账簿2"},
+        headers=headers,
+    ).json()
+    ledger_id = ledger["id"]
+    db = db_factory()
+    org = Organization(name="删除测试企业", fiscal_year=2026)
+    db.add(org)
+    db.flush()
+    org_id = org.id
+    db.close()
+    _seed_entries(db_factory, ledger_id, org_id)
+
+    resp = test_client.post(
+        "/api/entries/vouchers/batch-delete",
+        headers=headers,
+        json={
+            "ledger_id": ledger_id,
+            "vouchers": [
+                {"voucher_no": "记-010", "voucher_date": "2026-02-03"},
+                {"voucher_no": "不存在", "voucher_date": "2026-02-03"},
+            ],
+        },
+    )
+    assert resp.status_code == 400
+
+    list_resp = test_client.get(f"/api/entries?ledger_id={ledger_id}", headers=headers)
+    assert list_resp.json()["total"] == 3

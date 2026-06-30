@@ -12,7 +12,8 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.accounting_entry import AccountingEntryRead, TagUpdate
 from app.services import ledger_management_service
-from app.services.entry_query_service import query_chronological_entries, query_vouchers
+from app.services.entry_delete_service import VoucherDeleteKey, delete_vouchers_transactional
+from app.services.entry_query_service import load_voucher_lines, query_chronological_entries, query_vouchers
 from app.services.vector_store_service import safe_vector_store
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
@@ -42,6 +43,21 @@ class EntryBatchReviewUpdate(BaseModel):
 
 class EntryJobReviewUpdate(BaseModel):
     review_status: str
+
+
+class VoucherDeleteItem(BaseModel):
+    voucher_no: str | None = None
+    voucher_date: date | None = None
+
+
+class VoucherBatchDeleteRequest(BaseModel):
+    ledger_id: int
+    vouchers: list[VoucherDeleteItem]
+
+
+class VoucherBatchDeleteResponse(BaseModel):
+    deleted_vouchers: int
+    deleted_entries: int
 
 
 class EntryReviewStatsResponse(BaseModel):
@@ -78,7 +94,11 @@ class VoucherCardRead(BaseModel):
     debit_total: float
     credit_total: float
     summary_preview: str | None = None
-    lines: list[VoucherLineRead]
+    lines: list[VoucherLineRead] = []
+
+
+class VoucherLinesResponse(BaseModel):
+    items: list[VoucherLineRead]
 
 
 class VoucherQueryResponse(BaseModel):
@@ -259,16 +279,16 @@ def _parse_voucher_word(voucher_no: str | None) -> str | None:
     return prefix or voucher_no
 
 
-def _voucher_card_from_group(group) -> VoucherCardRead:
+def _voucher_card_from_group(group, *, include_lines: bool = False) -> VoucherCardRead:
     return VoucherCardRead(
         voucher_no=group.voucher_no,
         voucher_date=group.voucher_date.isoformat() if group.voucher_date else None,
         voucher_word=_parse_voucher_word(group.voucher_no),
-        line_count=len(group.lines),
+        line_count=group.line_count,
         debit_total=group.debit_total,
         credit_total=group.credit_total,
         summary_preview=group.summary_preview or None,
-        lines=group.lines,
+        lines=group.lines if include_lines else [],
     )
 
 
@@ -291,7 +311,8 @@ def list_voucher_cards(
     credit_max: Decimal | None = Query(None, description="贷方金额上限"),
     total_min: Decimal | None = Query(None, description="凭证合计金额下限"),
     total_max: Decimal | None = Query(None, description="凭证合计金额上限"),
-    limit: int = Query(10, ge=1, le=100),
+    include_lines: bool = Query(False, description="是否返回每张凭证的全部分录行（默认否，展开时再请求 /vouchers/lines）"),
+    limit: int = Query(10, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -323,13 +344,62 @@ def list_voucher_cards(
         total_max=total_max,
         limit=limit,
         offset=offset,
+        include_lines=include_lines,
     )
     return VoucherQueryResponse(
-        items=[_voucher_card_from_group(group) for group in groups],
+        items=[_voucher_card_from_group(group, include_lines=include_lines) for group in groups],
         total=total,
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/vouchers/lines", response_model=VoucherLinesResponse)
+def get_voucher_lines(
+    ledger_id: int = Query(..., description="账簿 ID"),
+    voucher_no: str | None = Query(None, description="凭证号"),
+    voucher_date: date | None = Query(None, description="凭证日期"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> VoucherLinesResponse:
+    """按单张凭证加载分录明细（凭证查询页展开时按需调用）。"""
+    if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
+    lines = load_voucher_lines(
+        db,
+        ledger_id=ledger_id,
+        voucher_no=voucher_no,
+        voucher_date=voucher_date,
+    )
+    if not lines:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="凭证不存在")
+    return VoucherLinesResponse(items=lines)
+
+
+@router.post("/vouchers/batch-delete", response_model=VoucherBatchDeleteResponse)
+def batch_delete_vouchers(
+    payload: VoucherBatchDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> VoucherBatchDeleteResponse:
+    """按整张凭证批量删除分录，单事务提交，避免只删部分行导致借贷不平衡。"""
+    if not payload.vouchers:
+        return VoucherBatchDeleteResponse(deleted_vouchers=0, deleted_entries=0)
+    if not ledger_management_service.user_has_ledger_access(db, current_user.id, payload.ledger_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
+    keys = [
+        VoucherDeleteKey(voucher_no=item.voucher_no, voucher_date=item.voucher_date)
+        for item in payload.vouchers
+    ]
+    try:
+        result = delete_vouchers_transactional(db, ledger_id=payload.ledger_id, voucher_keys=keys)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"删除凭证失败: {exc}") from exc
+    return VoucherBatchDeleteResponse(**result)
 
 
 @router.patch("/{entry_id}", response_model=AccountingEntryRead)

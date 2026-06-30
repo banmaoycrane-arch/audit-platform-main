@@ -1,7 +1,15 @@
-﻿import { useEffect, useMemo, useState } from 'react'
-import { Alert, Card, Col, Row, Select, Statistic, Table, Typography, message } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Alert, Card, Col, Empty, Pagination, Row, Select, Statistic, Table, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { api, type AccountingEntry, type TrialBalanceReport, type TrialBalanceRow } from '../../api/client'
+import dayjs from 'dayjs'
+import {
+  api,
+  type AccountingEntry,
+  type ChartOfAccount,
+  type TrialBalanceReport,
+  type TrialBalanceRow,
+  type VoucherCard,
+} from '../../api/client'
 import { PeriodSelector } from '../../components/PeriodSelector'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -14,77 +22,93 @@ type PeriodFilter = {
 
 const money = (value: number | null | undefined) => Number(value || 0).toLocaleString()
 
-function groupVoucherEntries(entries: AccountingEntry[]) {
-  const grouped = new Map<string, AccountingEntry[]>()
-  entries.forEach((entry) => {
-    const key = entry.voucher_no || `鏈紪鍙?${entry.id}`
-    grouped.set(key, [...(grouped.get(key) || []), entry])
-  })
-  return Array.from(grouped.entries()).map(([voucherNo, lines]) => {
-    const debitTotal = lines.reduce((sum, line) => sum + Number(line.debit_amount || 0), 0)
-    const creditTotal = lines.reduce((sum, line) => sum + Number(line.credit_amount || 0), 0)
-    return {
-      voucher_no: voucherNo,
-      voucher_date: lines[0]?.voucher_date || '-',
-      summary: lines.map((line) => line.summary).filter(Boolean).join('锛?),
-      debit_total: debitTotal,
-      credit_total: creditTotal,
-      line_count: lines.length,
-      review_status: lines.every((line) => line.review_status === 'verified' || line.review_status === 'ready') ? '宸插鏍? : '寰呭鏍?,
-    }
-  })
-}
-
 export function LedgerBooksPage() {
   const { currentLedgerId } = useAuthStore()
-  const [entries, setEntries] = useState<AccountingEntry[]>([])
+  const [vouchers, setVouchers] = useState<VoucherCard[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
+  const currentMonth = dayjs().format('YYYY-MM')
 
   useEffect(() => {
     if (!currentLedgerId) {
-      setEntries([])
+      setVouchers([])
+      setTotal(0)
       return
     }
     setLoading(true)
-    api.listEntries(undefined, currentLedgerId)
-      .then(setEntries)
-      .catch((error) => message.error(`鍔犺浇鍑瘉搴忔椂绨垮け璐ワ細${error instanceof Error ? error.message : String(error)}`))
+    api
+      .queryVouchers({
+        ledger_id: currentLedgerId,
+        month: currentMonth,
+        limit: 50,
+        offset: (page - 1) * 50,
+        include_lines: false,
+      })
+      .then((resp) => {
+        setVouchers(resp.items)
+        setTotal(resp.total)
+      })
+      .catch((error) => message.error(`加载凭证序时簿失败：${error instanceof Error ? error.message : String(error)}`))
       .finally(() => setLoading(false))
-  }, [currentLedgerId])
+  }, [currentLedgerId, page, currentMonth])
 
-  const voucherRows = useMemo(() => groupVoucherEntries(entries), [entries])
+  const voucherRows = useMemo(
+    () =>
+      vouchers.map((voucher) => ({
+        key: `${voucher.voucher_no ?? ''}||${voucher.voucher_date ?? ''}`,
+        voucher_no: voucher.voucher_no || '无凭证号',
+        voucher_date: voucher.voucher_date || '-',
+        summary: voucher.summary_preview || '-',
+        line_count: voucher.line_count,
+        debit_total: voucher.debit_total,
+        credit_total: voucher.credit_total,
+      })),
+    [vouchers],
+  )
   const debitTotal = voucherRows.reduce((sum, row) => sum + row.debit_total, 0)
   const creditTotal = voucherRows.reduce((sum, row) => sum + row.credit_total, 0)
 
   return (
     <div>
-      <Title level={3}>璐︾翱绠＄悊</Title>
-      <Paragraph type="secondary">鍑瘉搴忔椂绨挎寜鍑瘉鍙锋眹鎬诲垎褰曪紝鏄€昏处鍜屾槑缁嗚处杩芥函鍑瘉鐨勫叆鍙ｃ€?/Paragraph>
+      <Title level={3}>账簿管理</Title>
+      <Paragraph type="secondary">
+        凭证序时簿默认展示本月凭证（{currentMonth}），分页加载，避免一次拉取全账簿。
+      </Paragraph>
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}><Card><Statistic title="鍑瘉寮犳暟" value={voucherRows.length} /></Card></Col>
-        <Col span={8}><Card><Statistic title="鍊熸柟鍚堣" value={debitTotal} prefix="楼" /></Card></Col>
-        <Col span={8}><Card><Statistic title="璐锋柟鍚堣" value={creditTotal} prefix="楼" /></Card></Col>
+        <Col span={8}><Card><Statistic title="本月凭证张数" value={total} /></Card></Col>
+        <Col span={8}><Card><Statistic title="本页借方合计" value={debitTotal} prefix="¥" /></Card></Col>
+        <Col span={8}><Card><Statistic title="本页贷方合计" value={creditTotal} prefix="¥" /></Card></Col>
       </Row>
       {Math.round((debitTotal - creditTotal) * 100) !== 0 && (
-        <Alert type="error" showIcon title="鍑瘉搴忔椂绨垮€熻捶鍚堣涓嶅钩琛? style={{ marginBottom: 16 }} />
+        <Alert type="warning" showIcon title="本页凭证借贷合计不平衡（可能因分页仅展示部分凭证）" style={{ marginBottom: 16 }} />
       )}
-      <Card title="鍑瘉搴忔椂绨?>
+      <Card title="凭证序时簿">
         <Table
-          rowKey="voucher_no"
+          rowKey="key"
           loading={loading}
           dataSource={voucherRows}
           size="small"
-          pagination={{ pageSize: 20 }}
+          pagination={false}
           columns={[
-            { title: '鏃ユ湡', dataIndex: 'voucher_date', key: 'voucher_date', width: 120 },
-            { title: '鍑瘉鍙?, dataIndex: 'voucher_no', key: 'voucher_no', width: 150 },
-            { title: '鎽樿', dataIndex: 'summary', key: 'summary' },
-            { title: '鍒嗗綍琛屾暟', dataIndex: 'line_count', key: 'line_count', width: 90 },
-            { title: '鍊熸柟鍚堣', dataIndex: 'debit_total', key: 'debit_total', width: 120, render: money },
-            { title: '璐锋柟鍚堣', dataIndex: 'credit_total', key: 'credit_total', width: 120, render: money },
-            { title: '澶嶆牳鐘舵€?, dataIndex: 'review_status', key: 'review_status', width: 100 },
+            { title: '日期', dataIndex: 'voucher_date', key: 'voucher_date', width: 120 },
+            { title: '凭证号', dataIndex: 'voucher_no', key: 'voucher_no', width: 150 },
+            { title: '摘要', dataIndex: 'summary', key: 'summary' },
+            { title: '分录行数', dataIndex: 'line_count', key: 'line_count', width: 90 },
+            { title: '借方合计', dataIndex: 'debit_total', key: 'debit_total', width: 120, render: money },
+            { title: '贷方合计', dataIndex: 'credit_total', key: 'credit_total', width: 120, render: money },
           ]}
         />
+        <div style={{ marginTop: 16, textAlign: 'right' }}>
+          <Pagination
+            current={page}
+            pageSize={50}
+            total={total}
+            showSizeChanger={false}
+            showTotal={(t) => `共 ${t} 张凭证`}
+            onChange={setPage}
+          />
+        </div>
       </Card>
     </div>
   )
@@ -101,14 +125,14 @@ export function GeneralLedgerPage() {
     setLoading(true)
     api.getTrialBalanceReport(filter.organizationId, filter.periodId)
       .then(setReport)
-      .catch((error) => message.error(`鍔犺浇鎬昏处澶辫触锛?{error instanceof Error ? error.message : String(error)}`))
+      .catch((error) => message.error(`加载总账失败：${error instanceof Error ? error.message : String(error)}`))
       .finally(() => setLoading(false))
   }, [filter])
 
   return (
     <div>
-      <Title level={3}>鎬昏处</Title>
-      <Paragraph type="secondary">鎬昏处鎸夌鐩眹鎬绘湡鍒濅綑棰濄€佹湰鏈熷彂鐢熼鍜屾湡鏈綑棰濄€?/Paragraph>
+      <Title level={3}>总账</Title>
+      <Paragraph type="secondary">总账按科目汇总期初余额、本期发生额和期末余额。</Paragraph>
       <Card style={{ marginBottom: 16 }}>
         <PeriodSelector ledgerId={currentLedgerId} value={filter} onChange={setFilter} />
       </Card>
@@ -120,14 +144,14 @@ export function GeneralLedgerPage() {
           size="small"
           pagination={{ pageSize: 50 }}
           columns={[
-            { title: '绉戠洰缂栫爜', dataIndex: 'account_code', key: 'account_code', width: 100 },
-            { title: '绉戠洰鍚嶇О', dataIndex: 'account_name', key: 'account_name' },
-            { title: '鏈熷垵鍊熸柟', dataIndex: 'opening_debit', key: 'opening_debit', render: money },
-            { title: '鏈熷垵璐锋柟', dataIndex: 'opening_credit', key: 'opening_credit', render: money },
-            { title: '鏈湡鍊熸柟', dataIndex: 'period_debit', key: 'period_debit', render: money },
-            { title: '鏈湡璐锋柟', dataIndex: 'period_credit', key: 'period_credit', render: money },
-            { title: '鏈熸湯鍊熸柟', dataIndex: 'closing_debit', key: 'closing_debit', render: money },
-            { title: '鏈熸湯璐锋柟', dataIndex: 'closing_credit', key: 'closing_credit', render: money },
+            { title: '科目编码', dataIndex: 'account_code', key: 'account_code', width: 100 },
+            { title: '科目名称', dataIndex: 'account_name', key: 'account_name' },
+            { title: '期初借方', dataIndex: 'opening_debit', key: 'opening_debit', render: money },
+            { title: '期初贷方', dataIndex: 'opening_credit', key: 'opening_credit', render: money },
+            { title: '本期借方', dataIndex: 'period_debit', key: 'period_debit', render: money },
+            { title: '本期贷方', dataIndex: 'period_credit', key: 'period_credit', render: money },
+            { title: '期末借方', dataIndex: 'closing_debit', key: 'closing_debit', render: money },
+            { title: '期末贷方', dataIndex: 'closing_credit', key: 'closing_credit', render: money },
           ]}
         />
       </Card>
@@ -138,69 +162,101 @@ export function GeneralLedgerPage() {
 export function SubsidiaryLedgerPage() {
   const { currentLedgerId } = useAuthStore()
   const [entries, setEntries] = useState<AccountingEntry[]>([])
+  const [accounts, setAccounts] = useState<ChartOfAccount[]>([])
   const [selectedAccountCode, setSelectedAccountCode] = useState<string | undefined>()
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!currentLedgerId) {
+    api.listChartOfAccounts()
+      .then(setAccounts)
+      .catch(() => setAccounts([]))
+  }, [])
+
+  useEffect(() => {
+    setPage(1)
+  }, [selectedAccountCode, currentLedgerId])
+
+  useEffect(() => {
+    if (!currentLedgerId || !selectedAccountCode) {
       setEntries([])
+      setTotal(0)
       return
     }
     setLoading(true)
-    api.listEntries(undefined, currentLedgerId)
-      .then(setEntries)
-      .catch((error) => message.error(`鍔犺浇鏄庣粏璐﹀け璐ワ細${error instanceof Error ? error.message : String(error)}`))
+    api
+      .listChronologicalEntries({
+        ledger_id: currentLedgerId,
+        account_code: selectedAccountCode,
+        limit: 50,
+        offset: (page - 1) * 50,
+      })
+      .then((resp) => {
+        setEntries(resp.items)
+        setTotal(resp.total)
+      })
+      .catch((error) => message.error(`加载明细账失败：${error instanceof Error ? error.message : String(error)}`))
       .finally(() => setLoading(false))
-  }, [currentLedgerId])
+  }, [currentLedgerId, selectedAccountCode, page])
 
-  const accountOptions = useMemo(() => {
-    const map = new Map<string, string>()
-    entries.forEach((entry) => {
-      if (entry.account_code) map.set(entry.account_code, entry.account_name || entry.account_code)
-    })
-    return Array.from(map.entries()).map(([code, name]) => ({ value: code, label: `${code} ${name}` }))
-  }, [entries])
-
-  const filteredEntries = selectedAccountCode
-    ? entries.filter((entry) => entry.account_code === selectedAccountCode)
-    : entries
+  const accountOptions = useMemo(
+    () => accounts.map((account) => ({ value: account.code, label: `${account.code} ${account.name}` })),
+    [accounts],
+  )
 
   const columns: ColumnsType<AccountingEntry> = [
-    { title: '鏃ユ湡', dataIndex: 'voucher_date', key: 'voucher_date', width: 110, render: (v) => v || '-' },
-    { title: '鍑瘉鍙?, dataIndex: 'voucher_no', key: 'voucher_no', width: 130, render: (v) => v || '-' },
-    { title: '鎽樿', dataIndex: 'summary', key: 'summary' },
-    { title: '绉戠洰缂栫爜', dataIndex: 'account_code', key: 'account_code', width: 100 },
-    { title: '绉戠洰鍚嶇О', dataIndex: 'account_name', key: 'account_name', width: 140 },
-    { title: '鍊熸柟閲戦', dataIndex: 'debit_amount', key: 'debit_amount', width: 120, render: money },
-    { title: '璐锋柟閲戦', dataIndex: 'credit_amount', key: 'credit_amount', width: 120, render: money },
-    { title: '寰€鏉ュ崟浣?, dataIndex: 'counterparty', key: 'counterparty', width: 140, render: (v) => v || '-' },
+    { title: '日期', dataIndex: 'voucher_date', key: 'voucher_date', width: 110, render: (v) => v || '-' },
+    { title: '凭证号', dataIndex: 'voucher_no', key: 'voucher_no', width: 130, render: (v) => v || '-' },
+    { title: '摘要', dataIndex: 'summary', key: 'summary' },
+    { title: '科目编码', dataIndex: 'account_code', key: 'account_code', width: 100 },
+    { title: '科目名称', dataIndex: 'account_name', key: 'account_name', width: 140 },
+    { title: '借方金额', dataIndex: 'debit_amount', key: 'debit_amount', width: 120, render: money },
+    { title: '贷方金额', dataIndex: 'credit_amount', key: 'credit_amount', width: 120, render: money },
+    { title: '往来单位', dataIndex: 'counterparty', key: 'counterparty', width: 140, render: (v) => v || '-' },
   ]
 
   return (
     <div>
-      <Title level={3}>鏄庣粏璐?/Title>
-      <Paragraph type="secondary">鏄庣粏璐︽寜绉戠洰灞曠ず閫愮瑪鍒嗗綍娴佹按锛岀敤浜庤拷鏌ュ嚟璇併€佸線鏉ュ崟浣嶅拰涓氬姟鏉ユ簮銆?/Paragraph>
+      <Title level={3}>明细账</Title>
+      <Paragraph type="secondary">请先选择科目，系统将按科目分页加载分录流水，避免一次加载全账簿。</Paragraph>
       <Card style={{ marginBottom: 16 }}>
         <Select
           allowClear
           showSearch
           value={selectedAccountCode}
           style={{ width: 320 }}
-          placeholder="璇烽€夋嫨绉戠洰锛岀暀绌哄垯鏄剧ず鍏ㄩ儴"
+          placeholder="请选择科目"
           options={accountOptions}
           onChange={setSelectedAccountCode}
           optionFilterProp="label"
         />
       </Card>
       <Card>
-        <Table<AccountingEntry>
-          rowKey="id"
-          loading={loading}
-          dataSource={filteredEntries}
-          columns={columns}
-          size="small"
-          pagination={{ pageSize: 50 }}
-        />
+        {!selectedAccountCode ? (
+          <Empty description="请选择科目后查看明细账" />
+        ) : (
+          <>
+            <Table<AccountingEntry>
+              rowKey="id"
+              loading={loading}
+              dataSource={entries}
+              columns={columns}
+              size="small"
+              pagination={false}
+            />
+            <div style={{ marginTop: 16, textAlign: 'right' }}>
+              <Pagination
+                current={page}
+                pageSize={50}
+                total={total}
+                showSizeChanger={false}
+                showTotal={(t) => `共 ${t} 条分录`}
+                onChange={setPage}
+              />
+            </div>
+          </>
+        )}
       </Card>
     </div>
   )

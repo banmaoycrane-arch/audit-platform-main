@@ -212,6 +212,11 @@ def parse_source_file_with_unified_engine(db: Session, job: ImportJob, source_fi
 
 
 def mark_parser_engine_failure(db: Session, job: ImportJob, source_file: SourceFile, error_message: str) -> None:
+    db.rollback()
+    job = db.get(ImportJob, job.id)
+    source_file = db.get(SourceFile, source_file.id)
+    if not job or not source_file:
+        return
     source_file.text_extract_status = "failed"
     job.status = "draft"
     job.error_message = error_message
