@@ -186,7 +186,16 @@ export function Step2AccountingImportSource() {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { currentLedgerId, user } = useAuthStore()
+  const { currentLedgerId, user, authContext } = useAuthStore()
+  const currentProjectId = useMemo(() => {
+    if (!authContext?.projects?.length || !currentLedgerId) return null
+    const currentLedger = authContext.projects.find((p) => p.id === currentLedgerId)
+    const teamId = currentLedger?.team_id
+    const matched = authContext.projects.find(
+      (p) => (teamId ? p.team_id === teamId : true) && p.status === 'active'
+    )
+    return matched?.id ?? authContext.projects[0]?.id ?? null
+  }, [authContext, currentLedgerId])
   const inputMode = searchParams.get('inputMode') || 'ai_generated'
   const structuredKindParam = searchParams.get('structuredKind') || 'day_book'
   const structuredKind = (
@@ -401,10 +410,15 @@ export function Step2AccountingImportSource() {
     try {
       let jobId = currentJobId
       if (!jobId) {
-        const job = await api.createImportJob('临时组织', 'ledger_day_book', currentLedgerId)
-        jobId = job.id
-        setCurrentJobId(jobId)
-        setCurrentOrgId(job.organization_id)
+        const job = await api.createImportJob('临时组织', 'ledger_day_book', currentLedgerId, {
+        audit_scope_type: 'all',
+        audit_period_id: null,
+        audit_account_codes: null,
+        project_id: currentProjectId,
+      })
+      jobId = job.id
+      setCurrentJobId(jobId)
+      setCurrentOrgId(job.organization_id)
       }
 
       await api.uploadFile(jobId, file)
@@ -477,7 +491,12 @@ export function Step2AccountingImportSource() {
       let jobId = currentJobId
       if (!jobId) {
         // 创建导入任务
-        const job = await api.createImportJob('账簿导入', 'ai_generated', currentLedgerId)
+        const job = await api.createImportJob('账簿导入', 'ai_generated', currentLedgerId, {
+          audit_scope_type: 'all',
+          audit_period_id: null,
+          audit_account_codes: null,
+          project_id: currentProjectId,
+        })
         jobId = job.id
         setCurrentJobId(jobId)
         setCurrentOrgId(job.organization_id)
@@ -589,7 +608,12 @@ export function Step2AccountingImportSource() {
     let jobId = currentJobId
     let orgId = currentOrgId
     if (!jobId) {
-      const job = await api.createImportJob('账簿导入', sourceType, currentLedgerId)
+      const job = await api.createImportJob('账簿导入', sourceType, currentLedgerId, {
+        audit_scope_type: 'all',
+        audit_period_id: null,
+        audit_account_codes: null,
+        project_id: currentProjectId,
+      })
       jobId = job.id
       orgId = job.organization_id
       setCurrentJobId(jobId)

@@ -41,5 +41,6 @@ class ParserEngineStatusResponse(BaseModel):
     llm_max_concurrent_models: int
     llm_preferred_model: str
     llm_comparison_strategy: str
+    llm_knowledge_base: str | None = None
     supported_formats: list[str]
     supported_document_types: list[str]

@@ -57,6 +57,7 @@ class ParserEngineConfig(BaseModel):
     llm_engine_weights: str
     llm_agreement_threshold: float
     llm_save_all_results: bool
+    llm_knowledge_base: str | None = None
 
 
 class TestConnectionRequest(BaseModel):
@@ -108,6 +109,7 @@ def get_parser_engine_config(
         "llm_engine_weights": settings.llm_engine_weights,
         "llm_agreement_threshold": settings.llm_agreement_threshold,
         "llm_save_all_results": settings.llm_save_all_results,
+        "llm_knowledge_base": settings.llm_knowledge_base or None,
     })
 
 
@@ -453,11 +455,15 @@ def save_parser_engine_config(
     current_user: User = Depends(get_current_user),
 ):
     """保存解析引擎配置到数据库"""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(f"[SAVE_PARSER_CONFIG] user={current_user.id} payload={config.model_dump_json()}")
+    
     db_config = db.query(GlobalSettings).filter(
         GlobalSettings.settings_key == "parser_engine"
     ).first()
     
-    config_dict = {**get_runtime_parser_engine_config(db), **config.dict()}
+    config_dict = {**get_runtime_parser_engine_config(db), **config.model_dump()}
     
     if db_config:
         db_config.settings_value = config_dict

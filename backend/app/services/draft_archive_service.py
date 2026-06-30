@@ -231,15 +231,34 @@ def auto_archive_draft(
 
 
 def list_project_archived_files(db: Session, project_id: int, ledger_id: int | None = None) -> list[SourceFile]:
-    """列出项目下已归档的底稿文件。"""
-    ledger_ids = [
+    """列出项目下已归档的底稿文件。
+
+    兼容策略：
+    1. 优先通过 project_ledgers 关联找到项目下账簿；
+    2. 若项目无绑定账簿，则回退到通过 ImportJob.project_id 找到关联任务及其账簿；
+    3. 归档元数据未写入 project_id 的老数据，只要其 ledger_id 属于项目关联账簿或任务关联账簿，也纳入结果。
+    """
+    # 1. 项目直接绑定的账簿
+    direct_ledger_ids = {
         link.ledger_id
         for link in db.query(ProjectLedger).filter(ProjectLedger.project_id == project_id).all()
-    ]
+    }
+
+    # 2. 通过任务关联的账簿（兼容未建立 ProjectLedger 的老数据）
+    job_ledger_ids = {
+        job.ledger_id
+        for job in db.query(ImportJob).filter(
+            ImportJob.project_id == project_id,
+            ImportJob.ledger_id.isnot(None),
+        ).all()
+    }
+
+    ledger_ids = direct_ledger_ids | job_ledger_ids
+
     if ledger_id is not None:
         if ledger_id not in ledger_ids:
             return []
-        ledger_ids = [ledger_id]
+        ledger_ids = {ledger_id}
 
     if not ledger_ids:
         return []
@@ -250,14 +269,28 @@ def list_project_archived_files(db: Session, project_id: int, ledger_id: int | N
         .filter(
             (SourceFile.ledger_id.in_(ledger_ids)) | (ImportJob.ledger_id.in_(ledger_ids)),
         )
-        .filter((ImportJob.project_id == project_id) | (ImportJob.project_id.is_(None)))
+        .filter((ImportJob.project_id == project_id) | (ImportJob.project_id.is_(None)) | (SourceFile.ledger_id.in_(ledger_ids)))
         .order_by(SourceFile.id.desc())
         .limit(500)
         .all()
     )
+
     result: list[SourceFile] = []
     for item in files:
         archive = load_archive_metadata(item)
-        if archive and archive.get("project_id") == project_id:
-            result.append(item)
+        if archive:
+            # 归档元数据已记录 project_id：优先匹配
+            if archive.get("project_id") == project_id:
+                result.append(item)
+                continue
+            # 元数据未记录 project_id 的老数据：通过账簿归属兜底
+            if archive.get("project_id") is None:
+                effective_ledger_id = item.ledger_id or (item.import_job.ledger_id if item.import_job else None)
+                if effective_ledger_id in ledger_ids:
+                    result.append(item)
+        else:
+            # 完全没有归档元数据：只要账簿归属项目就纳入
+            effective_ledger_id = item.ledger_id or (item.import_job.ledger_id if item.import_job else None)
+            if effective_ledger_id in ledger_ids:
+                result.append(item)
     return result

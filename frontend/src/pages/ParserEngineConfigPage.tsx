@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Card, Row, Col, Form, Input, Select, Switch, InputNumber, Button, Space, Typography, Divider, Alert, Spin, message } from 'antd'
-import { ReloadOutlined, SaveOutlined, ExperimentOutlined, InfoCircleOutlined, ThunderboltOutlined, DatabaseOutlined, SettingOutlined } from '@ant-design/icons'
+import { useState, useEffect, useRef } from 'react'
+import { Card, Row, Col, Form, Input, Select, Switch, InputNumber, Button, Space, Typography, Divider, Alert, Spin, message, Modal } from 'antd'
+import { ReloadOutlined, SaveOutlined, ExperimentOutlined, InfoCircleOutlined, ThunderboltOutlined, DatabaseOutlined, SettingOutlined, BookOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 
 const { Title, Text } = Typography
@@ -18,9 +18,20 @@ export function ParserEngineConfigPage() {
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [testing, setTesting] = useState(false)
+
+  // 监听 Switch 表单值，确保 Switch 显示状态与表单值同步
+  const llmEnableParallelParsing = Form.useWatch('llm_enable_parallel_parsing', form)
+  const llmMultiEngineEnabled = Form.useWatch('llm_multi_engine_enabled', form)
+  const aiLocalModelEnabled = Form.useWatch('ai_local_model_enabled', form)
+  const aiFallbackToRules = Form.useWatch('ai_fallback_to_rules', form)
+  const llmSaveAllResults = Form.useWatch('llm_save_all_results', form)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [ollamaLoading, setOllamaLoading] = useState(false)
   const [ollamaModels, setOllamaModels] = useState<Array<{ value: string; label: string; description: string }>>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [kbFileName, setKbFileName] = useState<string>('')
+  const [saveAsModalVisible, setSaveAsModalVisible] = useState(false)
+  const [saveAsFileName, setSaveAsFileName] = useState('')
 
   useEffect(() => {
     fetchConfig()
@@ -144,6 +155,97 @@ export function ParserEngineConfigPage() {
         message.error(`保存失败: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
+  }
+
+  // LLM 解析知识库文件操作：保存、另存为、载入
+  const kbContent = Form.useWatch('llm_knowledge_base', form) as string | undefined
+
+  const saveKnowledgeBaseToFile = (content: string, fileName: string) => {
+    const blob = new Blob([content || ''], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const handleKbSave = () => {
+    if (kbContent === undefined) {
+      message.warning('请先填写知识库内容')
+      return
+    }
+    const fileName = kbFileName || 'llm-knowledge-base.md'
+    saveKnowledgeBaseToFile(kbContent, fileName)
+    message.success(`已保存到 ${fileName}`)
+  }
+
+  const handleKbSaveAs = () => {
+    setSaveAsFileName(kbFileName || 'llm-knowledge-base.md')
+    setSaveAsModalVisible(true)
+  }
+
+  const handleConfirmSaveAs = () => {
+    const value = saveAsFileName.trim()
+    if (!value) {
+      message.warning('请输入文件名')
+      return
+    }
+    const fileName = value.endsWith('.md') ? value : `${value}.md`
+    setKbFileName(fileName)
+    saveKnowledgeBaseToFile(kbContent || '', fileName)
+    setSaveAsModalVisible(false)
+    message.success(`已另存为 ${fileName}`)
+  }
+
+  const handleKbLoad = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const tryDecode = (buffer: ArrayBuffer, encoding: string) => {
+      try {
+        const decoder = new TextDecoder(encoding, { fatal: true })
+        return decoder.decode(buffer)
+      } catch {
+        return null
+      }
+    }
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const buffer = e.target?.result as ArrayBuffer
+      if (!buffer) {
+        message.error('读取文件失败')
+        return
+      }
+      // 优先 UTF-8，失败则回退 GBK/GB18030
+      let text = tryDecode(buffer, 'utf-8')
+      if (text === null) {
+        text = tryDecode(buffer, 'gb18030')
+      }
+      if (text === null) {
+        text = tryDecode(buffer, 'gbk')
+      }
+      if (text === null) {
+        // 最终尝试忽略错误读取 UTF-8
+        text = new TextDecoder('utf-8', { fatal: false }).decode(buffer)
+      }
+      form.setFieldsValue({ llm_knowledge_base: text })
+      setKbFileName(file.name)
+      message.success(`已载入 ${file.name}`)
+    }
+    reader.onerror = () => {
+      message.error('读取文件失败')
+    }
+    reader.readAsArrayBuffer(file)
+    // 重置 input 以便可以重复选择同一个文件
+    event.target.value = ''
   }
 
   if (loading) {
@@ -338,7 +440,7 @@ export function ParserEngineConfigPage() {
 
             <Card title="并行策略配置" style={{ marginTop: 24 }}>
               <Form.Item name="llm_enable_parallel_parsing" label="启用双引擎并行解析">
-                <Switch />
+                <Switch checked={Boolean(llmEnableParallelParsing)} onChange={(checked) => form.setFieldsValue({ llm_enable_parallel_parsing: checked })} />
                 <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
                   启用后规则引擎和LLM引擎同时解析，按置信度选择最优结果
                 </Text>
@@ -380,7 +482,7 @@ export function ParserEngineConfigPage() {
 
             <Card title="多LLM引擎对比配置" style={{ marginTop: 24 }}>
               <Form.Item name="llm_multi_engine_enabled" label="启用多LLM引擎对比">
-                <Switch />
+                <Switch checked={Boolean(llmMultiEngineEnabled)} onChange={(checked) => form.setFieldsValue({ llm_multi_engine_enabled: checked })} />
                 <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
                   启用后同时调用多个模型，加权投票选择结果（需要足够内存）
                 </Text>
@@ -418,8 +520,8 @@ export function ParserEngineConfigPage() {
                   </Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item name="llm_save_all_results" label="保存所有结果" valuePropName="checked">
-                    <Switch />
+                  <Form.Item name="llm_save_all_results" label="保存所有结果">
+                <Switch checked={Boolean(llmSaveAllResults)} onChange={(checked) => form.setFieldsValue({ llm_save_all_results: checked })} />
                   </Form.Item>
                 </Col>
               </Row>
@@ -432,16 +534,62 @@ export function ParserEngineConfigPage() {
               </Form.Item>
             </Card>
 
+            <Card title="LLM 解析知识库" style={{ marginTop: 24 }}>
+              <Alert
+                message="知识库作用说明"
+                description="在下方的文本框中输入企业自定义解析规则、字段别名映射、业务口径说明等，系统会在调用 LLM 解析文件时自动将其注入到系统提示词（system prompt）中，影响所有 LLM 解析请求。"
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+
+              <Form.Item name="llm_knowledge_base" label="知识库内容">
+                <Input.TextArea
+                  placeholder={`例如：
+1. 本公司发票中“购买方名称”统一显示为“XX科技股份有限公司”。
+2. 银行流水摘要为“工资”时，对方户名应取银行备注中的公司名称。
+3. 合同金额大写优先于小写，若不一致以发票或结算单为准。`}
+                  rows={8}
+                  showCount
+                  maxLength={5000}
+                />
+              </Form.Item>
+
+              <input
+                type="file"
+                accept=".md,.txt,.markdown"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                onChange={handleFileChange}
+              />
+              <Space>
+                <Button icon={<DownloadOutlined />} onClick={handleKbSave}>
+                  保存到文件
+                </Button>
+                <Button icon={<SaveOutlined />} onClick={handleKbSaveAs}>
+                  另存为...
+                </Button>
+                <Button icon={<UploadOutlined />} onClick={handleKbLoad}>
+                  从文件载入
+                </Button>
+              </Space>
+              {kbFileName && (
+                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                  当前文件：{kbFileName}
+                </Text>
+              )}
+            </Card>
+
             <Card title="规则引擎配置" style={{ marginTop: 24 }}>
               <Form.Item name="ai_local_model_enabled" label="启用本地规则识别">
-                <Switch />
+                <Switch checked={Boolean(aiLocalModelEnabled)} onChange={(checked) => form.setFieldsValue({ ai_local_model_enabled: checked })} />
                 <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
                   启用后即使LLM不可用也能进行基本识别
                 </Text>
               </Form.Item>
 
               <Form.Item name="ai_fallback_to_rules" label="AI失败时回退到规则">
-                <Switch />
+                <Switch checked={Boolean(aiFallbackToRules)} onChange={(checked) => form.setFieldsValue({ ai_fallback_to_rules: checked })} />
                 <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
                   LLM解析失败时自动使用规则引擎
                 </Text>
@@ -533,9 +681,29 @@ https://api.moonshot.cn/v1`}
                 <Text type="secondary">多引擎对比：</Text>
                 <Text strong>{config?.llm_multi_engine_enabled ? '启用' : '禁用'}</Text>
               </div>
+              <div style={{ marginTop: 8 }}>
+                <Text type="secondary">知识库：</Text>
+                <Text strong>{(config?.llm_knowledge_base as string | undefined)?.length ? '已加载' : '未加载'}</Text>
+              </div>
             </Card>
 
-            <Button type="primary" icon={<SaveOutlined />} block onClick={handleSave} style={{ marginTop: 24 }}>
+            <Modal
+              title="另存为 MD 文件"
+              open={saveAsModalVisible}
+              onOk={handleConfirmSaveAs}
+              onCancel={() => setSaveAsModalVisible(false)}
+              okText="保存"
+              cancelText="取消"
+            >
+              <Input
+                placeholder="请输入文件名（以 .md 结尾）"
+                value={saveAsFileName}
+                onChange={(e) => setSaveAsFileName(e.target.value)}
+                suffix=".md"
+              />
+            </Modal>
+
+            <Button type="primary" icon={<SaveOutlined />} block htmlType="submit" style={{ marginTop: 24 }}>
               保存配置
             </Button>
           </Col>

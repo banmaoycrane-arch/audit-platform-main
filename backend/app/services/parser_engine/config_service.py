@@ -68,6 +68,7 @@ def get_runtime_parser_engine_config(db: Session | None = None) -> Dict[str, Any
         "llm_engine_weights": settings.llm_engine_weights,
         "llm_agreement_threshold": settings.llm_agreement_threshold,
         "llm_save_all_results": settings.llm_save_all_results,
+        "llm_knowledge_base": settings.llm_knowledge_base or None,
     }
     
     if db_config and db_config.settings_value:

@@ -20,6 +20,7 @@ import {
   Statistic,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd'
@@ -28,6 +29,7 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   CodeOutlined,
+  CopyOutlined,
   DatabaseOutlined,
   ExclamationCircleOutlined,
   FileSearchOutlined,
@@ -44,13 +46,15 @@ const { Title, Text } = Typography
 
 type EngineDiagnosis = {
   consistency_rate?: number
-  consistent_fields?: Array<{ field: string; value: unknown }>
-  conflict_fields?: Array<{ field: string; rule_value: unknown; llm_value: unknown }>
-  rule_only_fields?: Array<{ field: string; rule_value: unknown }>
-  llm_only_fields?: Array<{ field: string; llm_value: unknown }>
+  consistent_fields?: Array<{ field: string; normalized_field?: string; value: unknown; rule_value?: unknown; llm_value?: unknown }>
+  conflict_fields?: Array<{ field: string; normalized_field?: string; rule_value: unknown; llm_value: unknown }>
+  rule_only_fields?: Array<{ field: string; normalized_field?: string; rule_value: unknown }>
+  llm_only_fields?: Array<{ field: string; normalized_field?: string; llm_value: unknown }>
   review_required?: boolean
   review_reason?: string
   confidence_gap?: number
+  rule_field_count?: number
+  llm_field_count?: number
 }
 
 type ParseApiResult = {
@@ -187,6 +191,7 @@ export function ParserEngineManagementPage() {
     llm_max_concurrent_models: number
     llm_preferred_model: string
     llm_comparison_strategy: string
+    llm_knowledge_base: string | null
     supported_formats: string[]
     supported_document_types: string[]
   } | null>(null)
@@ -646,6 +651,13 @@ export function ParserEngineManagementPage() {
             <Descriptions column={1} size="small">
               <Descriptions.Item label="当前账簿">{currentLedger?.name || '未选择账簿'}</Descriptions.Item>
               <Descriptions.Item label="默认项目">{defaultProject?.name || '未选择项目'}</Descriptions.Item>
+              <Descriptions.Item label="LLM知识库">
+                {status?.llm_knowledge_base ? (
+                  <Tag color="blue">已加载（{status.llm_knowledge_base.length} 字）</Tag>
+                ) : (
+                  <Tag>未加载</Tag>
+                )}
+              </Descriptions.Item>
             </Descriptions>
           </Col>
           <Col span={8}>
@@ -803,7 +815,11 @@ export function ParserEngineManagementPage() {
                     <Text type="secondary">字段一致率: </Text>
                     <Text strong style={{ fontSize: 18 }}>{formatPercent(latestDiagnosis?.consistency_rate)}</Text>
                     <Progress percent={((latestDiagnosis?.consistency_rate || 0) * 100).toFixed(0)} strokeColor={latestDiagnosis?.review_required ? '#faad14' : '#52c41a'} size="small" />
-                    <Text type="secondary" style={{ fontSize: 12 }}>看两个引擎在同一字段上的值是否一致，比单看置信度更可靠。</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {latestDiagnosis?.consistency_rate === 0 && (latestDiagnosis.rule_field_count || 0) + (latestDiagnosis.llm_field_count || 0) > 0
+                        ? '两个引擎识别的字段名差异较大，已按业务含义做别名匹配，仍无一致字段。请展开“原始引擎结果”人工核对。'
+                        : '看两个引擎在同一字段上的值是否一致，比单看置信度更可靠。'}
+                    </Text>
                   </Card>
                 </Col>
               </Row>
@@ -811,6 +827,55 @@ export function ParserEngineManagementPage() {
                 <Collapse
                   style={{ marginTop: 16 }}
                   items={[
+                    {
+                      key: 'comparison-process',
+                      label: '对比过程说明',
+                      children: (
+                        <div>
+                          <Text>规则引擎识别了 <Text strong>{latestDiagnosis.rule_field_count || 0}</Text> 个字段，LLM 识别了 <Text strong>{latestDiagnosis.llm_field_count || 0}</Text> 个字段。</Text>
+                          <br />
+                          <Text>按字段名业务含义（别名）匹配后，共同可对比字段为 <Text strong>{(latestDiagnosis.consistent_fields?.length || 0) + (latestDiagnosis.conflict_fields?.length || 0)}</Text> 个。</Text>
+                          <br />
+                          <Text>其中一致字段 <Text strong type="success">{latestDiagnosis.consistent_fields?.length || 0}</Text> 个，冲突字段 <Text strong type="danger">{latestDiagnosis.conflict_fields?.length || 0}</Text> 个，仅一方识别 <Text strong type="warning">{(latestDiagnosis.rule_only_fields?.length || 0) + (latestDiagnosis.llm_only_fields?.length || 0)}</Text> 个。</Text>
+                          <br />
+                          <Text>最终选择：{latestResult.engine_comparison.selection_reason as string}。</Text>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'raw-results',
+                      label: `原始引擎结果（规则 ${latestDiagnosis.rule_field_count || 0} 字段 / LLM ${latestDiagnosis.llm_field_count || 0} 字段）`,
+                      children: (
+                        <Row gutter={16}>
+                          <Col span={12}>
+                            <Card size="small" title="规则引擎原始字段" bodyStyle={{ maxHeight: 300, overflowY: 'auto' }}>
+                              {(latestResult.engine_comparison?.rule_engine_result as { data?: Record<string, unknown> } | undefined)?.data
+                                ? Object.entries((latestResult.engine_comparison?.rule_engine_result as { data?: Record<string, unknown> }).data || {}).map(([key, value]) => (
+                                    <div key={key} style={{ marginBottom: 8, padding: 8, background: '#f6ffed', borderRadius: 4 }}>
+                                      <Text type="secondary">{key}</Text>
+                                      <br />
+                                      <Text strong>{renderValue(value)}</Text>
+                                    </div>
+                                  ))
+                                : <Empty description="规则引擎未返回字段" />}
+                            </Card>
+                          </Col>
+                          <Col span={12}>
+                            <Card size="small" title="LLM大模型原始字段" bodyStyle={{ maxHeight: 300, overflowY: 'auto' }}>
+                              {(latestResult.engine_comparison?.llm_engine_result as { data?: Record<string, unknown> } | undefined)?.data
+                                ? Object.entries((latestResult.engine_comparison?.llm_engine_result as { data?: Record<string, unknown> }).data || {}).map(([key, value]) => (
+                                    <div key={key} style={{ marginBottom: 8, padding: 8, background: '#e6f7ff', borderRadius: 4 }}>
+                                      <Text type="secondary">{key}</Text>
+                                      <br />
+                                      <Text strong>{renderValue(value)}</Text>
+                                    </div>
+                                  ))
+                                : <Empty description="LLM未返回字段" />}
+                            </Card>
+                          </Col>
+                        </Row>
+                      ),
+                    },
                     {
                       key: 'conflicts',
                       label: `字段冲突 ${latestDiagnosis.conflict_fields?.length || 0} 个`,
@@ -880,12 +945,34 @@ export function ParserEngineManagementPage() {
                 {
                   key: '2',
                   label: '原始文本',
-                  children: latestResult.raw_text ? <pre style={{ background: '#f5f5f5', padding: 12, maxHeight: 300, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>{latestResult.raw_text}</pre> : <Empty description="无原始文本" />,
+                  children: latestResult.raw_text ? (
+                    <>
+                      <div style={{ marginBottom: 8, textAlign: 'right' }}>
+                        <Tooltip title="复制原始文本">
+                          <Button icon={<CopyOutlined />} size="small" onClick={() => { navigator.clipboard.writeText(latestResult.raw_text || ''); message.success('原始文本已复制') }}>
+                            复制
+                          </Button>
+                        </Tooltip>
+                      </div>
+                      <pre style={{ background: '#f5f5f5', padding: 12, maxHeight: 300, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>{latestResult.raw_text}</pre>
+                    </>
+                  ) : <Empty description="无原始文本" />,
                 },
                 {
                   key: '3',
                   label: '完整JSON',
-                  children: <pre style={{ background: '#f5f5f5', padding: 12, maxHeight: 300, overflowY: 'auto' }}>{JSON.stringify(latestResult, null, 2)}</pre>,
+                  children: (
+                    <>
+                      <div style={{ marginBottom: 8, textAlign: 'right' }}>
+                        <Tooltip title="复制完整JSON">
+                          <Button icon={<CopyOutlined />} size="small" onClick={() => { navigator.clipboard.writeText(JSON.stringify(latestResult, null, 2)); message.success('完整JSON已复制') }}>
+                            复制
+                          </Button>
+                        </Tooltip>
+                      </div>
+                      <pre style={{ background: '#f5f5f5', padding: 12, maxHeight: 300, overflowY: 'auto' }}>{JSON.stringify(latestResult, null, 2)}</pre>
+                    </>
+                  ),
                 },
               ]}
             />

@@ -467,9 +467,22 @@ def parse_with_llm_engine(
     
     # 构建提示词
     prompt = build_llm_prompt(document_type, extracted_text)
-    
+
+    # 注入知识库：优先使用运行时配置中的 llm_knowledge_base，未配置则回退到环境变量
+    knowledge_base = llm_config.get("llm_knowledge_base") or settings.llm_knowledge_base or ""
+    if knowledge_base:
+        system_content = (
+            "你是一个专业的财务审计助手，擅长解析各类财务文档。"
+            "请严格按照JSON格式返回结果。\n\n"
+            "【解析知识库】\n"
+            f"{knowledge_base}"
+        )
+        logger.info(f"LLM解析注入知识库，长度: {len(knowledge_base)} 字符")
+    else:
+        system_content = "你是一个专业的财务审计助手，擅长解析各类财务文档。请严格按照JSON格式返回结果。"
+
     messages = [
-        {"role": "system", "content": "你是一个专业的财务审计助手，擅长解析各类财务文档。请严格按照JSON格式返回结果。"},
+        {"role": "system", "content": system_content},
         {"role": "user", "content": prompt},
     ]
     
@@ -491,7 +504,14 @@ def parse_with_llm_engine(
         # 解析 JSON 结果
         content = llm_result.content
         if content:
-            data = json.loads(content)
+            # 去除 Markdown 代码块标记（如 ```json ... ```），兼容不同 LLM 输出格式
+            cleaned_content = content.strip()
+            if cleaned_content.startswith("```"):
+                cleaned_content = cleaned_content.split("\n", 1)[1] if "\n" in cleaned_content else ""
+            if cleaned_content.endswith("```"):
+                cleaned_content = cleaned_content.rsplit("\n", 1)[0]
+            cleaned_content = cleaned_content.strip()
+            data = json.loads(cleaned_content)
             
             # 提取置信度（LLM 自评估）
             llm_self_confidence = data.get("confidence", 0.7)
@@ -1237,6 +1257,49 @@ def _normalize_comparison_value(value: Any) -> str:
     )
 
 
+# 财务审计常见字段别名映射：不同引擎可能使用不同的字段名表示同一业务含义。
+# key 为标准化后的字段名，value 为该字段的多个别名（也做标准化处理）。
+_FIELD_NAME_ALIASES: dict[str, list[str]] = {
+    "document_no": ["doc_no", "voucher_no", "voucher_number", "凭证号", "凭证编号", "单据号", "单据编号"],
+    "date": ["doc_date", "voucher_date", "document_date", "凭证日期", "日期", "发生日期"],
+    "counterparty_name": ["vendor_name", "customer_name", "supplier_name", "往来单位", "对方户名", "客户名称", "供应商名称"],
+    "amount": ["total_amount", "money", "sum", "金额", "发生额", "交易金额"],
+    "debit_amount": ["debit", "借方金额", "借方"],
+    "credit_amount": ["credit", "贷方金额", "贷方"],
+    "summary": ["abstract", "description", "remark", "摘要", "备注"],
+    "subject_code": ["account_code", "account_subject", "科目代码", "科目编号"],
+    "subject_name": ["account_name", "科目名称", "科目"],
+}
+
+
+def _normalize_field_name(field_name: str) -> str:
+    """将字段名标准化，便于跨引擎识别同一业务字段。"""
+    text = str(field_name).strip().lower()
+    text = text.replace(" ", "_").replace("-", "_")
+    # 如果字段名本身就是标准名，直接返回
+    if text in _FIELD_NAME_ALIASES:
+        return text
+    # 遍历别名映射，直接对别名做同样的简单标准化处理，避免递归
+    for standard_name, aliases in _FIELD_NAME_ALIASES.items():
+        if text == standard_name:
+            return standard_name
+        normalized_aliases = [
+            a.strip().lower().replace(" ", "_").replace("-", "_") for a in aliases
+        ]
+        if text in normalized_aliases:
+            return standard_name
+    return text
+
+
+def _build_field_mapping(data: dict[str, Any]) -> dict[str, list[str]]:
+    """建立标准化字段名到原始字段名的映射。"""
+    mapping: dict[str, list[str]] = {}
+    for field_name in data.keys():
+        normalized = _normalize_field_name(field_name)
+        mapping.setdefault(normalized, []).append(field_name)
+    return mapping
+
+
 def _build_engine_result_diagnosis(rule_result: Any, llm_result: Any) -> dict[str, Any]:
     """
     生成双引擎结果诊断。
@@ -1262,41 +1325,74 @@ def _build_engine_result_diagnosis(rule_result: Any, llm_result: Any) -> dict[st
 
     rule_data = rule_result.data or {}
     llm_data = llm_result.data or {}
-    all_fields = sorted(set(rule_data.keys()) | set(llm_data.keys()))
+
+    # 建立标准化字段名映射，支持字段别名对比
+    rule_field_mapping = _build_field_mapping(rule_data)
+    llm_field_mapping = _build_field_mapping(llm_data)
+    all_normalized_fields = sorted(set(rule_field_mapping.keys()) | set(llm_field_mapping.keys()))
 
     consistent_fields: list[dict[str, Any]] = []
     conflict_fields: list[dict[str, Any]] = []
     rule_only_fields: list[dict[str, Any]] = []
     llm_only_fields: list[dict[str, Any]] = []
 
-    for field_name in all_fields:
-        rule_value = rule_data.get(field_name)
-        llm_value = llm_data.get(field_name)
-        rule_text = _normalize_comparison_value(rule_value)
-        llm_text = _normalize_comparison_value(llm_value)
+    for normalized_name in all_normalized_fields:
+        rule_original_names = rule_field_mapping.get(normalized_name, [])
+        llm_original_names = llm_field_mapping.get(normalized_name, [])
 
-        if rule_text and llm_text:
-            if rule_text == llm_text:
-                consistent_fields.append({
-                    "field": field_name,
-                    "value": rule_value,
-                })
-            else:
-                conflict_fields.append({
-                    "field": field_name,
+        # 取第一个原始字段名作为展示名
+        display_name = rule_original_names[0] if rule_original_names else llm_original_names[0]
+
+        if rule_original_names and llm_original_names:
+            rule_value = rule_data[rule_original_names[0]]
+            llm_value = llm_data[llm_original_names[0]]
+            rule_text = _normalize_comparison_value(rule_value)
+            llm_text = _normalize_comparison_value(llm_value)
+
+            if rule_text and llm_text:
+                if rule_text == llm_text:
+                    consistent_fields.append({
+                        "field": display_name,
+                        "normalized_field": normalized_name,
+                        "value": rule_value,
+                        "rule_value": rule_value,
+                        "llm_value": llm_value,
+                    })
+                else:
+                    conflict_fields.append({
+                        "field": display_name,
+                        "normalized_field": normalized_name,
+                        "rule_value": rule_value,
+                        "llm_value": llm_value,
+                    })
+            elif rule_text:
+                rule_only_fields.append({
+                    "field": display_name,
+                    "normalized_field": normalized_name,
                     "rule_value": rule_value,
+                })
+            elif llm_text:
+                llm_only_fields.append({
+                    "field": display_name,
+                    "normalized_field": normalized_name,
                     "llm_value": llm_value,
                 })
-        elif rule_text and not llm_text:
-            rule_only_fields.append({
-                "field": field_name,
-                "rule_value": rule_value,
-            })
-        elif llm_text and not rule_text:
-            llm_only_fields.append({
-                "field": field_name,
-                "llm_value": llm_value,
-            })
+        elif rule_original_names:
+            rule_value = rule_data[rule_original_names[0]]
+            if _normalize_comparison_value(rule_value):
+                rule_only_fields.append({
+                    "field": display_name,
+                    "normalized_field": normalized_name,
+                    "rule_value": rule_value,
+                })
+        elif llm_original_names:
+            llm_value = llm_data[llm_original_names[0]]
+            if _normalize_comparison_value(llm_value):
+                llm_only_fields.append({
+                    "field": display_name,
+                    "normalized_field": normalized_name,
+                    "llm_value": llm_value,
+                })
 
     comparable_count = len(consistent_fields) + len(conflict_fields)
     consistency_rate = (
@@ -1331,6 +1427,8 @@ def _build_engine_result_diagnosis(rule_result: Any, llm_result: Any) -> dict[st
         "review_required": review_required,
         "review_reason": "；".join(review_reasons) if review_reasons else "两个引擎结果基本一致",
         "confidence_gap": round(confidence_gap, 4),
+        "rule_field_count": len(rule_data),
+        "llm_field_count": len(llm_data),
     }
 
 
@@ -1400,10 +1498,14 @@ async def dual_engine_parallel_parse(
     except asyncio.TimeoutError:
         logger.warning("规则引擎解析超时")
     
+    # LLM 解析通常比规则引擎慢，给予更宽松的超时时间
+    llm_timeout = config.get("llm_timeout_seconds", 120)
+    if llm_timeout < 60:
+        llm_timeout = 120
     try:
-        llm_result = await asyncio.wait_for(llm_task, timeout=config.get("llm_timeout_seconds", 30))
+        llm_result = await asyncio.wait_for(llm_task, timeout=llm_timeout)
     except asyncio.TimeoutError:
-        logger.warning("LLM 引擎解析超时")
+        logger.warning(f"LLM 引擎解析超时（{llm_timeout}秒）")
     
     # 3. 选择最优结果
     final_result = None

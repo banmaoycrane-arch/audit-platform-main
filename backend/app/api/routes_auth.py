@@ -36,6 +36,12 @@ class SetPasswordRequest(BaseModel):
     password: str
 
 
+class UpdateProfileRequest(BaseModel):
+    username: str | None = None
+    phone: str | None = None
+    email: str | None = None
+
+
 class SmsCodeResponse(BaseModel):
     code: str
     sms_code: str
@@ -156,6 +162,29 @@ def set_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="密码至少需要 6 位")
     auth_service.set_user_password(db, current_user, payload.password)
     return {"status": "ok", "message": "密码已设置"}
+
+
+@router.patch("/me", response_model=UserResponse)
+def update_me(
+    payload: UpdateProfileRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新当前用户的基本资料（用户名、手机号、邮箱）。"""
+    updated = auth_service.update_user_profile(
+        db,
+        current_user,
+        username=payload.username,
+        phone=payload.phone,
+        email=payload.email,
+    )
+    return UserResponse(
+        id=updated.id,
+        username=updated.username,
+        phone=updated.phone,
+        email=updated.email,
+        is_active=updated.is_active,
+    )
 
 
 @router.get("/context", response_model=AuthContextResponse)

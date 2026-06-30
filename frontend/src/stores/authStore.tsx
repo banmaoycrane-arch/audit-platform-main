@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { api } from '../api/client'
 
-interface User {
+export interface User {
   id: number
   username: string
   phone: string
+  email?: string
   platform_role?: string
   is_super_admin?: boolean
 }
@@ -102,6 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       id: context.user.id,
       username: context.user.username || '',
       phone: context.user.phone || '',
+      email: context.user.email || '',
       platform_role: context.user.platform_role || context.platform_role || 'user',
       is_super_admin: Boolean(context.user.is_super_admin || context.is_super_admin),
     })

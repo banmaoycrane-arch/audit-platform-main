@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     llm_engine_weights: str = '{"qwen2.5-14b":0.40,"qwen2.5-7b":0.25,"deepseek-v2":0.25}'  # 引擎权重（JSON字符串）
     llm_agreement_threshold: float = 0.7                      # 字段一致率阈值（高于此值自动采纳）
     llm_save_all_results: bool = True                         # 是否保存所有LLM结果（用于后续分析）
+    llm_knowledge_base: str = ""                                # LLM解析知识库（注入到system prompt）
 
     model_config = SettingsConfigDict(env_file=BACKEND_ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 

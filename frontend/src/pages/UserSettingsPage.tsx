@@ -35,7 +35,7 @@ import {
 } from '@ant-design/icons'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type BindingOptions, type BindingRequest } from '../api/client'
-import { useAuthStore } from '../stores/authStore'
+import { useAuthStore, type User } from '../stores/authStore'
 
 const { Title, Paragraph, Text } = Typography
 
@@ -55,14 +55,16 @@ const REQUEST_STATUS: Record<string, { label: string; color: string }> = {
 export function UserSettingsPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { user, authContext, userLedgers, currentLedgerId, refreshAuthContext } = useAuthStore()
+  const { user, setUser, authContext, userLedgers, currentLedgerId, refreshAuthContext } = useAuthStore()
   const [bindingOptions, setBindingOptions] = useState<BindingOptions>({ teams: [], ledgers: [], projects: [] })
   const [myRequests, setMyRequests] = useState<BindingRequest[]>([])
   const [optionsLoading, setOptionsLoading] = useState(false)
   const [requestSubmitting, setRequestSubmitting] = useState(false)
   const [passwordSaving, setPasswordSaving] = useState(false)
+  const [profileSaving, setProfileSaving] = useState(false)
   const [requestForm] = Form.useForm()
   const [passwordForm] = Form.useForm()
+  const [profileForm] = Form.useForm()
 
   const initialTab = searchParams.get('focus') === 'password' ? 'password' : 'binding'
   const currentLedger = userLedgers.find((ledger) => ledger.id === currentLedgerId)
@@ -136,6 +138,30 @@ export function UserSettingsPage() {
     }
   }
 
+  const handleUpdateProfile = async (values: { username?: string; phone?: string; email?: string }) => {
+    setProfileSaving(true)
+    try {
+      const updated = await api.updateMe({
+        username: values.username?.trim() || undefined,
+        phone: values.phone?.trim() || undefined,
+        email: values.email?.trim() || undefined,
+      })
+      message.success('个人资料已更新')
+      setUser({
+        ...user,
+        id: updated.id,
+        username: updated.username || '',
+        phone: updated.phone || '',
+        email: updated.email || '',
+      } as User)
+      void refreshAuthContext()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '更新个人资料失败')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
   return (
     <div style={{ padding: 24 }}>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -206,30 +232,67 @@ export function UserSettingsPage() {
               key: 'profile',
               label: '个人状态',
               children: (
-                <Card>
-                  <Descriptions bordered column={2} size="small">
-                    <Descriptions.Item label="用户名">{user?.username || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="手机号">{user?.phone || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="平台角色">
-                      <Tag color={isSuperAdmin ? 'gold' : 'default'}>{platformRoleLabel}</Tag>
-                    </Descriptions.Item>
-                    <Descriptions.Item label="当前团队">{authContext?.teams[0]?.name || '未加入团队'}</Descriptions.Item>
-                    <Descriptions.Item label="当前账簿">{currentLedger?.name || '未选择账簿'}</Descriptions.Item>
-                    <Descriptions.Item label="账簿角色">{authContext?.current_ledger_role || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="团队类型">{authContext?.current_team_type || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="项目模式" span={2}>
-                      {authContext?.can_use_ledger_without_project ? '可不绑定项目直接使用账簿' : '需要项目与账簿绑定后继续'}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="下一步建议" span={2}>{authContext?.next_action || '-'}</Descriptions.Item>
-                  </Descriptions>
-                  <Space wrap style={{ marginTop: 16 }}>
-                    <Button icon={<TeamOutlined />} onClick={() => navigate('/team-management')}>团队管理</Button>
-                    <Button icon={<BookOutlined />} onClick={() => navigate('/ledger-management')}>账簿管理</Button>
-                    <Button icon={<ProjectOutlined />} onClick={() => navigate('/projects')}>项目管理</Button>
-                    <Button icon={<SettingOutlined />} onClick={() => navigate('/scope-settings')}>管理配置</Button>
-                    {isSuperAdmin && <Button icon={<CrownOutlined />} type="primary" onClick={() => navigate('/super-admin')}>开发者超级管理员</Button>}
-                  </Space>
-                </Card>
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} lg={12}>
+                    <Card title="编辑个人资料">
+                      <Form
+                        form={profileForm}
+                        layout="vertical"
+                        onFinish={handleUpdateProfile}
+                        initialValues={{
+                          username: user?.username || '',
+                          phone: user?.phone || '',
+                          email: user?.email || '',
+                        }}
+                      >
+                        <Form.Item name="username" label="用户名">
+                          <Input placeholder="请输入用户名" maxLength={100} showCount />
+                        </Form.Item>
+                        <Form.Item
+                          name="phone"
+                          label="手机号"
+                          rules={[{ pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' }]}
+                        >
+                          <Input placeholder="请输入手机号" maxLength={20} />
+                        </Form.Item>
+                        <Form.Item
+                          name="email"
+                          label="邮箱"
+                          rules={[{ type: 'email', message: '请输入有效的邮箱地址' }]}
+                        >
+                          <Input placeholder="请输入邮箱" maxLength={200} />
+                        </Form.Item>
+                        <Button type="primary" htmlType="submit" loading={profileSaving} icon={<UserOutlined />}>
+                          保存资料
+                        </Button>
+                      </Form>
+                    </Card>
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <Card title="当前授权状态">
+                      <Descriptions bordered column={1} size="small">
+                        <Descriptions.Item label="平台角色">
+                          <Tag color={isSuperAdmin ? 'gold' : 'default'}>{platformRoleLabel}</Tag>
+                        </Descriptions.Item>
+                        <Descriptions.Item label="当前团队">{authContext?.teams[0]?.name || '未加入团队'}</Descriptions.Item>
+                        <Descriptions.Item label="当前账簿">{currentLedger?.name || '未选择账簿'}</Descriptions.Item>
+                        <Descriptions.Item label="账簿角色">{authContext?.current_ledger_role || '-'}</Descriptions.Item>
+                        <Descriptions.Item label="团队类型">{authContext?.current_team_type || '-'}</Descriptions.Item>
+                        <Descriptions.Item label="项目模式">
+                          {authContext?.can_use_ledger_without_project ? '可不绑定项目直接使用账簿' : '需要项目与账簿绑定后继续'}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="下一步建议">{authContext?.next_action || '-'}</Descriptions.Item>
+                      </Descriptions>
+                      <Space wrap style={{ marginTop: 16 }}>
+                        <Button icon={<TeamOutlined />} onClick={() => navigate('/team-management')}>团队管理</Button>
+                        <Button icon={<BookOutlined />} onClick={() => navigate('/ledger-management')}>账簿管理</Button>
+                        <Button icon={<ProjectOutlined />} onClick={() => navigate('/projects')}>项目管理</Button>
+                        <Button icon={<SettingOutlined />} onClick={() => navigate('/scope-settings')}>管理配置</Button>
+                        {isSuperAdmin && <Button icon={<CrownOutlined />} type="primary" onClick={() => navigate('/super-admin')}>开发者超级管理员</Button>}
+                      </Space>
+                    </Card>
+                  </Col>
+                </Row>
               ),
             },
             {

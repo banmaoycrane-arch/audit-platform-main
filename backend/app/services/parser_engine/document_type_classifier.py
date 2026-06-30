@@ -172,6 +172,13 @@ TYPE_KEYWORDS: dict[DocumentType, dict[str, list[str]]] = {
             "培训费用": ["培训", "会议"],
         },
     },
+    DocumentType.ACCOUNTING_ENTRY: {
+        "primary": ["凭证", "序时簿", "记账凭证", "会计凭证", "会计分录", "voucher", "general_ledger", "journal"],
+        "sub_types": {
+            "标准序时簿": ["序时簿", "记账凭证", "会计凭证"],
+            "凭证汇总表": ["凭证汇总", "汇总"],
+        },
+    },
     DocumentType.RECEIPT: {
         "primary": ["收据", "receipt", "收款", "付款", "收条"],
         "sub_types": {

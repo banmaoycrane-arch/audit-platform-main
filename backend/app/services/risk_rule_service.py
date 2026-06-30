@@ -56,6 +56,7 @@ def generate_vector_similarity_risks(db: Session, import_job_id: int, seen: set)
                 title=title,
                 description=explain_risk("发现与历史分录语义相似的记录，需核查是否存在重复入账、关联交易未披露或异常模式", entry.normalized_text or ""),
                 confidence=min(0.95, max(s[1] for s in similar_list)),
+                review_status="pending_review",
             )
             db.add(risk)
             db.flush()
@@ -121,6 +122,7 @@ def generate_risks(db: Session, import_job_id: int) -> list[AuditRisk]:
                 title=key[1],
                 description=explain_risk(description, evidence_text),
                 confidence=confidence,
+                review_status="pending_review",
             )
             db.add(risk)
             db.flush()
@@ -142,6 +144,7 @@ def generate_risks(db: Session, import_job_id: int) -> list[AuditRisk]:
                 title=key[1],
                 description=explain_risk("存在同摘要、同金额的多笔分录，需核查是否重复入账或重复报销", summary),
                 confidence=0.82,
+                review_status="pending_review",
             )
             db.add(risk)
             db.flush()

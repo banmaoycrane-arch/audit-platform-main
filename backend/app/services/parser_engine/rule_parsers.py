@@ -1130,6 +1130,252 @@ def parse_receipt_rules(text: str, file_path: str = "") -> dict[str, Any]:
     return data
 
 
+def _detect_header_row(df: "pd.DataFrame") -> int:
+    """
+    检测 Excel/CSV 数据表中的真正表头行位置。
+
+    业务含义：
+        财务类表格常见习惯是前 4-5 行为标题、企业名称、制表时间、
+        货币单位等说明信息，真正字段名在下方。本函数通过统计每行
+        的字段名特征来定位表头。
+    """
+    import pandas as pd
+
+    if df.empty:
+        return 0
+
+    candidate_keywords = [
+        "凭证", "日期", "摘要", "科目", "借方", "贷方", "余额", "金额",
+        "序号", "年", "月", "日", "对方科目", "经办人", "审核人", "过账",
+        "voucher", "date", "summary", "subject", "debit", "credit", "balance",
+        "amount", "no", "serial",
+    ]
+    best_score = -1
+    best_index = 0
+
+    for idx in range(min(len(df), 15)):
+        row = df.iloc[idx]
+        text = " ".join(str(x).strip().lower() for x in row.values if pd.notna(x))
+        if not text:
+            continue
+        score = 0
+        for keyword in candidate_keywords:
+            if keyword in text:
+                score += 1
+        # 如果一行中包含大量非空单元格且看起来像字段名，给予更高权重
+        non_empty_count = sum(1 for x in row.values if pd.notna(x) and str(x).strip())
+        if non_empty_count >= 4:
+            score += non_empty_count * 0.5
+        if score > best_score:
+            best_score = score
+            best_index = idx
+
+    return best_index
+
+
+def _normalize_header_name(header: str) -> str:
+    """将表头字段名标准化为统一口径。"""
+    import re
+
+    text = str(header).strip().lower()
+    text = re.sub(r"[\s_:：-]+", "_", text)
+    text = text.replace("（", "(").replace("）", ")")
+    text = text.strip("_")
+
+    aliases = {
+        "document_no": ["凭证号", "凭证编号", "单据号", "单据编号", "记字号", "凭证字号", "voucher_no", "voucher_number", "doc_no", "no"],
+        "date": ["日期", "凭证日期", "记账日期", "业务日期", "voucher_date", "doc_date"],
+        "summary": ["摘要", "业务说明", "摘要说明", "abstract", "description", "summary"],
+        "subject_code": ["科目代码", "科目编号", "科目编码", "account_code", "subject_code"],
+        "subject_name": ["科目名称", "科目", "会计科目", "account_name", "subject_name"],
+        "debit_amount": ["借方", "借方金额", "借方发生额", "debit", "debit_amount"],
+        "credit_amount": ["贷方", "贷方金额", "贷方发生额", "credit", "credit_amount"],
+        "balance": ["余额", "账面余额", "balance", "balance_amount"],
+        "counterparty_subject": ["对方科目", "对应科目", "对方科目名称", "counterparty_subject"],
+        "direction": ["方向", "借贷方向", "direction"],
+    }
+
+    for standard, variants in aliases.items():
+        if text in [v.lower() for v in variants] or text == standard:
+            return standard
+    return text
+
+
+def _is_summary_row(row: "pd.Series") -> bool:
+    """判断一行是否为小计/合计/汇总行。"""
+    import pandas as pd
+
+    text = " ".join(str(x).strip() for x in row.values if pd.notna(x)).lower()
+    summary_keywords = ["合计", "小计", "总计", "汇总", "sum", "total", "subtotal"]
+    if any(keyword in text for keyword in summary_keywords):
+        return True
+    # 如果整行只有一个有效单元格且包含关键词，也视为汇总行
+    non_empty = [x for x in row.values if pd.notna(x) and str(x).strip()]
+    if len(non_empty) == 1 and any(k in str(non_empty[0]).lower() for k in summary_keywords):
+        return True
+    return False
+
+
+def _parse_amount_value(value: Any) -> float | None:
+    """从单元格中解析金额数值。"""
+    import pandas as pd
+
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    text = str(value).strip().replace(",", "").replace("，", "").replace("¥", "").replace("￥", "").replace("元", "")
+    if not text:
+        return None
+    try:
+        return float(text)
+    except Exception:
+        return None
+
+
+def parse_accounting_entry_rules(text: str, file_path: str = "") -> dict[str, Any]:
+    """
+    会计凭证/序时簿规则解析器（支持 Excel/CSV 结构化表格）。
+
+    业务含义：
+        财务序时簿通常首行为标题、企业名称、制表时间、货币单位等，
+        真正数据表头在下方 4-5 行，且数据中间可能夹杂小计/合计行。
+        本解析器会自动定位表头、过滤汇总行并提取关键字段。
+    """
+    import pandas as pd
+
+    data: dict[str, Any] = {
+        "document_type": "accounting_entry",
+        "company_name": None,
+        "report_period": None,
+        "currency_unit": "元",
+        "columns": [],
+        "entries": [],
+        "entry_count": 0,
+        "total_debit": None,
+        "total_credit": None,
+    }
+
+    if not file_path or not Path(file_path).exists():
+        return data
+
+    suffix = Path(file_path).suffix.lower()
+    try:
+        if suffix == ".csv":
+            df = pd.read_csv(file_path, dtype=str, keep_default_na=False)
+        else:
+            df = pd.read_excel(file_path, dtype=str, keep_default_na=False)
+    except Exception as e:
+        logger.warning(f"读取序时簿文件失败 {file_path}: {e}")
+        return data
+
+    if df.empty:
+        return data
+
+    # 1. 尝试提取表头说明信息（企业名称、期间、货币单位）
+    for idx in range(min(len(df), 5)):
+        row_text = " ".join(str(x).strip() for x in df.iloc[idx].values if str(x).strip())
+        if not row_text:
+            continue
+        if "公司" in row_text or "企业" in row_text or "单位" in row_text:
+            data["company_name"] = row_text.strip()
+        if any(kw in row_text for kw in ["202", "期间", "年度", "月份", "会计期间"]):
+            data["report_period"] = row_text.strip()
+        if any(kw in row_text for kw in ["货币单位", "本位币", "币种", "单位："]):
+            data["currency_unit"] = row_text.strip()
+
+    # 2. 定位真正表头行
+    header_row_index = _detect_header_row(df)
+    raw_headers = df.iloc[header_row_index].values
+    headers = [_normalize_header_name(h) for h in raw_headers]
+
+    # 清理表头，确保不重复且非空
+    seen: set[str] = set()
+    clean_headers: list[str] = []
+    for h in headers:
+        if h and h not in seen:
+            seen.add(h)
+            clean_headers.append(h)
+        else:
+            clean_headers.append("")
+    data["columns"] = [h for h in clean_headers if h]
+
+    # 3. 读取数据行
+    entries: list[dict[str, Any]] = []
+    total_debit = 0.0
+    total_credit = 0.0
+
+    for idx in range(header_row_index + 1, len(df)):
+        row = df.iloc[idx]
+        if _is_summary_row(row):
+            # 对于汇总行，尝试累计借方/贷方合计
+            row_dict = {}
+            for col_idx, raw_header in enumerate(raw_headers):
+                if col_idx >= len(row):
+                    break
+                normalized = _normalize_header_name(raw_header)
+                row_dict[normalized] = row.iloc[col_idx]
+            d_val = _parse_amount_value(row_dict.get("debit_amount"))
+            c_val = _parse_amount_value(row_dict.get("credit_amount"))
+            if d_val is not None and d_val > 0:
+                total_debit += d_val
+            if c_val is not None and c_val > 0:
+                total_credit += c_val
+            continue
+
+        # 跳过空行
+        non_empty_values = [str(x).strip() for x in row.values if str(x).strip()]
+        if not non_empty_values:
+            continue
+
+        row_dict: dict[str, Any] = {}
+        for col_idx, raw_header in enumerate(raw_headers):
+            if col_idx >= len(row):
+                break
+            normalized = _normalize_header_name(raw_header)
+            if not normalized:
+                continue
+            row_dict[normalized] = row.iloc[col_idx]
+
+        # 只保留至少包含一个关键字段的行
+        key_fields = ["document_no", "date", "summary", "subject_code", "subject_name", "debit_amount", "credit_amount"]
+        if not any(row_dict.get(f) for f in key_fields):
+            continue
+
+        entry = {
+            "document_no": row_dict.get("document_no") or None,
+            "date": row_dict.get("date") or None,
+            "summary": row_dict.get("summary") or None,
+            "subject_code": row_dict.get("subject_code") or None,
+            "subject_name": row_dict.get("subject_name") or None,
+            "debit_amount": _parse_amount_value(row_dict.get("debit_amount")),
+            "credit_amount": _parse_amount_value(row_dict.get("credit_amount")),
+            "balance": _parse_amount_value(row_dict.get("balance")),
+            "counterparty_subject": row_dict.get("counterparty_subject") or None,
+            "direction": row_dict.get("direction") or None,
+        }
+
+        # 如果金额列可以转为 Decimal，则保留 2 位小数
+        from decimal import Decimal, ROUND_HALF_UP
+        for key in ("debit_amount", "credit_amount", "balance"):
+            val = entry[key]
+            if val is not None:
+                try:
+                    entry[key] = str(Decimal(str(val)).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP))
+                except Exception:
+                    pass
+
+        entries.append(entry)
+
+    # 4. 汇总
+    data["entries"] = entries
+    data["entry_count"] = len(entries)
+    if total_debit > 0:
+        data["total_debit"] = str(Decimal(str(total_debit)).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP))
+    if total_credit > 0:
+        data["total_credit"] = str(Decimal(str(total_credit)).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP))
+
+    return data
+
+
 # =============================================================================
 # 规则引擎调度函数
 # =============================================================================
@@ -1164,6 +1410,7 @@ def parse_with_rules(
         "salary_table": parse_salary_table_rules,
         "expense_document": parse_expense_document_rules,
         "receipt": parse_receipt_rules,
+        "accounting_entry": parse_accounting_entry_rules,
     }
 
     parser = parser_map.get(document_type)

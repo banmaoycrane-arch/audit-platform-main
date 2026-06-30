@@ -22,6 +22,7 @@ from app.services.import_service import (
     _process_ai_register_file,
     _is_source_file,
 )
+from app.services.project_service import get_or_create_unknown_project
 from app.services.audit_day_book_service import DayBookReport, process_day_book_import
 from app.services.entry_generation_service import _normalize_evidence_type
 from app.services.import_routing_service import get_import_output_path, is_day_book_source_type, AI_EVIDENCE_SOURCE_TYPES
@@ -158,9 +159,23 @@ def create_job(
     Returns:
         ImportJob: 创建的导入任务
     """
+    project_id = payload.project_id
+    # 未指定 project_id 且属于审计/需要项目上下文的导入，自动归属到团队“未知项目”
+    if project_id is None and _requires_audit_project_context(
+        payload.source_type, payload.audit_scope_type, project_id
+    ):
+        team_id = current_user.team_id
+        if team_id is None and payload.ledger_id:
+            ledger = db.get(Ledger, payload.ledger_id)
+            if ledger:
+                team_id = ledger.team_id
+        if team_id:
+            unknown_project = get_or_create_unknown_project(db, team_id)
+            project_id = unknown_project.id
+
     _ensure_project_ledger_context(
         db,
-        project_id=payload.project_id,
+        project_id=project_id,
         ledger_id=payload.ledger_id,
         source_type=payload.source_type,
         audit_scope_type=payload.audit_scope_type,
@@ -176,7 +191,7 @@ def create_job(
         payload.audit_scope_type,
         payload.audit_period_id,
         payload.audit_account_codes,
-        payload.project_id,
+        project_id,
     )
 
 

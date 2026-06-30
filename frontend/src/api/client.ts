@@ -1285,6 +1285,8 @@ async function getApiErrorMessage(response: Response): Promise<string> {
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('token')
   const headers: Record<string, string> = {
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
     ...(options?.headers as Record<string, string> || {}),
   }
   if (token) {
@@ -1366,6 +1368,12 @@ export const api = {
     }),
   getMe: () =>
     request<{ id: number; username: string | null; phone: string | null; email: string | null; is_active: boolean }>('/api/auth/me'),
+  updateMe: (payload: { username?: string; phone?: string; email?: string }) =>
+    request<{ id: number; username: string | null; phone: string | null; email: string | null; is_active: boolean }>('/api/auth/me', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }),
   getAuthContext: () => request<AuthContext>('/api/auth/context'),
   createTeam: (payload: { name: string; type: string }) =>
     request<Team>('/api/teams', {
@@ -2383,6 +2391,7 @@ export const api = {
       llm_max_concurrent_models: number
       llm_preferred_model: string
       llm_comparison_strategy: string
+      llm_knowledge_base: string | null
       supported_formats: string[]
       supported_document_types: string[]
     }>('/api/parser-engine/status'),

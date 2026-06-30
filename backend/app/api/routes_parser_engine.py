@@ -48,6 +48,7 @@ def get_parser_engine_status() -> ParserEngineStatusResponse:
         llm_max_concurrent_models=settings.llm_max_concurrent_models,
         llm_preferred_model=settings.llm_preferred_model,
         llm_comparison_strategy=settings.llm_comparison_strategy,
+        llm_knowledge_base=settings.llm_knowledge_base or None,
         supported_formats=supported_formats,
         supported_document_types=supported_document_types,
     )

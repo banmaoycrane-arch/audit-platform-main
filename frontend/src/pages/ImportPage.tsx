@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { api, type ImportJob } from '../api/client'
 import { FileUploader } from '../components/FileUploader'
 import { useAuthStore } from '../stores/authStore'
@@ -53,10 +53,19 @@ export function ImportPage({ jobs, onChanged }: { jobs: ImportJob[]; onChanged: 
   const [message, setMessage] = useState('')
   const [report, setReport] = useState<ImportReport | null>(null)
   const [loading, setLoading] = useState(false)
-  const { currentLedgerId } = useAuthStore()
+  const { currentLedgerId, authContext } = useAuthStore()
+  const currentProjectId = useMemo(() => {
+    if (!authContext?.projects?.length) return null
+    return authContext.projects.find((p) => p.status === 'active')?.id ?? authContext.projects[0]?.id ?? null
+  }, [authContext])
 
   async function createJob() {
-    const job = await api.createImportJob(organizationName, undefined, currentLedgerId)
+    const job = await api.createImportJob(organizationName, undefined, currentLedgerId, {
+      audit_scope_type: 'all',
+      audit_period_id: null,
+      audit_account_codes: null,
+      project_id: currentProjectId,
+    })
     setSelectedJobId(job.id)
     setMessage(`已创建导入批次 #${job.id}`)
     setReport(null)

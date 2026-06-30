@@ -140,6 +140,56 @@ def set_user_password(db: Session, user: User, password: str) -> User:
     return user
 
 
+def update_user_profile(
+    db: Session,
+    user: User,
+    username: str | None = None,
+    phone: str | None = None,
+    email: str | None = None,
+) -> User:
+    """
+    功能描述：更新当前用户的基本资料。
+    业务逻辑：仅更新传入的非空字段，并校验用户名、手机号、邮箱的唯一性。
+    会计口径：无。
+
+    Args:
+        db: 数据库会话。
+        user: 当前登录用户。
+        username: 新用户名，可选。
+        phone: 新手机号，可选。
+        email: 新邮箱，可选。
+
+    Returns:
+        User: 更新后的用户对象。
+
+    注意事项：
+        1. 用户名、手机号、邮箱若已存在且不属于当前用户，则抛出业务异常。
+        2. 空字符串会被视为未提供，不做更新。
+    """
+    if username is not None and username.strip():
+        existing = get_user_by_username(db, username.strip())
+        if existing and existing.id != user.id:
+            raise ValueError("用户名已被其他账号使用")
+        user.username = username.strip()
+
+    if phone is not None and phone.strip():
+        existing = get_user_by_phone(db, phone.strip())
+        if existing and existing.id != user.id:
+            raise ValueError("手机号已被其他账号使用")
+        user.phone = phone.strip()
+
+    if email is not None and email.strip():
+        existing = db.query(User).filter(User.email == email.strip()).first()
+        if existing and existing.id != user.id:
+            raise ValueError("邮箱已被其他账号使用")
+        user.email = email.strip()
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def get_auth_context(db: Session, user: User) -> dict:
     """
     功能描述：汇总用户进入系统前必须确认的团队、账簿、项目和会计主体上下文。

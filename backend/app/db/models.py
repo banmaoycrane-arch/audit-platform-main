@@ -937,6 +937,7 @@ class AuditRisk(Base):
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(40), default="pending_review")
+    review_status: Mapped[str] = mapped_column(String(40), default="pending_review", nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=0.7)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

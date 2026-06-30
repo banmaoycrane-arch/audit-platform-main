@@ -523,6 +523,40 @@ def get_project_ledgers(db: Session, project_id: int) -> list[Ledger]:
     return [pl.ledger for pl in project.ledgers if pl.ledger]
 
 
+def get_or_create_unknown_project(db: Session, team_id: int) -> Project:
+    """
+    获取或创建团队的“未知项目”兜底项目。
+
+    业务逻辑：当上传入口未指定 project_id 时，将资料归属到该团队的“未知项目”，
+    避免因为缺少项目关联导致后续归档、审计范围等功能无法使用。
+
+    Args:
+        db: 数据库会话
+        team_id: 团队ID
+
+    Returns:
+        Project: 未知项目对象
+    """
+    unknown_name = "未知项目"
+    project = (
+        db.query(Project)
+        .filter(Project.team_id == team_id, Project.name == unknown_name)
+        .first()
+    )
+    if project:
+        return project
+    project = Project(
+        team_id=team_id,
+        name=unknown_name,
+        type="audit",
+        status="active",
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
 def get_consolidated_report(db: Session, project_id: int, period_start: str | None = None, period_end: str | None = None) -> dict:
     """
     获取项目跨账簿汇总数据。
