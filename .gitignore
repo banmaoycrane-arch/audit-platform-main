@@ -51,9 +51,11 @@ logs/
 
 # Database
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 *.sqlite
 *.sqlite3
-*.db-journal
 
 # Uploads & Storage
 storage/uploads/
@@ -64,6 +66,7 @@ qdrant_embed_test/
 # Build outputs
 backend/dist/
 frontend/dist/
+frontend/tsconfig.tsbuildinfo
 
 # OS
 .DS_Store
@@ -79,3 +82,9 @@ htmlcov/
 *.tmp
 *.temp
 temp/
+
+# Test data files
+test_*.csv
+test_*.py
+test_*.json
+check_health.py
