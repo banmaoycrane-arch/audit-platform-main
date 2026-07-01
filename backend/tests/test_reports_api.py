@@ -16,6 +16,9 @@ from app.db.models import (
 )
 from app.db.session import Base, get_db
 from app.main import app
+from app.models.ledger import Ledger
+from app.models.team import Team
+from app.services.ledger_timeline_service import initialize_ledger_timeline
 
 
 @pytest.fixture
@@ -44,6 +47,23 @@ def client():
         Base.metadata.drop_all(bind=engine)
 
 
+def _create_team_and_ledger(db, accounting_start_date=None):
+    """创建测试团队与账簿，并返回 Ledger 对象。"""
+    team = Team(name="报表 API 测试团队", type="firm")
+    db.add(team)
+    db.flush()
+
+    ledger = Ledger(
+        name="报表 API 测试账簿",
+        team_id=team.id,
+        status="active",
+        accounting_start_date=accounting_start_date,
+    )
+    db.add(ledger)
+    db.flush()
+    return ledger
+
+
 def _seed(TestingSessionLocal):
     """构建一个最小可平衡账：
     期初：1002 借 1000 / 4001 贷 1000
@@ -51,17 +71,10 @@ def _seed(TestingSessionLocal):
     """
     db = TestingSessionLocal()
     try:
-        org = Organization(name="报表测试", fiscal_year=2026)
-        db.add(org)
-        db.flush()
-        period = AccountingPeriod(
-            organization_id=org.id,
-            period_code="2026-01",
-            start_date=date(2026, 1, 1),
-            end_date=date(2026, 1, 31),
+        ledger = _create_team_and_ledger(db, accounting_start_date=date(2026, 1, 1))
+        organization, period = initialize_ledger_timeline(
+            db, ledger, organization_name="报表测试"
         )
-        db.add(period)
-        db.flush()
 
         for code, name, category, direction in [
             ("1002", "银行存款", "asset", "debit"),
@@ -83,12 +96,14 @@ def _seed(TestingSessionLocal):
                     is_terminal=True,
                     status="active",
                     is_system=True,
+                    ledger_id=ledger.id,
                 )
             )
 
         db.add(
             OpeningBalance(
-                organization_id=org.id,
+                organization_id=organization.id,
+                ledger_id=ledger.id,
                 period_id=period.id,
                 account_code="1002",
                 debit_balance=Decimal("1000"),
@@ -97,7 +112,8 @@ def _seed(TestingSessionLocal):
         )
         db.add(
             OpeningBalance(
-                organization_id=org.id,
+                organization_id=organization.id,
+                ledger_id=ledger.id,
                 period_id=period.id,
                 account_code="4001",
                 debit_balance=Decimal("0"),
@@ -117,7 +133,8 @@ def _seed(TestingSessionLocal):
         ]:
             db.add(
                 AccountingEntry(
-                    organization_id=org.id,
+                    organization_id=organization.id,
+                    ledger_id=ledger.id,
                     import_job_id=0,
                     voucher_no="测-001",
                     voucher_date=date(2026, 1, 15),
@@ -129,17 +146,17 @@ def _seed(TestingSessionLocal):
                 )
             )
         db.commit()
-        return org.id, period.id
+        return ledger.id, period.id
     finally:
         db.close()
 
 
 def test_trial_balance_report(client):
     test_client, TestingSessionLocal = client
-    org_id, period_id = _seed(TestingSessionLocal)
+    ledger_id, period_id = _seed(TestingSessionLocal)
     resp = test_client.get(
         "/api/reports/trial-balance",
-        params={"organization_id": org_id, "period_id": period_id},
+        params={"ledger_id": ledger_id, "period_id": period_id},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -150,10 +167,10 @@ def test_trial_balance_report(client):
 
 def test_balance_sheet(client):
     test_client, TestingSessionLocal = client
-    org_id, period_id = _seed(TestingSessionLocal)
+    ledger_id, period_id = _seed(TestingSessionLocal)
     resp = test_client.get(
         "/api/reports/balance-sheet",
-        params={"organization_id": org_id, "period_id": period_id},
+        params={"ledger_id": ledger_id, "period_id": period_id},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -168,10 +185,10 @@ def test_balance_sheet(client):
 
 def test_income_statement(client):
     test_client, TestingSessionLocal = client
-    org_id, period_id = _seed(TestingSessionLocal)
+    ledger_id, period_id = _seed(TestingSessionLocal)
     resp = test_client.get(
         "/api/reports/income-statement",
-        params={"organization_id": org_id, "period_id": period_id},
+        params={"ledger_id": ledger_id, "period_id": period_id},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -189,17 +206,10 @@ def test_income_statement(client):
 def _seed_reclassification(TestingSessionLocal):
     db = TestingSessionLocal()
     try:
-        org = Organization(name="重分类测试", fiscal_year=2026)
-        db.add(org)
-        db.flush()
-        period = AccountingPeriod(
-            organization_id=org.id,
-            period_code="2026-01",
-            start_date=date(2026, 1, 1),
-            end_date=date(2026, 1, 31),
+        ledger = _create_team_and_ledger(db, accounting_start_date=date(2026, 1, 1))
+        organization, period = initialize_ledger_timeline(
+            db, ledger, organization_name="重分类测试"
         )
-        db.add(period)
-        db.flush()
 
         for code, name, category, direction in [
             ("1122", "应收账款", "asset", "debit"),
@@ -218,6 +228,7 @@ def _seed_reclassification(TestingSessionLocal):
                     is_terminal=True,
                     status="active",
                     is_system=True,
+                    ledger_id=ledger.id,
                 )
             )
 
@@ -227,7 +238,8 @@ def _seed_reclassification(TestingSessionLocal):
         ]:
             db.add(
                 OpeningBalance(
-                    organization_id=org.id,
+                    organization_id=organization.id,
+                    ledger_id=ledger.id,
                     period_id=period.id,
                     account_code=code,
                     debit_balance=debit,
@@ -235,7 +247,7 @@ def _seed_reclassification(TestingSessionLocal):
                 )
             )
         db.commit()
-        return org.id, period.id
+        return ledger.id, period.id
     finally:
         db.close()
 
@@ -243,17 +255,10 @@ def _seed_reclassification(TestingSessionLocal):
 def _seed_non_standard_account(TestingSessionLocal):
     db = TestingSessionLocal()
     try:
-        org = Organization(name="非标准科目测试", fiscal_year=2026)
-        db.add(org)
-        db.flush()
-        period = AccountingPeriod(
-            organization_id=org.id,
-            period_code="2026-01",
-            start_date=date(2026, 1, 1),
-            end_date=date(2026, 1, 31),
+        ledger = _create_team_and_ledger(db, accounting_start_date=date(2026, 1, 1))
+        organization, period = initialize_ledger_timeline(
+            db, ledger, organization_name="非标准科目测试"
         )
-        db.add(period)
-        db.flush()
 
         for code, name, category, direction in [
             ("1122", "应收账款", "asset", "debit"),
@@ -270,6 +275,7 @@ def _seed_non_standard_account(TestingSessionLocal):
                     is_terminal=True,
                     status="active",
                     is_system=False,
+                    ledger_id=ledger.id,
                 )
             )
 
@@ -279,7 +285,8 @@ def _seed_non_standard_account(TestingSessionLocal):
         ]:
             db.add(
                 OpeningBalance(
-                    organization_id=org.id,
+                    organization_id=organization.id,
+                    ledger_id=ledger.id,
                     period_id=period.id,
                     account_code=code,
                     debit_balance=debit,
@@ -287,7 +294,7 @@ def _seed_non_standard_account(TestingSessionLocal):
                 )
             )
         db.commit()
-        return org.id, period.id
+        return ledger.id, period.id
     finally:
         db.close()
 
@@ -295,10 +302,10 @@ def _seed_non_standard_account(TestingSessionLocal):
 def test_balance_sheet_skips_non_standard_account_codes(client):
     """非标准科目编码不应触发往来重分类，且不能导致资产负债表接口 500。"""
     test_client, TestingSessionLocal = client
-    org_id, period_id = _seed_non_standard_account(TestingSessionLocal)
+    ledger_id, period_id = _seed_non_standard_account(TestingSessionLocal)
     resp = test_client.get(
         "/api/reports/balance-sheet",
-        params={"organization_id": org_id, "period_id": period_id},
+        params={"ledger_id": ledger_id, "period_id": period_id},
     )
 
     assert resp.status_code == 200
@@ -317,10 +324,10 @@ def test_balance_sheet_skips_non_standard_account_codes(client):
 
 def test_balance_sheet_reclassifies_counterparty_reverse_balances(client):
     test_client, TestingSessionLocal = client
-    org_id, period_id = _seed_reclassification(TestingSessionLocal)
+    ledger_id, period_id = _seed_reclassification(TestingSessionLocal)
     resp = test_client.get(
         "/api/reports/balance-sheet",
-        params={"organization_id": org_id, "period_id": period_id},
+        params={"ledger_id": ledger_id, "period_id": period_id},
     )
 
     assert resp.status_code == 200
@@ -343,8 +350,9 @@ def test_balance_sheet_reclassifies_counterparty_reverse_balances(client):
 
 def test_unknown_period_returns_404(client):
     test_client, _ = client
+    # 未创建账簿/期间，使用任意不存在的 period_id 验证 404 路径
     resp = test_client.get(
         "/api/reports/trial-balance",
-        params={"organization_id": 1, "period_id": 9999},
+        params={"ledger_id": 1, "period_id": 9999},
     )
     assert resp.status_code == 404

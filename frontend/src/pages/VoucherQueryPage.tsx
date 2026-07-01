@@ -21,8 +21,9 @@ import {
   Empty,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { DeleteOutlined, FileSearchOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EditOutlined, FileSearchOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
+import { useNavigate } from 'react-router-dom'
 import {
   api,
   type AccountingEntry,
@@ -168,6 +169,8 @@ type VoucherCardViewProps = {
   lines: AccountingEntry[] | undefined
   onToggleSelect: (key: string, checked: boolean) => void
   onToggleLines: (voucher: VoucherCard) => void
+  onEdit: (voucher: VoucherCard) => void
+  onPost: (voucher: VoucherCard) => void
   onDelete: (voucher: VoucherCard) => void
 }
 
@@ -180,6 +183,8 @@ const VoucherCardView = memo(function VoucherCardView({
   lines,
   onToggleSelect,
   onToggleLines,
+  onEdit,
+  onPost,
   onDelete,
 }: VoucherCardViewProps) {
   const selectionKey = voucherSelectionKey(voucher)
@@ -206,6 +211,16 @@ const VoucherCardView = memo(function VoucherCardView({
           <Button size="small" loading={linesLoading} onClick={() => onToggleLines(voucher)}>
             {linesExpanded ? '收起分录' : '展开分录'}
           </Button>
+          {voucher.status === 'draft' && (
+            <Button size="small" icon={<EditOutlined />} onClick={() => onEdit(voucher)}>
+              编辑凭证
+            </Button>
+          )}
+          {voucher.status === 'verified' && (
+            <Button size="small" type="primary" onClick={() => onPost(voucher)}>
+              入账
+            </Button>
+          )}
           <Button
             danger
             size="small"
@@ -240,6 +255,7 @@ const VoucherCardView = memo(function VoucherCardView({
 
 export function VoucherQueryPage() {
   const { currentLedgerId } = useAuthStore()
+  const navigate = useNavigate()
   const [form] = Form.useForm<FilterFormValues>()
   const dateMode = Form.useWatch('date_mode', form) || 'day'
   const filterMode = Form.useWatch('filter_mode', form) || 'line'
@@ -478,6 +494,28 @@ export function VoucherQueryPage() {
     confirmDeleteVouchers(targets)
   }
 
+  const handleEditOne = (voucher: VoucherCard) => {
+    if (!voucher.voucher_id) {
+      message.warning('该凭证缺少 ID，无法编辑')
+      return
+    }
+    navigate(`/ledger/vouchers/edit/${voucher.voucher_id}`)
+  }
+
+  const handlePostOne = async (voucher: VoucherCard) => {
+    if (!voucher.voucher_id) {
+      message.warning('该凭证缺少 ID，无法入账')
+      return
+    }
+    try {
+      await api.postVoucher(voucher.voucher_id)
+      message.success('凭证入账成功')
+      await loadVouchers()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '入账失败')
+    }
+  }
+
   if (!currentLedgerId) {
     return (
       <div style={{ padding: 24 }}>
@@ -610,6 +648,9 @@ export function VoucherQueryPage() {
             <Button icon={<ReloadOutlined />} onClick={loadVouchers} disabled={appliedFilters === null}>
               刷新
             </Button>
+            <Button icon={<PlusOutlined />} onClick={() => navigate('/ledger/vouchers/create')}>
+              新增凭证
+            </Button>
           </Space>
         </Form>
       </Card>
@@ -661,6 +702,8 @@ export function VoucherQueryPage() {
                 lines={linesCache[key]}
                 onToggleSelect={toggleSelect}
                 onToggleLines={toggleLineDetails}
+                onEdit={handleEditOne}
+                onPost={handlePostOne}
                 onDelete={handleDeleteOne}
               />
             )
