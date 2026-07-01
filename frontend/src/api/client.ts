@@ -74,9 +74,11 @@ export type EntryReviewStats = {
 }
 
 export type VoucherCard = {
+  voucher_id?: number
   voucher_no: string | null
   voucher_date: string | null
   voucher_word: string | null
+  status?: string
   line_count: number
   debit_total: number
   credit_total: number
@@ -121,6 +123,71 @@ export type VoucherQueryResponse = {
 export type VoucherDeleteKey = {
   voucher_no: string | null
   voucher_date: string | null
+}
+
+export type VoucherLinePayload = {
+  line_no: number
+  summary: string
+  account_code: string
+  account_name?: string
+  debit_amount: string
+  credit_amount: string
+  counterparty?: string
+  counterparty_id?: number
+}
+
+export type VoucherCreatePayload = {
+  ledger_id: number
+  organization_id: number
+  period_id: number
+  voucher_type: string
+  voucher_number: string
+  voucher_date: string
+  summary?: string
+  attachment_count?: number
+  lines: VoucherLinePayload[]
+}
+
+export type VoucherUpdatePayload = Partial<VoucherCreatePayload>
+
+export type VoucherLineItem = {
+  entry_id: number
+  line_no: number
+  summary: string
+  account_code: string
+  account_name?: string
+  debit_amount: string
+  credit_amount: string
+  counterparty?: string
+  counterparty_id?: number
+}
+
+export type VoucherResponse = {
+  success: boolean
+  data: {
+    voucher_id: number
+    ledger_id: number
+    organization_id: number
+    period_id?: number
+    voucher_no: string
+    voucher_type?: string
+    voucher_number?: string
+    voucher_date: string
+    summary?: string
+    status: string
+    total_debit: string
+    total_credit: string
+    attachment_count: number
+    source_type: string
+    created_by: number
+    created_by_name?: string
+    created_at: string
+    updated_at?: string
+    posted_at?: string
+    posted_by?: number
+    lines: VoucherLineItem[]
+  }
+  message: string
 }
 
 export type VoucherBatchDeleteResponse = {
@@ -1567,6 +1634,38 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ledger_id: ledgerId, vouchers }),
     }),
+
+  createVoucher: (payload: VoucherCreatePayload) =>
+    request<VoucherResponse>('/api/vouchers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  getVoucher: (voucherId: number) =>
+    request<VoucherResponse>(`/api/vouchers/${voucherId}`),
+
+  updateVoucher: (voucherId: number, payload: VoucherUpdatePayload) =>
+    request<VoucherResponse>(`/api/vouchers/${voucherId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  deleteVoucher: (voucherId: number) =>
+    request<VoucherResponse>(`/api/vouchers/${voucherId}`, {
+      method: 'DELETE',
+    }),
+
+  verifyVoucher: (voucherId: number) =>
+    request<VoucherResponse>(`/api/vouchers/${voucherId}/verify`, {
+      method: 'POST',
+    }),
+
+  postVoucher: (voucherId: number) =>
+    request<VoucherResponse>(`/api/vouchers/${voucherId}/post`, {
+      method: 'POST',
+    }),
   updateEntry: (entryId: number, payload: AccountingEntryUpdate) =>
     request<AccountingEntry>(`/api/entries/${entryId}`, {
       method: 'PATCH',
@@ -2260,6 +2359,18 @@ export const api = {
     }),
   getBranchesByTask: (taskId: number) =>
     request<AuditWorkBranch[]>(`/api/audit/branches/task/${taskId}`),
+  linkBranchVersion: (branchId: number, versionId: number) =>
+    request<AuditWorkBranch>(`/api/audit/branches/${branchId}/link-version`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version_id: versionId }),
+    }),
+  linkBranchProcedure: (branchId: number, procedureRunId: number) =>
+    request<AuditWorkBranch>(`/api/audit/branches/${branchId}/link-procedure`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ procedure_run_id: procedureRunId }),
+    }),
 
   listAuditReviewRequests: (filters?: {
     project_id?: number
@@ -2523,4 +2634,67 @@ export const api = {
       models: Array<{ value: string; label: string; description: string }>
       count: number
     }>(`/api/config/ollama-models?base_url=${encodeURIComponent(baseUrl)}`),
+
+  // ==========================================================================
+  // 解析结果直通凭证草稿 API (B1/B2)
+  // ==========================================================================
+  parseToVoucherDrafts: (organizationId: number, file: File, sheetName?: string) => {
+    const form = new FormData()
+    form.append('organization_id', String(organizationId))
+    form.append('file', file)
+    if (sheetName) {
+      form.append('sheet_name', sheetName)
+    }
+    return request<{
+      success: boolean
+      document_type: string
+      confidence: number
+      drafts: Array<{
+        voucher_no: string
+        voucher_date: string
+        summary: string
+        document_type: string
+        source_confidence: number
+        lines: Array<{
+          account_code: string
+          account_name: string
+          summary: string
+          debit_amount: string
+          credit_amount: string
+          counterparty: string | null
+        }>
+        validation_errors: string[]
+        raw_extracted_data: Record<string, unknown>
+      }>
+      error_message: string | null
+    }>('/api/parser-voucher/parse-to-drafts', { method: 'POST', body: form })
+  },
+
+  confirmVoucherDrafts: (ledgerId: number, organizationId: number, drafts: Array<{
+    voucher_no: string
+    voucher_date: string
+    summary: string
+    lines: Array<{
+      account_code: string
+      account_name: string
+      summary: string
+      debit_amount: string
+      credit_amount: string
+      counterparty: string | null
+    }>
+  }>) =>
+    request<{
+      success: boolean
+      created_count: number
+      voucher_ids: number[]
+      error_message: string | null
+    }>('/api/parser-voucher/confirm-drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ledger_id: ledgerId,
+        organization_id: organizationId,
+        drafts,
+      }),
+    }),
 }

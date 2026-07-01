@@ -19,9 +19,11 @@ from app.api.routes_entities import router as entities_router
 from app.api.routes_entries import router as entries_router
 from app.api.routes_entry_generation import router as entry_generation_router
 from app.api.routes_entry_tags import router as entry_tags_router
+from app.api.routes_analytics import router as analytics_router
 from app.api.routes_export import router as export_router
 from app.api.routes_files import router as files_router
 from app.api.routes_imports import router as imports_router
+from app.api.routes_unified_import import router as unified_import_router
 from app.api.routes_internal_controls import router as internal_controls_router
 from app.api.routes_ledger import router as ledger_router
 from app.api.routes_materials import router as materials_router
@@ -35,6 +37,7 @@ from app.api.routes_bank import router as bank_router
 from app.api.routes_binding_requests import router as binding_requests_router
 from app.api.routes_confirmations import router as confirmations_router
 from app.api.routes_purchase_match import router as purchase_match_router
+from app.api.routes_vouchers import router as vouchers_router
 from app.api.routes_workpapers import router as workpapers_router
 from app.api.routes_audit_workflow import router as audit_workflow_router
 from app.api.routes_audit_branches import router as audit_branches_router
@@ -48,6 +51,7 @@ from app.api.routes_lifecycle import router as lifecycle_router
 from app.api.routes_team import router as team_router
 from app.api.routes_scope_settings import router as scope_settings_router
 from app.api.routes_parser_engine import router as parser_engine_router
+from app.api.routes_parser_voucher import router as parser_voucher_router
 from app.api.routes_config import router as config_router
 from app.api.routes_super_admin import router as super_admin_router
 from app.db import models
@@ -352,6 +356,7 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(imports_router)
+app.include_router(unified_import_router)
 app.include_router(entries_router)
 app.include_router(export_router)
 app.include_router(files_router)
@@ -369,6 +374,7 @@ app.include_router(opening_balances_router)
 app.include_router(reports_router)
 app.include_router(entry_generation_router)
 app.include_router(entry_tags_router)
+app.include_router(analytics_router)
 app.include_router(business_cycles_router)
 app.include_router(internal_controls_router)
 app.include_router(ledger_router)
@@ -381,12 +387,14 @@ app.include_router(lifecycle_router)
 app.include_router(team_router)
 app.include_router(scope_settings_router)
 app.include_router(parser_engine_router)
+app.include_router(parser_voucher_router)
 app.include_router(config_router)
 app.include_router(super_admin_router)
 app.include_router(binding_requests_router)
 app.include_router(bank_router)
 app.include_router(confirmations_router)
 app.include_router(purchase_match_router)
+app.include_router(vouchers_router)
 app.include_router(workpapers_router)
 app.include_router(audit_workflow_router)
 app.include_router(audit_branches_router)

@@ -4,6 +4,7 @@ import { BookOutlined, ProjectOutlined, TeamOutlined, UserOutlined } from '@ant-
 import zhCN from 'antd/locale/zh_CN'
 import { AuthProvider, useAuthStore } from './stores/authStore'
 import { HomePage } from './pages/HomePage'
+import { UnifiedEntryPage } from './pages/UnifiedEntryPage'
 import { LoginPage } from './pages/Auth/LoginPage'
 import { RegisterPage } from './pages/Auth/RegisterPage'
 import { ForgotPasswordPage } from './pages/Auth/ForgotPasswordPage'
@@ -49,6 +50,8 @@ import { Step3ImportEntries } from './pages/AuditMode/Step3ImportEntries'
 import { Step4RunTests } from './pages/AuditMode/Step4RunTests'
 import { Step5ReviewFindings } from './pages/AuditMode/Step5ReviewFindings'
 import { Step6ExportReport } from './pages/AuditMode/Step6ExportReport'
+import { AuditTaskBoard } from './pages/AuditMode/AuditTaskBoard'
+import { AuditReviewPage } from './pages/AuditMode/AuditReviewPage'
 import { BankAccountsPage } from './pages/Bank/BankAccountsPage'
 import { BankReconciliationPage } from './pages/Bank/BankReconciliationPage'
 import { ConfirmationsPage } from './pages/Audit/ConfirmationsPage'
@@ -67,6 +70,10 @@ import { ParserEngineConfigPage } from './pages/ParserEngineConfigPage'
 import { UserSettingsPage } from './pages/UserSettingsPage'
 import { SuperAdminPage } from './pages/SuperAdminPage'
 import { GeneralLedgerPage, SubsidiaryLedgerPage } from './pages/Ledger/LedgerBookPages'
+import { VoucherQueryPage } from './pages/VoucherQueryPage'
+import { VoucherCreatePage } from './pages/VoucherCreatePage'
+import { VoucherEditPage } from './pages/VoucherEditPage'
+import { ParserVoucherPreview } from './pages/ParserVoucherPreview'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -133,13 +140,14 @@ function LedgerDataGuard({ children }: { children: React.ReactNode }) {
 function AppRoutes() {
   return (
     <Routes>
-      {/* 根路由：已登录展示团队大盘，未登录跳转登录 */}
+      {/* 根路由：已登录展示统一入口，未登录跳转登录 */}
       <Route path="/" element={<AuthGuard><MainShell /></AuthGuard>}>
-        <Route index element={<WorkspacePage />} />
+        <Route index element={<UnifiedEntryPage />} />
       </Route>
 
       {/* 公开路由 */}
       <Route path="/home" element={<HomePage />} />
+      <Route path="/entry" element={<AuthGuard><MainShell><UnifiedEntryPage /></MainShell></AuthGuard>} />
       <Route path="/login" element={<LoggedInRedirect><LoginPage /></LoggedInRedirect>} />
       <Route path="/register" element={<LoggedInRedirect><RegisterPage /></LoggedInRedirect>} />
       <Route path="/forgot-password" element={<LoggedInRedirect><ForgotPasswordPage /></LoggedInRedirect>} />
@@ -175,12 +183,16 @@ function AppRoutes() {
         <Route path="/accounting/step/3" element={<LedgerDataGuard><Step3GenerateEntries /></LedgerDataGuard>} />
         <Route path="/accounting/step/4" element={<LedgerDataGuard><Step4ReviewEntries /></LedgerDataGuard>} />
         <Route path="/accounting/step/5" element={<LedgerDataGuard><Step5Export /></LedgerDataGuard>} />
+        <Route path="/ledger/vouchers" element={<LedgerDataGuard><VoucherQueryPage /></LedgerDataGuard>} />
+        <Route path="/ledger/vouchers/create" element={<LedgerDataGuard><VoucherCreatePage /></LedgerDataGuard>} />
+        <Route path="/ledger/vouchers/edit/:voucherId" element={<LedgerDataGuard><VoucherEditPage /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/step/1" element={<LedgerDataGuard><Step1AccountingSelectType /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/step/2" element={<LedgerDataGuard><Step2AccountingImportSource /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/step/3" element={<LedgerDataGuard><Step3GenerateEntries /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/step/4" element={<LedgerDataGuard><Step4ReviewEntries /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/step/5" element={<LedgerDataGuard><Step5Export /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/draft/:jobId" element={<LedgerDataGuard><DraftPage /></LedgerDataGuard>} />
+        <Route path="/parser-voucher/preview" element={<LedgerDataGuard><ParserVoucherPreview /></LedgerDataGuard>} />
         <Route path="/audit/step/1" element={<LedgerDataGuard><Step1SelectScope /></LedgerDataGuard>} />
         <Route path="/audit/step/2" element={<LedgerDataGuard><Step2AuditImportSource /></LedgerDataGuard>} />
         <Route path="/audit/step/3" element={<LedgerDataGuard><Step3ImportEntries /></LedgerDataGuard>} />
@@ -193,6 +205,8 @@ function AppRoutes() {
         <Route path="/audit/bank-reconciliation" element={<LedgerDataGuard><BankReconciliationPage /></LedgerDataGuard>} />
         <Route path="/audit/workpapers" element={<LedgerDataGuard><WorkpapersPage /></LedgerDataGuard>} />
         <Route path="/audit/workflow" element={<LedgerDataGuard><AuditWorkflowPage /></LedgerDataGuard>} />
+        <Route path="/audit/workflow/tasks" element={<LedgerDataGuard><AuditTaskBoard /></LedgerDataGuard>} />
+        <Route path="/audit/workflow/reviews" element={<LedgerDataGuard><AuditReviewPage /></LedgerDataGuard>} />
         <Route path="/audit/dashboard" element={<LedgerDataGuard><AuditDashboardPage /></LedgerDataGuard>} />
         <Route path="/audit/tasks" element={<LedgerDataGuard><AuditTasksPage /></LedgerDataGuard>} />
         <Route path="/audit/tasks/:taskId" element={<LedgerDataGuard><AuditTaskDetailPage /></LedgerDataGuard>} />
