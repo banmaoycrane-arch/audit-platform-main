@@ -545,6 +545,7 @@ def commit_manual_entries(
 
     job = ImportJob(
         organization_id=organization.id,
+        ledger_id=period.ledger_id,
         status="created",
         source_type="manual_entry",
         file_count=0,

@@ -17,6 +17,7 @@ from app.models.ledger import Ledger
 from app.models.user_ledger_auth import UserLedgerAuth
 from app.models.user import User
 from app.models.team import Team
+from app.services.coa_service import init_default_accounts
 from app.services.ledger_timeline_service import initialize_ledger_timeline
 
 
@@ -53,6 +54,7 @@ def create_ledger(
     db.add(ledger)
     db.flush()
     initialize_ledger_timeline(db, ledger, organization_name=name)
+    init_default_accounts(db, ledger.id)
     db.commit()
     db.refresh(ledger)
     return ledger

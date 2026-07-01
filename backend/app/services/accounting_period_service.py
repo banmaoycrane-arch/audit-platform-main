@@ -349,6 +349,7 @@ class AccountingPeriodService:
     ) -> PeriodSnapshot:
         return PeriodSnapshot(
             organization_id=period.organization_id,
+            ledger_id=period.ledger_id,
             period_id=period.id,
             snapshot_version=snapshot_version,
             dimension_type=dimension_type,

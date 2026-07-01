@@ -16,18 +16,23 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.db.models import AccountingEntry, AccountingPeriod, ChartOfAccounts
+from app.db.models import AccountingEntry, AccountingPeriod, ChartOfAccounts, Voucher
 from app.services import financial_statements_service
+from app.services import voucher_service
 
 
 PL_ACCOUNT_CODE = "4103"  # 本年利润
 PL_TRANSFER_VOUCHER_PREFIX = "转-期末-"
 
 
-def _ensure_pl_account(db: Session) -> ChartOfAccounts:
-    account = db.query(ChartOfAccounts).filter(ChartOfAccounts.code == PL_ACCOUNT_CODE).first()
+def _ensure_pl_account(db: Session, ledger_id: int | None = None) -> ChartOfAccounts:
+    query = db.query(ChartOfAccounts).filter(ChartOfAccounts.code == PL_ACCOUNT_CODE)
+    if ledger_id is not None:
+        query = query.filter(ChartOfAccounts.ledger_id == ledger_id)
+    account = query.first()
     if not account:
         account = ChartOfAccounts(
+            ledger_id=ledger_id,
             code=PL_ACCOUNT_CODE,
             name="本年利润",
             parent_code=None,
@@ -43,31 +48,27 @@ def _ensure_pl_account(db: Session) -> ChartOfAccounts:
     return account
 
 
-def auto_pl_transfer(db: Session, organization_id: int, period_id: int) -> dict:
-    """对指定期间执行损益结转。"""
+def auto_pl_transfer(db: Session, ledger_id: int | None, period_id: int) -> dict:
+    """对指定账簿和期间执行损益结转。"""
     period = db.get(AccountingPeriod, period_id)
     if not period:
         raise LookupError("会计期间不存在")
+    if ledger_id is not None and period.ledger_id is not None and period.ledger_id != ledger_id:
+        raise ValueError("会计期间不属于指定账簿")
     if period.status == "pl_transferred":
         raise PermissionError("该期间已结转损益，请先反结转再重做")
     if period.status == "closed":
         raise PermissionError("该期间已结账，无法结转损益")
 
-    _ensure_pl_account(db)
+    _ensure_pl_account(db, ledger_id)
 
-    rows = financial_statements_service.compute_account_balances(db, organization_id, period_id)
+    rows = financial_statements_service.compute_account_balances(db, ledger_id, period_id)
     voucher_no = f"{PL_TRANSFER_VOUCHER_PREFIX}{period.period_code}"
 
-    # 删除旧的结转分录（如果有），避免重复
-    db.query(AccountingEntry).filter(
-        AccountingEntry.organization_id == organization_id,
-        AccountingEntry.import_job_id == 0,
-        AccountingEntry.voucher_no == voucher_no,
-    ).delete()
-    db.flush()
+    # 删除旧的结转凭证（如果存在），避免重复
+    _delete_pl_transfer_voucher(db, ledger_id, voucher_no)
 
-    voucher_date: date = period.end_date
-    line_no = 0
+    lines: list[voucher_service.VoucherEntryLine] = []
     pl_total = Decimal("0")  # 净利润累加：贷方为 + ，借方为 -
 
     for row in rows:
@@ -81,35 +82,23 @@ def auto_pl_transfer(db: Session, organization_id: int, period_id: int) -> dict:
             if net == 0:
                 continue
             # 借 收入科目 / 贷 4103
-            line_no += 1
-            db.add(
-                AccountingEntry(
-                    organization_id=organization_id,
-                    import_job_id=0,
-                    voucher_no=voucher_no,
-                    voucher_date=voucher_date,
-                    summary=f"结转{row['account_name']}至本年利润",
+            lines.append(
+                voucher_service.VoucherEntryLine(
                     account_code=row["account_code"],
                     account_name=row["account_name"],
+                    summary=f"结转{row['account_name']}至本年利润",
                     debit_amount=Decimal(net) if net > 0 else Decimal("0"),
                     credit_amount=Decimal(-net) if net < 0 else Decimal("0"),
-                    entry_line_no=line_no,
                     normalized_text=f"结转 {row['account_name']}",
                 )
             )
-            line_no += 1
-            db.add(
-                AccountingEntry(
-                    organization_id=organization_id,
-                    import_job_id=0,
-                    voucher_no=voucher_no,
-                    voucher_date=voucher_date,
-                    summary=f"结转{row['account_name']}至本年利润",
+            lines.append(
+                voucher_service.VoucherEntryLine(
                     account_code=PL_ACCOUNT_CODE,
                     account_name="本年利润",
+                    summary=f"结转{row['account_name']}至本年利润",
                     debit_amount=Decimal("0") if net > 0 else Decimal(-net),
                     credit_amount=Decimal(net) if net > 0 else Decimal("0"),
-                    entry_line_no=line_no,
                     normalized_text="结转 本年利润",
                 )
             )
@@ -120,39 +109,54 @@ def auto_pl_transfer(db: Session, organization_id: int, period_id: int) -> dict:
             if net == 0:
                 continue
             # 借 4103 / 贷 费用科目
-            line_no += 1
-            db.add(
-                AccountingEntry(
-                    organization_id=organization_id,
-                    import_job_id=0,
-                    voucher_no=voucher_no,
-                    voucher_date=voucher_date,
-                    summary=f"结转{row['account_name']}至本年利润",
+            lines.append(
+                voucher_service.VoucherEntryLine(
                     account_code=PL_ACCOUNT_CODE,
                     account_name="本年利润",
+                    summary=f"结转{row['account_name']}至本年利润",
                     debit_amount=Decimal(net) if net > 0 else Decimal("0"),
                     credit_amount=Decimal(-net) if net < 0 else Decimal("0"),
-                    entry_line_no=line_no,
                     normalized_text="结转 本年利润",
                 )
             )
-            line_no += 1
-            db.add(
-                AccountingEntry(
-                    organization_id=organization_id,
-                    import_job_id=0,
-                    voucher_no=voucher_no,
-                    voucher_date=voucher_date,
-                    summary=f"结转{row['account_name']}至本年利润",
+            lines.append(
+                voucher_service.VoucherEntryLine(
                     account_code=row["account_code"],
                     account_name=row["account_name"],
+                    summary=f"结转{row['account_name']}至本年利润",
                     debit_amount=Decimal("0") if net > 0 else Decimal(-net),
                     credit_amount=Decimal(net) if net > 0 else Decimal("0"),
-                    entry_line_no=line_no,
                     normalized_text=f"结转 {row['account_name']}",
                 )
             )
             pl_total -= net
+
+    if not lines:
+        # 无损益需要结转，直接标记期间状态
+        period.status = "pl_transferred"
+        period.updated_at = datetime.utcnow()
+        db.commit()
+        return {
+            "period_id": period_id,
+            "voucher_no": voucher_no,
+            "lines": 0,
+            "net_profit": float(pl_total),
+            "status": period.status,
+        }
+
+    voucher = voucher_service.create_voucher(
+        db,
+        ledger_id=ledger_id,
+        organization_id=period.organization_id,
+        voucher_no=voucher_no,
+        voucher_date=period.end_date,
+        summary=f"损益结转 {period.period_code}",
+        lines=lines,
+        source_type=voucher_service.VoucherSourceType.PERIOD_CLOSE,
+        source_id=period.id,
+        status=voucher_service.VoucherStatus.POSTED,
+        auto_commit=False,
+    )
 
     period.status = "pl_transferred"
     period.updated_at = datetime.utcnow()
@@ -160,36 +164,47 @@ def auto_pl_transfer(db: Session, organization_id: int, period_id: int) -> dict:
     return {
         "period_id": period_id,
         "voucher_no": voucher_no,
-        "lines": line_no,
+        "lines": len(lines),
         "net_profit": float(pl_total),
         "status": period.status,
+        "voucher_id": voucher.id,
     }
 
 
-def reverse_pl_transfer(db: Session, organization_id: int, period_id: int) -> dict:
-    """反结转：删除该期间的损益结转分录，并把状态恢复为 open。"""
+def _delete_pl_transfer_voucher(db: Session, ledger_id: int, voucher_no: str) -> int:
+    """删除指定账簿和凭证号的损益结转凭证及其分录。"""
+    voucher = (
+        db.query(Voucher)
+        .filter(Voucher.ledger_id == ledger_id, Voucher.voucher_no == voucher_no)
+        .first()
+    )
+    deleted_lines = 0
+    if voucher:
+        deleted_lines = db.query(AccountingEntry).filter(AccountingEntry.voucher_id == voucher.id).delete()
+        db.delete(voucher)
+        db.flush()
+    return deleted_lines
+
+
+def reverse_pl_transfer(db: Session, ledger_id: int, period_id: int) -> dict:
+    """反结转：删除该账簿期间的损益结转凭证，并把状态恢复为 open。"""
     period = db.get(AccountingPeriod, period_id)
     if not period:
         raise LookupError("会计期间不存在")
+    if period.ledger_id != ledger_id:
+        raise ValueError("会计期间不属于指定账簿")
     if period.status == "closed":
         raise PermissionError("该期间已结账，无法反结转")
 
     voucher_no = f"{PL_TRANSFER_VOUCHER_PREFIX}{period.period_code}"
-    deleted = (
-        db.query(AccountingEntry)
-        .filter(
-            AccountingEntry.organization_id == organization_id,
-            AccountingEntry.import_job_id == 0,
-            AccountingEntry.voucher_no == voucher_no,
-        )
-        .delete()
-    )
+    deleted_lines = _delete_pl_transfer_voucher(db, ledger_id, voucher_no)
+
     period.status = "open"
     period.updated_at = datetime.utcnow()
     db.commit()
     return {
         "period_id": period_id,
         "voucher_no": voucher_no,
-        "deleted_lines": deleted,
+        "deleted_lines": deleted_lines,
         "status": period.status,
     }

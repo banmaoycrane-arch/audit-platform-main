@@ -11,13 +11,19 @@ from sqlalchemy import and_, func, or_, tuple_
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import AccountingEntry, AccountingPeriod
+from app.services.voucher_card_resolver import (
+    resolve_voucher_card_fields,
+    resolve_voucher_card_fields_from_slim_rows,
+)
 
 
 @dataclass
 class VoucherGroup:
-    voucher_no: str | None
-    voucher_date: date | None
-    lines: list[AccountingEntry]
+    voucher_id: int | None = None
+    voucher_no: str | None = None
+    voucher_date: date | None = None
+    status: str | None = None
+    lines: list[AccountingEntry] = field(default_factory=list)
     debit_total_cached: float | None = field(default=None, repr=False)
     credit_total_cached: float | None = field(default=None, repr=False)
     summary_preview_cached: str | None = field(default=None, repr=False)
@@ -238,8 +244,13 @@ def _load_summaries_for_keys(
             if row.summary:
                 summary_preview = str(row.summary)
                 break
+        voucher_id, voucher_status = resolve_voucher_card_fields_from_slim_rows(
+            db, ledger_id, voucher_no, voucher_date, rows
+        )
         groups.append(
             VoucherGroup(
+                voucher_id=voucher_id,
+                status=voucher_status,
                 voucher_no=voucher_no or None,
                 voucher_date=voucher_date,
                 lines=[],
@@ -284,7 +295,7 @@ def _load_groups_for_keys(
         AccountingEntry.entry_line_no.asc(),
         AccountingEntry.id.asc(),
     ).all()
-    groups = _group_entries(entries)
+    groups = _group_entries(db, ledger_id, entries)
     order_map = {key: index for index, key in enumerate(keys)}
     groups.sort(key=lambda group: order_map.get((group.voucher_no, group.voucher_date), 10**9))
     return groups
@@ -532,7 +543,11 @@ def _apply_scope_filters(
     return query
 
 
-def _group_entries(entries: list[AccountingEntry]) -> list[VoucherGroup]:
+def _group_entries(
+    db: Session,
+    ledger_id: int,
+    entries: list[AccountingEntry],
+) -> list[VoucherGroup]:
     buckets: dict[tuple[str, date | None], list[AccountingEntry]] = defaultdict(list)
     for entry in entries:
         buckets[_voucher_key(entry)].append(entry)
@@ -540,8 +555,13 @@ def _group_entries(entries: list[AccountingEntry]) -> list[VoucherGroup]:
     groups: list[VoucherGroup] = []
     for (voucher_no, voucher_date), lines in buckets.items():
         lines.sort(key=lambda row: (row.entry_line_no, row.id))
+        voucher_id, voucher_status = resolve_voucher_card_fields(
+            db, ledger_id, voucher_no, voucher_date, lines
+        )
         groups.append(
             VoucherGroup(
+                voucher_id=voucher_id,
+                status=voucher_status,
                 voucher_no=voucher_no or None,
                 voucher_date=voucher_date,
                 lines=lines,

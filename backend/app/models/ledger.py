@@ -18,8 +18,13 @@ from app.db.session import Base
 
 class Ledger(Base):
     """
-    账簿实体：对应财务实务中的"账簿"或"核算主体"
-    每个账簿拥有独立的科目、凭证、期间等数据，实现多账簿隔离
+    账簿（Ledger）：正式核算数据边界，是合同、发票、分录、审计测试的承上启下维度。
+
+    新方案定位：核算账簿 / 法律单据承上启下维度。所有凭证、期间、期初余额、报表、审计数据
+    均以 ledger_id 为最小过滤口径。Ledger 可归属于一个 Legal Entity（或 Reporting Entity）下的具体核算单元。
+
+    与 Team 的关系：Team 是使用者协作边界，Ledger 是核算数据边界。
+    与 Organization 的关系：Organization 是被执行对象背景，Ledger 是实际业务执行载体。
     """
     __tablename__ = "ledgers"
 
@@ -27,6 +32,10 @@ class Ledger(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     team_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("teams.id"), nullable=False
+    )
+    # 账簿所属的上层会计主体/组织；用于多账簿按组织汇总
+    organization_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("organizations.id"), nullable=True
     )
     status: Mapped[str] = mapped_column(
         String(20), default="active"
@@ -61,6 +70,7 @@ class Ledger(Base):
     )
 
     team: Mapped["Team"] = relationship("Team", back_populates="ledgers")
+    organization: Mapped["Organization | None"] = relationship("Organization")
     ledger_auths: Mapped[list["UserLedgerAuth"]] = relationship(
         "UserLedgerAuth", back_populates="ledger"
     )

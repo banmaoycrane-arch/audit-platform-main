@@ -356,19 +356,56 @@ class EntityRelation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class Voucher(Base):
+    __tablename__ = "vouchers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"))
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    voucher_no: Mapped[str] = mapped_column(String(100))
+    voucher_date: Mapped[date] = mapped_column(Date)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str] = mapped_column(String(40), default="manual")
+    source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    total_debit: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    total_credit: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    period_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_periods.id"), nullable=True, index=True)
+    attachment_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    __table_args__ = (
+        UniqueConstraint("ledger_id", "voucher_no", name="uq_voucher_ledger_no"),
+    )
+
+    entries: Mapped[list["AccountingEntry"]] = relationship(
+        "AccountingEntry", back_populates="voucher"
+    )
+
+
 class AccountingEntry(Base):
     __tablename__ = "accounting_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
     ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
-    import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"))
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True)
+    voucher_id: Mapped[int | None] = mapped_column(ForeignKey("vouchers.id"), nullable=True)
     voucher_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
     voucher_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    
+
+    voucher: Mapped["Voucher | None"] = relationship("Voucher", back_populates="entries")
+    tags: Mapped[list["EntryTag"]] = relationship("EntryTag", back_populates="entry")
+
     # 主体标识（语义映射用）
     entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id"), nullable=True)
     original_entity_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -835,27 +872,119 @@ class TransactionCheckpoint(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-class EntryTag(Base):
-    __tablename__ = "entry_tags"
+class TagCategory(Base):
+    __tablename__ = "tag_categories"
+    __table_args__ = (
+        UniqueConstraint("ledger_id", "code", name="uq_tag_category_ledger_code"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    entry_id: Mapped[int] = mapped_column(ForeignKey("accounting_entries.id"))
-    tag_name: Mapped[str] = mapped_column(String(100))
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), nullable=False)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("tag_categories.id"), nullable=True)
+    code: Mapped[str] = mapped_column(String(60), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    value_type: Mapped[str] = mapped_column(String(40), default="text")  # text/entity/enum
+    source_table: Mapped[str | None] = mapped_column(String(60), nullable=True)  # 主数据来源
+    is_mandatory: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active/disabled/archived
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    ledger: Mapped["Ledger"] = relationship("Ledger")
+    parent: Mapped["TagCategory | None"] = relationship("TagCategory", remote_side=[id])
+
+
+class EntryTag(Base):
+    __tablename__ = "entry_tags"
+    __table_args__ = (
+        Index("ix_entry_tags_entry_category", "entry_id", "category_id"),
+        Index("ix_entry_tags_ledger_category_value", "ledger_id", "category_id", "tag_value"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("accounting_entries.id"), nullable=False)
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("tag_categories.id"), nullable=True)
+    # 兼容旧格式：tag_name 保留，建议新数据使用 category_code + tag_value
+    tag_name: Mapped[str] = mapped_column(String(100), default="")
     tag_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
     tag_value: Mapped[str | None] = mapped_column(String(200), nullable=True)
     tag_value_normalized: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    value_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 关联主数据 ID
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
     tag_source: Mapped[str] = mapped_column(String(40), default="rule")
     confidence: Mapped[float] = mapped_column(Float, default=0.8)
     reviewed_by_user: Mapped[bool] = mapped_column(Boolean, default=False)
     vector_pending: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    entry: Mapped["AccountingEntry"] = relationship("AccountingEntry", back_populates="tags")
+    category: Mapped["TagCategory | None"] = relationship("TagCategory")
+    ledger: Mapped["Ledger | None"] = relationship("Ledger")
+
+
+class TagHistory(Base):
+    __tablename__ = "tag_histories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entry_tag_id: Mapped[int] = mapped_column(ForeignKey("entry_tags.id"), nullable=False)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("accounting_entries.id"), nullable=False)
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), nullable=False)
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("tag_categories.id"), nullable=True)
+    change_type: Mapped[str] = mapped_column(String(40), nullable=False)  # create/update/delete
+    old_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    new_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    old_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    new_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    changed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    change_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    entry_tag: Mapped["EntryTag"] = relationship("EntryTag")
+    entry: Mapped["AccountingEntry"] = relationship("AccountingEntry")
+    category: Mapped["TagCategory | None"] = relationship("TagCategory")
+    changed_by_user: Mapped["User | None"] = relationship("User")
+
+
+class TagMappingRule(Base):
+    __tablename__ = "tag_mapping_rules"
+    __table_args__ = (
+        UniqueConstraint(
+            "ledger_id", "source_pattern", "source_type", "target_category_code",
+            name="uq_tag_mapping_rule_ledger_source_target",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), nullable=False)
+    source_pattern: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(40), default="account_code")  # account_code/summary/tag
+    target_category_code: Mapped[str] = mapped_column(String(60), nullable=False)
+    target_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    target_value_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    is_regex: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    ledger: Mapped["Ledger"] = relationship("Ledger")
+    created_by_user: Mapped["User | None"] = relationship("User")
+
 
 class ChartOfAccounts(Base):
     __tablename__ = "chart_of_accounts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    code: Mapped[str] = mapped_column(String(20), index=True)
     name: Mapped[str] = mapped_column(String(200))
     parent_code: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     level: Mapped[int] = mapped_column(Integer, default=1)
@@ -870,6 +999,10 @@ class ChartOfAccounts(Base):
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("ledger_id", "code", name="uq_chart_of_accounts_ledger_code"),
+    )
 
 
 class Counterparty(Base):

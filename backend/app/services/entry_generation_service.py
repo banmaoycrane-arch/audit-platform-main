@@ -16,6 +16,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.services import voucher_service
 from app.db.models import (
     AccountingEntry,
     AccountingPeriod,
@@ -999,10 +1000,18 @@ def commit_drafts(
     period: AccountingPeriod,
     drafts: list[dict[str, Any]],
 ) -> list[AccountingEntry]:
-    """落库：把草稿写入 accounting_entries + entry_tags。"""
-    persisted: list[AccountingEntry] = []
-    voucher_line_counter: dict[str, int] = {}
+    """
+    落库：把草稿写入 vouchers + accounting_entries + entry_tags。
 
+    改造要点：
+    - 统一通过 voucher_service 创建凭证，强制事务级借贷平衡校验。
+    - 同一 voucher_no 的多条 draft 会被归并为一张凭证。
+    - 任一张凭证借贷不平衡，整体回滚，避免部分落库。
+    """
+    if not drafts:
+        return []
+
+    # 1. 检查 evidence 阻断（保持原有逻辑）
     for draft in drafts:
         metadata = draft.get("metadata") or {}
         if metadata.get("is_blocked") is True or metadata.get("evidence_status") == "insufficient":
@@ -1010,115 +1019,132 @@ def commit_drafts(
             missing_reason = metadata.get("missing_reason") or "原始资料不足，不能确认业务事实。"
             raise ValueError(f"AI 草稿证据不足，不能落库：{missing_reason} 需补充：{missing_evidence}")
 
-        voucher_no = draft.get("voucher_no") or f"记-{job.id}"
-        voucher_line_counter[voucher_no] = voucher_line_counter.get(voucher_no, 0) + 1
-        line_no = voucher_line_counter[voucher_no]
+    # 2. 准备 voucher_service 所需的数据
+    # 按 voucher_no 分组，保留每组原始 drafts
+    voucher_groups: dict[str, dict[str, Any]] = {}
+    for draft in drafts:
+        voucher_no = str(draft.get("voucher_no") or f"记-{job.id}").strip()
+        draft["voucher_no"] = voucher_no
 
-        try:
-            voucher_date = date.fromisoformat(draft["voucher_date"])
-        except Exception:
-            voucher_date = period.start_date
-        voucher_date, _ = _clamp_date(voucher_date, period)
+        if voucher_no not in voucher_groups:
+            try:
+                voucher_date = date.fromisoformat(draft["voucher_date"])
+            except Exception:
+                voucher_date = period.start_date
+            voucher_date, _ = _clamp_date(voucher_date, period)
+            voucher_groups[voucher_no] = {
+                "voucher_date": voucher_date,
+                "summary": draft.get("summary"),
+                "drafts": [],
+            }
+        voucher_groups[voucher_no]["drafts"].append(draft)
 
-        entry = AccountingEntry(
-            organization_id=job.organization_id,
-            import_job_id=job.id,
-            voucher_no=voucher_no,
-            voucher_date=voucher_date,
-            summary=draft.get("summary"),
-            account_code=draft.get("account_code"),
-            account_name=draft.get("account_name"),
-            debit_amount=Decimal(str(draft.get("debit_amount", 0))),
-            credit_amount=Decimal(str(draft.get("credit_amount", 0))),
-            counterparty=draft.get("counterparty"),
-            entry_line_no=line_no,
-            normalized_text=draft.get("summary") or "",
-        )
-        db.add(entry)
-        db.flush()
+    # 3. 批量创建 vouchers，所有创建在共享 session 中，失败统一回滚
+    all_entries: list[AccountingEntry] = []
+    for voucher_no, group in voucher_groups.items():
+        lines = []
+        for draft in group["drafts"]:
+            metadata = draft.get("metadata") or {}
+            input_source = metadata.get("source") or metadata.get("input_source") or "ai_generated"
+            source_tag_value = f"source:{input_source}"
 
-        input_source = metadata.get("source") or metadata.get("input_source") or "ai_generated"
-        source_tag_value = f"source:{input_source}"
-        db.add(
-            EntryTag(
-                entry_id=entry.id,
-                tag_name=source_tag_value,
-                tag_type="source",
-                tag_value=source_tag_value,
-                tag_value_normalized=source_tag_value,
-                tag_source=input_source,
-                confidence=1.0,
-                vector_pending=True,
-            )
-        )
-
-        tags = list(draft.get("tags", []) or [])
-        evidence_status = metadata.get("evidence_status")
-        if evidence_status:
-            tags.append(
+            # 自动标签
+            auto_tags = [
                 {
-                    "tag_type": "evidence_status",
-                    "tag_value": str(evidence_status),
-                    "tag_source": "rule",
+                    "tag_type": "source",
+                    "tag_value": source_tag_value,
+                    "tag_source": input_source,
                     "confidence": 1.0,
                 }
-            )
-        posting_phase = metadata.get("posting_phase")
-        if posting_phase:
-            tags.append(
-                {
-                    "tag_type": "posting_phase",
-                    "tag_value": str(posting_phase),
-                    "tag_source": "rule",
-                    "confidence": 0.95,
-                }
-            )
-        accounting_judgment_policy = metadata.get("accounting_judgment_policy")
-        if accounting_judgment_policy:
-            tags.append(
-                {
-                    "tag_type": "accounting_judgment_policy",
-                    "tag_value": str(accounting_judgment_policy),
-                    "tag_source": "rule",
-                    "confidence": 1.0,
-                }
-            )
-        tags.extend(
-            _extract_tags(
-                {
-                    "summary": draft.get("summary"),
-                    "account_code": draft.get("account_code"),
-                    "account_name": draft.get("account_name"),
-                    "counterparty": draft.get("counterparty"),
-                    "source_file_id": draft.get("source_file_id"),
-                    "source_entry_id": draft.get("source_entry_id"),
-                    "metadata": metadata,
-                }
-            )
-        )
-        seen_persisted_tags: set[tuple[str | None, str]] = set()
-        for tag in tags:
-            tag_value = tag.get("tag_value") or ""
-            tag_type = tag.get("tag_type")
-            tag_key = (tag_type, tag_value)
-            if not tag_value or tag_key in seen_persisted_tags:
-                continue
-            seen_persisted_tags.add(tag_key)
-            db.add(
-                EntryTag(
-                    entry_id=entry.id,
-                    tag_name=tag_value,
-                    tag_type=tag_type,
-                    tag_value=tag_value,
-                    tag_value_normalized=tag_value.strip().lower(),
-                    tag_source=tag.get("tag_source") or "rule",
-                    confidence=float(tag.get("confidence", 0.8)),
-                    vector_pending=True,
+            ]
+            evidence_status = metadata.get("evidence_status")
+            if evidence_status:
+                auto_tags.append(
+                    {
+                        "tag_type": "evidence_status",
+                        "tag_value": str(evidence_status),
+                        "tag_source": "rule",
+                        "confidence": 1.0,
+                    }
+                )
+            posting_phase = metadata.get("posting_phase")
+            if posting_phase:
+                auto_tags.append(
+                    {
+                        "tag_type": "posting_phase",
+                        "tag_value": str(posting_phase),
+                        "tag_source": "rule",
+                        "confidence": 0.95,
+                    }
+                )
+            accounting_judgment_policy = metadata.get("accounting_judgment_policy")
+            if accounting_judgment_policy:
+                auto_tags.append(
+                    {
+                        "tag_type": "accounting_judgment_policy",
+                        "tag_value": str(accounting_judgment_policy),
+                        "tag_source": "rule",
+                        "confidence": 1.0,
+                    }
+                )
+
+            # 合并 draft 自带的 tags
+            draft_tags = list(draft.get("tags", []) or [])
+            seen_tag_values: set[tuple[str, str]] = set()
+            combined_tags = []
+            for tag in auto_tags + draft_tags:
+                tag_type = tag.get("tag_type")
+                tag_value = tag.get("tag_value") or tag.get("tag_name") or ""
+                if not tag_value:
+                    continue
+                key = (tag_type, tag_value)
+                if key in seen_tag_values:
+                    continue
+                seen_tag_values.add(key)
+                combined_tags.append(tag)
+
+            lines.append(
+                voucher_service.VoucherEntryLine(
+                    account_code=draft.get("account_code"),
+                    account_name=draft.get("account_name"),
+                    summary=draft.get("summary"),
+                    debit_amount=Decimal(str(draft.get("debit_amount", 0))),
+                    credit_amount=Decimal(str(draft.get("credit_amount", 0))),
+                    counterparty=draft.get("counterparty"),
+                    source_file_id=draft.get("source_file_id"),
+                    original_row=draft.get("original_row"),
+                    normalized_text=draft.get("summary") or "",
+                    entity_id=draft.get("entity_id"),
+                    original_entity_name=draft.get("original_entity_name"),
+                    tags=combined_tags,
                 )
             )
-        persisted.append(entry)
+
+        # 4. 使用 voucher_service 创建凭证，事务内强制校验借贷平衡
+        try:
+            voucher = voucher_service.create_voucher(
+                db,
+                ledger_id=job.ledger_id or period.ledger_id,
+                organization_id=job.organization_id,
+                voucher_no=voucher_no,
+                voucher_date=group["voucher_date"],
+                summary=group["summary"],
+                lines=lines,
+                source_type=job.source_type or voucher_service.VoucherSourceType.AI_GENERATED,
+                source_id=job.id,
+                import_job_id=job.id,
+                status=voucher_service.VoucherStatus.DRAFT,
+                auto_commit=False,
+            )
+        except voucher_service.VoucherValidationError as exc:
+            db.rollback()
+            raise ValueError(f"凭证落库失败：{exc}") from exc
+
+        # 5. 收集 entries
+        entries = voucher_service.get_voucher_lines(db, voucher.id)
+        all_entries.extend(entries)
 
     db.commit()
-    for e in persisted:
+    for e in all_entries:
         db.refresh(e)
-    return persisted
+    return all_entries

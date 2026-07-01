@@ -26,26 +26,22 @@ def _check_period(db: Session, period_id: int) -> None:
         raise HTTPException(status_code=404, detail="会计期间不存在")
 
 
-def _run_report(report_func, db: Session, organization_id: int, period_id: int) -> dict:
+def _run_report(report_func, db: Session, ledger_id: int, period_id: int) -> dict:
     """
     功能描述：统一调用报表服务并捕获业务异常
     业务逻辑：将 LookupError 映射为 404，ValueError 映射为 400，SQLAlchemyError 映射为 422
-    会计口径：保持与期间管理接口一致的异常响应风格
 
     Args:
         report_func: 报表计算函数
         db: 数据库会话
-        organization_id: 组织 ID
+        ledger_id: 账簿 ID
         period_id: 期间 ID
 
     Returns:
         dict: 报表数据
-
-    注意事项：
-        1. 不吞掉异常栈，仅转换 HTTP 状态码与错误信息。
     """
     try:
-        return report_func(db, organization_id, period_id)
+        return report_func(db, ledger_id, period_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except ValueError as exc:
@@ -55,36 +51,69 @@ def _run_report(report_func, db: Session, organization_id: int, period_id: int) 
 
 
 @router.get("/trial-balance")
-def trial_balance(organization_id: int, period_id: int, db: Session = Depends(get_db)) -> dict:
+def trial_balance(
+    period_id: int,
+    ledger_id: int | None = None,
+    organization_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> dict:
     """科目余额表：返回各科目期初/本期/期末借贷六列及借贷合计。"""
     _check_period(db, period_id)
+    effective_ledger_id = _resolve_ledger_id(db, ledger_id, organization_id, period_id)
     return _run_report(
         financial_statements_service.trial_balance_report,
         db,
-        organization_id,
+        effective_ledger_id,
         period_id,
     )
 
 
 @router.get("/balance-sheet")
-def balance_sheet(organization_id: int, period_id: int, db: Session = Depends(get_db)) -> dict:
+def balance_sheet(
+    period_id: int,
+    ledger_id: int | None = None,
+    organization_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> dict:
     """资产负债表：返回资产/负债/权益分组、恒等式校验与重分类调整记录。"""
     _check_period(db, period_id)
+    effective_ledger_id = _resolve_ledger_id(db, ledger_id, organization_id, period_id)
     return _run_report(
         financial_statements_service.balance_sheet,
         db,
-        organization_id,
+        effective_ledger_id,
         period_id,
     )
 
 
 @router.get("/income-statement")
-def income_statement(organization_id: int, period_id: int, db: Session = Depends(get_db)) -> dict:
+def income_statement(
+    period_id: int,
+    ledger_id: int | None = None,
+    organization_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> dict:
     """利润表：返回收入、成本、期间费用、营业利润、利润总额、净利润。"""
     _check_period(db, period_id)
+    effective_ledger_id = _resolve_ledger_id(db, ledger_id, organization_id, period_id)
     return _run_report(
         financial_statements_service.income_statement,
         db,
-        organization_id,
+        effective_ledger_id,
         period_id,
     )
+
+
+def _resolve_ledger_id(db: Session, ledger_id: int | None, organization_id: int | None, period_id: int) -> int:
+    """解析有效账簿ID：优先使用ledger_id，否则从organization_id或period_id推导。"""
+    if ledger_id is not None:
+        return ledger_id
+    if organization_id is not None:
+        period = db.get(AccountingPeriod, period_id)
+        if period and period.organization_id == organization_id:
+            return period.ledger_id
+        raise HTTPException(status_code=400, detail="organization_id与period_id不匹配")
+    period = db.get(AccountingPeriod, period_id)
+    if period:
+        return period.ledger_id
+    raise HTTPException(status_code=404, detail="无法确定账簿ID")

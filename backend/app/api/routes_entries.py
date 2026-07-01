@@ -14,6 +14,7 @@ from app.schemas.accounting_entry import AccountingEntryRead, TagUpdate
 from app.services import ledger_management_service
 from app.services.entry_delete_service import VoucherDeleteKey, delete_vouchers_transactional
 from app.services.entry_query_service import load_voucher_lines, query_chronological_entries, query_vouchers
+from app.services.voucher_card_resolver import resolve_voucher_card_fields, resolve_voucher_card_fields_from_slim_rows
 from app.services.vector_store_service import safe_vector_store
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
@@ -87,9 +88,11 @@ class VoucherLineRead(AccountingEntryRead):
 
 
 class VoucherCardRead(BaseModel):
+    voucher_id: int | None = None
     voucher_no: str | None
     voucher_date: str | None
     voucher_word: str | None = None
+    status: str | None = None
     line_count: int
     debit_total: float
     credit_total: float
@@ -281,9 +284,11 @@ def _parse_voucher_word(voucher_no: str | None) -> str | None:
 
 def _voucher_card_from_group(group, *, include_lines: bool = False) -> VoucherCardRead:
     return VoucherCardRead(
+        voucher_id=group.voucher_id,
         voucher_no=group.voucher_no,
         voucher_date=group.voucher_date.isoformat() if group.voucher_date else None,
         voucher_word=_parse_voucher_word(group.voucher_no),
+        status=group.status,
         line_count=group.line_count,
         debit_total=group.debit_total,
         credit_total=group.credit_total,

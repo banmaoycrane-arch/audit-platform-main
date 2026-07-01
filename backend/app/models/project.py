@@ -18,8 +18,12 @@ from app.db.session import Base
 
 class Project(Base):
     """
-    项目实体：对应审计实务中的"审计项目"或核算实务中的"核算项目"
-    一个项目可关联多个账簿，并分配多名团队成员
+    项目（Project）：审计/记账/税务/咨询项目的工作任务边界。
+
+    新方案定位：审计工作任务边界。用于项目承接、团队组建、任务分配、进度管理、质量控制、成果交付。
+    一个项目可关联一个或多个 Ledger（进而关联多个 Reporting Entity / Legal Entity）。
+
+    与 Ledger 的区别：Project 是工作任务边界，Ledger 是核算数据边界；凭证、报表仍以 ledger_id 为主归属。
     """
     __tablename__ = "projects"
 

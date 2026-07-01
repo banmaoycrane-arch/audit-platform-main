@@ -260,6 +260,13 @@ def _archive_bank(db: Session, job: ImportJob, source_file: SourceFile, parser_r
 
 
 def _archive_voucher(db: Session, job: ImportJob, source_file: SourceFile, parser_result: dict[str, Any]) -> tuple[str, int]:
+    """归档 AI 识别出的凭证类原始文件。
+
+    业务说明：
+    - 此函数生成的是单条草稿分录行，用于保存 AI 对原始凭证/票据的初步识别结果。
+    - 不保证借贷平衡，不生成 Voucher 主记录，不能作为正式记账凭证。
+    - 正式凭证必须走 import_service._process_accounting_file 或 voucher_service.create_voucher。
+    """
     data = parser_result.get("data") if isinstance(parser_result.get("data"), dict) else {}
     entry = AccountingEntry(
         organization_id=job.organization_id,

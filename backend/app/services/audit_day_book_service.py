@@ -26,7 +26,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.db.models import AccountingEntry, EntryTag, ImportJob, SourceFile
+from app.db.models import AccountingEntry, EntryTag, ExecutionAuditLog, ImportJob, SourceFile, Voucher
 from app.services.data_validator import generate_quality_report
 from app.services.entry_tags_service import build_semantic_text, generate_entry_tags
 from app.services.file_parser_service import ParseResult, parse_entries
@@ -500,7 +500,79 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
             unbalanced_vouchers=unbalanced_vouchers,
         )
 
-        # 保存分录到数据库（复用现有逻辑）
+        import uuid
+        trace_id = str(uuid.uuid4())
+        request_id = str(uuid.uuid4())
+
+        db.add(
+            ExecutionAuditLog(
+                trace_id=trace_id,
+                request_id=request_id,
+                service_name="audit_day_book_service",
+                tool_name="process_day_book_import",
+                execution_source="api",
+                business_object_type="import_job",
+                business_object_id=str(job.id),
+                ledger_id=job.ledger_id,
+                project_id=job.project_id,
+                status="started",
+                risk_level="low",
+                input_summary={
+                    "total_vouchers": total_vouchers,
+                    "total_entries": len(all_entries),
+                    "source_type": job.source_type,
+                },
+            )
+        )
+
+        voucher_no_to_id: dict[str, int] = {}
+        for voucher_no, entries in voucher_groups.items():
+            if voucher_no.startswith("__no_voucher__"):
+                continue
+
+            first_entry = entries[0]
+            voucher_date = first_entry.get("voucher_date")
+            summary = first_entry.get("summary", "")[:200]
+
+            debit_total = sum(e.get("debit_amount", 0) or 0 for e in entries)
+            credit_total = sum(e.get("credit_amount", 0) or 0 for e in entries)
+
+            voucher = Voucher(
+                organization_id=job.organization_id,
+                ledger_id=job.ledger_id,
+                voucher_no=voucher_no,
+                voucher_date=voucher_date,
+                summary=summary,
+                total_debit=debit_total,
+                total_credit=credit_total,
+                import_job_id=job.id,
+                status="draft",
+                source_type="import",
+            )
+            db.add(voucher)
+
+        db.flush()
+
+        for voucher in db.query(Voucher).filter(Voucher.import_job_id == job.id).all():
+            voucher_no_to_id[voucher.voucher_no] = voucher.id
+
+        db.add(
+            ExecutionAuditLog(
+                trace_id=trace_id,
+                request_id=request_id,
+                service_name="audit_day_book_service",
+                tool_name="process_day_book_import",
+                execution_source="api",
+                business_object_type="import_job",
+                business_object_id=str(job.id),
+                ledger_id=job.ledger_id,
+                project_id=job.project_id,
+                status="vouchers_created",
+                risk_level="low",
+                input_summary={"voucher_count": len(voucher_no_to_id)},
+            )
+        )
+
         model_fields = {
             "voucher_no",
             "voucher_date",
@@ -518,11 +590,15 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
         entry_mappings: list[dict[str, Any]] = []
         for entry_data in all_entries:
             source_file_id = entry_data.get("source_file_id")
+            voucher_no = entry_data.get("voucher_no") or ""
+            voucher_id = voucher_no_to_id.get(voucher_no)
+
             entry_kwargs = {k: v for k, v in entry_data.items() if k in model_fields}
             entry_mappings.append(
                 {
                     "organization_id": job.organization_id,
                     "ledger_id": job.ledger_id,
+                    "voucher_id": voucher_id,
                     "import_job_id": job.id,
                     "source_file_id": source_file_id,
                     "entry_source": "auto",
@@ -534,6 +610,28 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
             db.bulk_insert_mappings(AccountingEntry, entry_mappings)
             total_created = len(entry_mappings)
 
+        db.add(
+            ExecutionAuditLog(
+                trace_id=trace_id,
+                request_id=request_id,
+                service_name="audit_day_book_service",
+                tool_name="process_day_book_import",
+                execution_source="api",
+                business_object_type="import_job",
+                business_object_id=str(job.id),
+                ledger_id=job.ledger_id,
+                project_id=job.project_id,
+                status="completed",
+                risk_level="low",
+                input_summary={
+                    "entry_count": total_created,
+                    "skip_count": skip_count,
+                    "unbalanced_count": unbalanced_count,
+                    "completeness_score": completeness_score,
+                },
+            )
+        )
+
         db.commit()
 
         return DayBookProcessingResult(
@@ -544,6 +642,26 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
 
     except Exception as exc:
         db.rollback()
+        import uuid
+        trace_id = str(uuid.uuid4())
+        request_id = str(uuid.uuid4())
+        db.add(
+            ExecutionAuditLog(
+                trace_id=trace_id,
+                request_id=request_id,
+                service_name="audit_day_book_service",
+                tool_name="process_day_book_import",
+                execution_source="api",
+                business_object_type="import_job",
+                business_object_id=str(job.id),
+                ledger_id=job.ledger_id,
+                project_id=job.project_id,
+                status="failed",
+                risk_level="high",
+                error_message=str(exc),
+            )
+        )
+        db.commit()
         return DayBookProcessingResult(
             success=False,
             error_message=str(exc),

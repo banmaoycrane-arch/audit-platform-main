@@ -11,6 +11,7 @@
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal
 import json
 from pathlib import Path
 import threading
@@ -58,6 +59,13 @@ from app.services.risk_case_library import enhance_entry_with_risk_analysis
 from app.services.ledger_context_service import resolve_or_create_organization_for_ledger
 from app.services.tagging_service import suggest_tags, suggest_voucher_type
 from app.services.vector_store_service import chunk_hash, chunk_text, safe_vector_store
+from app.services.voucher_service import (
+    VoucherEntryLine,
+    VoucherSourceType,
+    VoucherStatus,
+    create_voucher,
+    get_voucher_lines,
+)
 from app.storage.local_storage import resolve_storage_path, save_upload
 
 
@@ -148,14 +156,23 @@ def create_import_job(
     Args:
         db: 数据库会话
         organization_name: 企业名称
-        industry: 行业类型
+        industry: 行业
         fiscal_year: 会计年度
-        source_type: 数据来源类型，默认 "voucher_import"，可选 "audit_day_book"
+        source_type: 数据来源类型
+        ledger_id: 账簿 ID
+        audit_scope_type: 审计范围类型
+        audit_period_id: 审计期间 ID
+        audit_account_codes: 审计科目代码列表
+        project_id: 项目 ID
 
     Returns:
-        ImportJob: 创建的导入任务对象
+        ImportJob: 创建的导入任务
     """
-    organization = None
+    organization = db.query(Organization).filter(Organization.name == organization_name).first()
+    if organization is None:
+        organization = Organization(name=organization_name, industry=industry, fiscal_year=fiscal_year)
+        db.add(organization)
+        db.flush()
     if ledger_id is not None:
         organization_id = resolve_or_create_organization_for_ledger(
             db,
@@ -356,7 +373,109 @@ def _index_text(db: Session, organization_id: int, source_type: str, source_id: 
                 pass
 
 
-def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFile) -> tuple[ProcessingResult, list[dict], BatchCheckReport | None]:
+def _voucher_date_from_entry(entry_data: dict[str, Any]) -> date:
+    """从 entry_data 中解析凭证日期，失败则返回今天。"""
+    raw = entry_data.get("voucher_date")
+    if isinstance(raw, date):
+        return raw
+    if isinstance(raw, str) and raw:
+        try:
+            return date.fromisoformat(raw)
+        except ValueError:
+            pass
+    return date.today()
+
+
+def _build_voucher_group_lines(
+    voucher_no: str,
+    group_items: list[tuple[int, dict[str, Any]]],
+    logic_check_results: list[Any],
+    existing_keys: set[str],
+    source_file_id: int,
+) -> tuple[list[VoucherEntryLine], list[str], list[str], bool, str | None]:
+    """
+    构建单个凭证组的 VoucherEntryLine 列表。
+
+    返回值：
+        - lines: VoucherEntryLine 列表
+        - semantic_texts: 与 lines 一一对应的语义文本
+        - all_tag_names: 本组涉及的所有 tag 名称
+        - all_duplicate: 是否全部行都是重复
+        - error_message: 错误信息（如部分重复导致无法保证平衡）
+    """
+    lines: list[VoucherEntryLine] = []
+    semantic_texts: list[str] = []
+    all_tag_names: list[str] = []
+    all_duplicate = True
+
+    for raw_index, entry_data in group_items:
+        duplicate_key = build_accounting_entry_duplicate_key(entry_data)
+        is_duplicate = duplicate_key in existing_keys
+        if not is_duplicate:
+            all_duplicate = False
+        else:
+            continue
+
+        tags = generate_entry_tags(entry_data)
+        entry_data["tags"] = tags
+        entry_data = enhance_entry_with_risk_analysis(entry_data)
+        semantic_text = build_semantic_text(entry_data, tags)
+
+        check_result = logic_check_results[raw_index]
+        tag_dicts: list[dict[str, Any]] = [
+            {"tag_type": "source", "tag_value": "source:import", "tag_source": "rule", "confidence": 1.0}
+        ]
+        for tag_name in tags:
+            tag_dicts.append({"tag_type": "semantic", "tag_value": tag_name, "tag_source": "rule", "confidence": 1.0})
+        if not check_result.is_consistent:
+            for issue in check_result.issues:
+                tag_dicts.append({
+                    "tag_type": "logic_check",
+                    "tag_value": f"逻辑校验:{issue.severity}:{issue.issue_type}",
+                    "tag_source": "rule",
+                    "confidence": 0.9,
+                })
+        for case in check_result.matched_risk_cases:
+            tag_dicts.append({
+                "tag_type": "risk_case",
+                "tag_value": f"风险案例:{case['risk_type']}:{case['id']}",
+                "tag_source": "rule",
+                "confidence": 0.9,
+            })
+
+        all_tag_names.extend(tags)
+        semantic_texts.append(semantic_text)
+
+        line = VoucherEntryLine(
+            account_code=entry_data.get("account_code"),
+            account_name=entry_data.get("account_name"),
+            summary=entry_data.get("summary"),
+            debit_amount=Decimal(str(entry_data.get("debit_amount", 0))),
+            credit_amount=Decimal(str(entry_data.get("credit_amount", 0))),
+            counterparty=entry_data.get("counterparty"),
+            source_file_id=source_file_id,
+            original_row=entry_data.get("original_row"),
+            normalized_text=entry_data.get("summary") or "",
+            entity_id=entry_data.get("entity_id"),
+            original_entity_name=entry_data.get("original_entity_name"),
+            tags=tag_dicts,
+        )
+        lines.append(line)
+
+    if not lines and all_duplicate:
+        return lines, semantic_texts, list(set(all_tag_names)), True, None
+
+    if not lines and not all_duplicate:
+        return lines, semantic_texts, list(set(all_tag_names)), False, "凭证组未构建出有效分录行"
+
+    return lines, semantic_texts, list(set(all_tag_names)), False, None
+
+
+def _process_accounting_file(
+    db: Session,
+    job: ImportJob,
+    source_file: SourceFile,
+) -> tuple[ProcessingResult, list[str], BatchCheckReport | None, list[dict[str, Any]]]:
     """
     处理会计凭证文件
 
@@ -365,11 +484,11 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
     2. 生成多维度 tags
     3. 逻辑校验（摘要-科目匹配）
     4. 风险案例匹配
-    5. 创建分录
-    6. 向量索引
+    5. 按凭证号分组并强制借贷平衡校验
+    6. 通过 voucher_service 创建凭证和分录
+    7. 向量索引
     """
     try:
-        # 解析文件
         parse_result = parse_entries(resolve_storage_path(source_file.storage_path))
 
         if not parse_result.entries:
@@ -382,15 +501,12 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
                 ),
                 [],
                 None,
-                [],  # 返回空分录列表
+                [],
             )
 
-        # 收集用于逻辑校验的数据
         entries_for_check: list[dict] = []
         voucher_types: list[str | None] = []
-
         for entry_data in parse_result.entries:
-            # 提取凭证字
             class MockEntry:
                 def __init__(self, d):
                     self.summary = d.get("summary", "")
@@ -403,8 +519,6 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
             mock_entry = MockEntry(entry_data)
             voucher_type, _ = suggest_voucher_type(mock_entry)
             voucher_types.append(voucher_type)
-
-            # 构建用于校验的数据
             entries_for_check.append({
                 "summary": entry_data.get("summary", ""),
                 "debit_account": entry_data.get("debit_account_name", ""),
@@ -413,7 +527,6 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
                 "credit_amount": entry_data.get("credit_amount", 0),
             })
 
-        # 执行逻辑校验
         logic_check_results = []
         for i, (entry_data, voucher_type) in enumerate(zip(entries_for_check, voucher_types)):
             check_result = check_entry_logic(
@@ -427,11 +540,8 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
             )
             logic_check_results.append(check_result)
 
-        # 生成校验报告
         logic_report = generate_batch_report(logic_check_results)
 
-        # 创建分录
-        entries_created = 0
         existing_keys = {
             build_accounting_entry_duplicate_key(
                 {
@@ -458,101 +568,133 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
             .filter(AccountingEntry.import_job_id == job.id)
             .all()
         }
-        voucher_line_counter: dict[str, int] = {}
+
+        # 按 voucher_no 分组
+        groups: dict[str, list[tuple[int, dict[str, Any]]]] = {}
         for i, entry_data in enumerate(parse_result.entries):
-            # 生成多维度 tags
-            tags = generate_entry_tags(entry_data)
+            voucher_no = str(entry_data.get("voucher_no") or f"__no_voucher__:{i}").strip()
+            groups.setdefault(voucher_no, []).append((i, entry_data))
 
-            # 增强分录（添加风险案例匹配）
-            entry_data["tags"] = tags
-            entry_data = enhance_entry_with_risk_analysis(entry_data)
+        created_vouchers: list[Any] = []
+        entries_created = 0
+        all_tag_names: list[str] = []
+        skipped_duplicate_vouchers = 0
 
-            # 构建语义文本（用于向量化）
-            semantic_text = build_semantic_text(entry_data, tags)
-
-            # 同凭证号下分配连续行号；缺少凭证号时该分录独立分组
-            voucher_no = entry_data.get("voucher_no") or f"__no_voucher__:{i}"
-            voucher_line_counter[voucher_no] = voucher_line_counter.get(voucher_no, 0) + 1
-            entry_data["entry_line_no"] = voucher_line_counter[voucher_no]
-
-            duplicate_key = build_accounting_entry_duplicate_key(entry_data)
-            if duplicate_key in existing_keys:
-                continue
-            existing_keys.add(duplicate_key)
-
-            # 仅保留 AccountingEntry 模型字段，避免传入 tags / risk_cases 等扩展字段
-            model_fields = {
-                "voucher_no",
-                "voucher_date",
-                "summary",
-                "account_code",
-                "account_name",
-                "debit_amount",
-                "credit_amount",
-                "counterparty",
-                "original_row",
-                "normalized_text",
-                "entry_line_no",
-            }
-            entry_kwargs = {k: v for k, v in entry_data.items() if k in model_fields}
-            # 【新增】设置分录来源标记：自动导入 + 关联源文件
-            entry_kwargs["entry_source"] = "auto"
-            entry_kwargs["source_file_id"] = source_file.id
-            entry_kwargs["ledger_id"] = source_file.ledger_id
-            entry = AccountingEntry(organization_id=job.organization_id, import_job_id=job.id, **entry_kwargs)
-            db.add(entry)
-            db.flush()
-
-            # 保存 tags 到 EntryTag
-            for tag in tags:
-                db.add(EntryTag(entry_id=entry.id, tag_name=tag, confidence=1.0))
-
-            # 保存逻辑校验结果到 tags
-            check_result = logic_check_results[i]
-            if not check_result.is_consistent:
-                for issue in check_result.issues:
-                    tag_name = f"逻辑校验:{issue.severity}:{issue.issue_type}"
-                    db.add(EntryTag(entry_id=entry.id, tag_name=tag_name, confidence=0.9))
-
-            # 保存风险案例匹配结果
-            for case in check_result.matched_risk_cases:
-                tag_name = f"风险案例:{case['risk_type']}:{case['id']}"
-                db.add(EntryTag(entry_id=entry.id, tag_name=tag_name, confidence=0.9))
-
-            # 向量索引（使用增强的语义文本）
-            _index_text(
-                db,
-                job.organization_id,
-                "accounting_entry",
-                entry.id,
-                semantic_text,
-                {
-                    "organization_id": job.organization_id,
-                    "import_job_id": job.id,
-                    "voucher_no": entry.voucher_no,
-                    "voucher_date": str(entry.voucher_date) if entry.voucher_date else None,
-                    "account_name": entry.account_name,
-                    "amount": float(entry.debit_amount or entry.credit_amount or 0),
-                    "counterparty": entry.counterparty,
-                    "tags": tags,
-                    "is_consistent": check_result.is_consistent,
-                    "risk_count": len(check_result.matched_risk_cases),
-                },
+        for voucher_no, group_items in groups.items():
+            lines, semantic_texts, tag_names, all_duplicate, error_message = _build_voucher_group_lines(
+                voucher_no,
+                group_items,
+                logic_check_results,
+                existing_keys,
+                source_file.id,
             )
-            entries_created += 1
+            all_tag_names.extend(tag_names)
+
+            if error_message:
+                return (
+                    ProcessingResult(
+                        file_type="accounting_entry",
+                        filename=source_file.filename,
+                        success=False,
+                        error_message=f"凭证 {voucher_no} 处理失败：{error_message}",
+                    ),
+                    [],
+                    None,
+                    [],
+                )
+
+            if all_duplicate:
+                skipped_duplicate_vouchers += 1
+                continue
+
+            # 强制校验借贷平衡
+            total_debit = sum(line.debit_amount for line in lines)
+            total_credit = sum(line.credit_amount for line in lines)
+            if total_debit != total_credit:
+                return (
+                    ProcessingResult(
+                        file_type="accounting_entry",
+                        filename=source_file.filename,
+                        success=False,
+                        error_message=f"凭证 {voucher_no} 借贷不平衡：借方合计 {total_debit}，贷方合计 {total_credit}",
+                    ),
+                    [],
+                    None,
+                    [],
+                )
+
+            voucher_date = _voucher_date_from_entry(group_items[0][1])
+            summary = group_items[0][1].get("summary")
+            ledger_id = source_file.ledger_id or job.ledger_id
+            if not ledger_id:
+                return (
+                    ProcessingResult(
+                        file_type="accounting_entry",
+                        filename=source_file.filename,
+                        success=False,
+                        error_message="无法确定凭证所属账簿 ID",
+                    ),
+                    [],
+                    None,
+                    [],
+                )
+
+            voucher = create_voucher(
+                db,
+                ledger_id=ledger_id,
+                organization_id=job.organization_id,
+                voucher_no=voucher_no,
+                voucher_date=voucher_date,
+                summary=summary,
+                lines=lines,
+                source_type=VoucherSourceType.IMPORT,
+                source_id=source_file.id,
+                import_job_id=job.id,
+                status=VoucherStatus.DRAFT,
+                auto_commit=False,
+            )
+            created_vouchers.append(voucher)
+            entries_created += len(lines)
+
+            # 向量索引：根据创建后的分录 ID 与语义文本对应
+            created_entries = get_voucher_lines(db, voucher.id)
+            for entry, semantic_text in zip(created_entries, semantic_texts):
+                check_result = logic_check_results[group_items[0][0]]
+                _index_text(
+                    db,
+                    job.organization_id,
+                    "accounting_entry",
+                    entry.id,
+                    semantic_text,
+                    {
+                        "organization_id": job.organization_id,
+                        "import_job_id": job.id,
+                        "voucher_no": entry.voucher_no,
+                        "voucher_date": str(entry.voucher_date) if entry.voucher_date else None,
+                        "account_name": entry.account_name,
+                        "amount": float(entry.debit_amount or entry.credit_amount or 0),
+                        "counterparty": entry.counterparty,
+                        "tags": tag_names,
+                        "is_consistent": check_result.is_consistent,
+                        "risk_count": len(check_result.matched_risk_cases),
+                    },
+                )
 
         first_entry = parse_result.entries[0] if parse_result.entries else {}
         archive_feedback = {
             "document_type": "structured_ledger" if is_day_book_source_type(job.source_type) else "accounting_voucher",
             "document_type_label": "序时簿" if is_day_book_source_type(job.source_type) else "会计凭证",
             "voucher_date": first_entry.get("voucher_date"),
-            "summary": f"解析 {entries_created} 条分录",
+            "summary": f"解析 {entries_created} 条分录（跳过 {skipped_duplicate_vouchers} 张重复凭证）",
         }
         archive = _archive_source_file(db, job, source_file, archive_feedback)
 
-        # 更新文件状态
         source_file.text_extract_status = "parsed_entries"
-        source_file.extracted_text = f"解析成功：{parse_result.template_name or '未知模板'}，{entries_created}条分录，逻辑校验问题{logic_report.error_count}个"
+        source_file.extracted_text = (
+            f"解析成功：{parse_result.template_name or '未知模板'}，"
+            f"{entries_created}条分录，跳过{skipped_duplicate_vouchers}张重复凭证，"
+            f"逻辑校验问题{logic_report.error_count}个"
+        )
 
         return (
             ProcessingResult(
@@ -565,9 +707,9 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
                 archive_path=archive.get("archive_path"),
                 archive_context=archive,
             ),
-            tags,
+            list(set(all_tag_names)),
             logic_report,
-            parse_result.entries,  # 返回解析的分录列表，避免重复解析
+            parse_result.entries,
         )
 
     except Exception as exc:
@@ -580,7 +722,7 @@ def _process_accounting_file(db: Session, job: ImportJob, source_file: SourceFil
             ),
             [],
             None,
-            [],  # 返回空列表
+            [],
         )
 
 
@@ -657,84 +799,28 @@ def _process_ai_register_file(db: Session, job: ImportJob, source_file: SourceFi
                 "output_path": "register_ledger",
             }
         )
-        if ingestion.error_message:
-            feedback["error_message"] = ingestion.error_message
-
-        module_regs = [
-            {
-                "module_key": item.module_key,
-                "module_label": item.module_label,
-                "semantic_only": item.semantic_only,
-            }
-            for item in ingestion.module_registrations
-        ]
-        archive = _archive_source_file(db, job, source_file, feedback, module_registrations=module_regs)
+        archive = _archive_source_file(db, job, source_file, feedback)
         feedback["archive"] = archive
-
-        raw_text = classification.raw_text or extract_text(source_file.storage_path) or ""
-        _save_parse_feedback(source_file, feedback, raw_text)
-        source_file.text_extract_status = "register_ingested" if ingestion.success else "extracted"
-
-        if raw_text:
-            _index_text(
-                db,
-                job.organization_id,
-                "source_file_chunk",
-                source_file.id,
-                raw_text,
-                {
-                    "organization_id": job.organization_id,
-                    "import_job_id": job.id,
-                    "filename": source_file.filename,
-                    "register_type": ingestion.document_type,
-                },
-            )
-
+        _save_parse_feedback(source_file, feedback, None)
+        source_file.text_extract_status = "register_ingested"
         return ProcessingResult(
             file_type="register_ledger",
             filename=source_file.filename,
-            success=ingestion.success,
-            text_extracted=raw_text[:200] + "..." if len(raw_text) > 200 else raw_text,
+            success=True,
             register_type=ingestion.document_type,
             register_count=ingestion.register_count,
             register_ids=ingestion.register_ids,
             module_label=ingestion.module_label,
             module_path=ingestion.module_path,
-            module_registrations=[
-                {
-                    "module_key": item.module_key,
-                    "module_label": item.module_label,
-                    "module_path": item.module_path,
-                    "register_ids": item.register_ids,
-                    "register_count": item.register_count,
-                    "accounting_dimension": item.accounting_dimension,
-                    "semantic_only": item.semantic_only,
-                    "reason": item.reason,
-                }
-                for item in ingestion.module_registrations
-            ],
+            module_registrations=[item.to_dict() for item in ingestion.module_registrations],
             semantic_decomposition=ingestion.semantic_decomposition,
             semantic_tags=ingestion.semantic_tags,
             risk_hints=ingestion.risk_hints,
             draft_only=ingestion.draft_only,
-            error_message=ingestion.error_message,
             archive_path=archive.get("archive_path"),
             archive_context=archive,
         )
     except Exception as exc:
-        source_file.text_extract_status = "failed"
-        _save_parse_feedback(
-            source_file,
-            {
-                "document_type": "unknown",
-                "document_type_label": "台账登记失败",
-                "confidence": 0.0,
-                "summary": "文件已保存为底稿，但 AI 台账登记失败",
-                "error_message": str(exc),
-                "output_path": "register_ledger",
-            },
-            "",
-        )
         return ProcessingResult(
             file_type="register_ledger",
             filename=source_file.filename,
@@ -894,301 +980,44 @@ def _extract_text_with_ocr(path: str) -> str:
         from app.services.ocr_service import extract_text_from_image
         return extract_text_from_image(path)
 
-    # 纯文本
-    if suffix in {".txt", ".csv"}:
-        return file_path.read_text(encoding="utf-8", errors="ignore")
-
     return ""
-
-
-def _is_image_only_pdf(path: str) -> bool:
-    """
-    功能描述：判断 PDF 是否为纯图片型（无文字层）
-    业务逻辑：提取文本后若内容极少，则判定为纯图片型
-    """
-    try:
-        import pdfplumber
-
-        with pdfplumber.open(path) as pdf:
-            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-            return len(text.strip()) < 50
-    except Exception:
-        return False
 
 
 def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -> ProcessingResult:
     """
-    处理原始文件
-
-    流程：
-    1. 提取文本（PDF/TXT/图片OCR/Word/Markdown）
-    2. 合同解析（如果是PDF合同文件）
-    3. 向量索引
+    处理原始文件：
+    - 上传时只做文本提取与归档
+    - 不直接生成会计分录，等待 AI 识别后走 register_ingestion 或 day_book 流程
     """
     try:
-        # 提取文本（使用增强版提取器）
-        text = _extract_text_with_ocr(source_file.storage_path)
+        path = resolve_storage_path(source_file.storage_path)
+        raw_text = extract_text(path)
+        if not raw_text:
+            raw_text = _extract_text_with_ocr(path)
 
-        if not text:
-            source_file.text_extract_status = "unsupported"
-            _save_parse_feedback(
-                source_file,
-                {
-                    "document_type": "unknown",
-                    "document_type_label": "无法确认",
-                    "confidence": 0.0,
-                    "summary": "系统未能确认该文件资料类型，请检查文件内容或补充资料类型说明",
-                    "voucher_date": None,
-                    "amount": None,
-                    "counterparty": None,
-                    "error_message": "无法提取文本内容",
-                },
-                "",
-            )
-            return ProcessingResult(
-                file_type="source_file",
-                filename=source_file.filename,
-                success=False,
-                error_message="无法提取文本内容",
-            )
-
-        # 合同解析：如果是PDF文件且内容像合同，进行结构化解析
-        contract_parse_result = None
-        if source_file.file_type.lower() == ".pdf" and _is_contract_text(text):
-            try:
-                from app.services.contract_parser_service import ContractParser
-                parser = ContractParser()
-                contract_parse_result = parser.parse(text)
-                # 保存合同解析结果到draft_data
-                if job.draft_data is None:
-                    job.draft_data = {}
-                job.draft_data["contract_parse_result"] = {
-                    "contract_type": contract_parse_result.contract_type,
-                    "contract_valid": contract_parse_result.contract_valid,
-                    "effective_conditions": contract_parse_result.effective_conditions,
-                    "commercial_substance": contract_parse_result.commercial_substance,
-                    "collection_probable": contract_parse_result.collection_probable,
-                    "parties": [
-                        {
-                            "name": p.name,
-                            "role": p.role,
-                            "tax_id": p.tax_id,
-                            "legal_capacity": p.legal_capacity,
-                        }
-                        for p in contract_parse_result.parties
-                    ],
-                    "signing_date": contract_parse_result.signing_date,
-                    "period": {
-                        "start_date": contract_parse_result.period.start_date,
-                        "end_date": contract_parse_result.period.end_date,
-                        "duration_days": contract_parse_result.period.duration_days,
-                        "termination_terms": contract_parse_result.period.termination_terms,
-                    },
-                    "price": {
-                        "total_amount": str(contract_parse_result.price.total_amount),
-                        "amount_excl_tax": str(contract_parse_result.price.amount_excl_tax),
-                        "tax_rate": str(contract_parse_result.price.tax_rate),
-                        "tax_amount": str(contract_parse_result.price.tax_amount),
-                        "currency": contract_parse_result.price.currency,
-                        "variable_consideration": str(contract_parse_result.price.variable_consideration),
-                        "variable_type": contract_parse_result.price.variable_type,
-                        "back_to_back": contract_parse_result.price.back_to_back,
-                        "payment_terms": contract_parse_result.price.payment_terms,
-                    },
-                    "performance_obligations": [
-                        {
-                            "item_no": i.item_no,
-                            "description": i.description,
-                            "quantity": str(i.quantity),
-                            "unit": i.unit,
-                            "unit_price": str(i.unit_price),
-                            "total_price": str(i.total_price),
-                            "distinct": i.distinct,
-                            "highly_interdependent": i.highly_interdependent,
-                            "integration_service": i.integration_service,
-                            "revenue_recognition_method": i.revenue_recognition_method,
-                            "time_method_criteria": i.time_method_criteria,
-                            "qualified_payment_right": i.qualified_payment_right,
-                            "irreplaceable_use": i.irreplaceable_use,
-                            "standalone_selling_price": str(i.standalone_selling_price),
-                            "allocation_ratio": str(i.allocation_ratio),
-                        }
-                        for i in contract_parse_result.performance_obligations
-                    ],
-                    "penalties": [
-                        {
-                            "penalty_clause": p.penalty_clause,
-                            "penalty_amount": str(p.penalty_amount),
-                            "penalty_type": p.penalty_type,
-                            "is_probable": p.is_probable,
-                            "provision_required": p.provision_required,
-                            "provision_amount": str(p.provision_amount),
-                            "impact_on_revenue": p.impact_on_revenue,
-                        }
-                        for p in contract_parse_result.penalties
-                    ],
-                    "contract_costs": [
-                        {
-                            "cost_type": c.cost_type,
-                            "amount": str(c.amount),
-                            "amortization_method": c.amortization_method,
-                        }
-                        for c in contract_parse_result.contract_costs
-                    ],
-                    "financial_assets": [
-                        {
-                            "asset_type": a.asset_type,
-                            "amount": str(a.amount),
-                            "expected_credit_loss": str(a.expected_credit_loss),
-                            "risk_rating": a.risk_rating,
-                        }
-                        for a in contract_parse_result.financial_assets
-                    ],
-                    "tax_treatment": {
-                        "tax_type": contract_parse_result.tax_treatment.tax_type,
-                        "tax_rate": str(contract_parse_result.tax_treatment.tax_rate),
-                        "tax_amount": str(contract_parse_result.tax_treatment.tax_amount),
-                        "special_treatment": contract_parse_result.tax_treatment.special_treatment,
-                    },
-                    "summary": contract_parse_result.summary,
-                    "accounting_notes": contract_parse_result.accounting_notes,
-                    "five_step_analysis": contract_parse_result.five_step_analysis,
-                    "confidence_score": str(contract_parse_result.confidence_score),
-                }
-                # 进行会计校验
-                validation_errors = parser.validate_accounting(contract_parse_result)
-                if validation_errors:
-                    job.draft_data["contract_validation_errors"] = validation_errors
-                
-                # 将解析结果同步到合同台账
-                try:
-                    from app.services.register_ingestion_service import _persist_contract
-                    from app.services.source_document_service import SourceDocumentResult
-                    from app.services.draft_semantic_decomposition_service import decompose_draft
-                    
-                    # 构建语义分解
-                    classification = SourceDocumentResult(
-                        document_type="contract",
-                        confidence=float(contract_parse_result.confidence_score) if contract_parse_result.confidence_score else 0.8,
-                        data={},
-                        raw_text=text,
-                        file_name=source_file.filename,
-                    )
-                    decomposition = decompose_draft(classification)
-                    
-                    # 持久化到合同台账
-                    _persist_contract(
-                        db, job.organization_id, source_file, {},
-                        float(contract_parse_result.confidence_score) if contract_parse_result.confidence_score else 0.8,
-                        text, source_file.filename, decomposition,
-                        contract_parse_result=contract_parse_result,
-                    )
-                    db.commit()
-                except Exception as e:
-                    # 台账同步失败不影响主流程，记录错误即可
-                    print(f"合同台账同步失败: {e}")
-                    
-            except Exception as e:
-                # 合同解析失败不影响主流程，记录错误即可
-                print(f"合同解析失败: {e}")
-
-        # 选择解析引擎（从数据库读取配置，与解析引擎管理页面保持一致）
-        from app.services.parser_engine.config_service import get_runtime_parser_engine_config
-        parser_config = get_runtime_parser_engine_config(db)
-        use_new_engine = (
-            parser_config.get("llm_multi_engine_enabled", False) 
-            or parser_config.get("llm_enable_parallel_parsing", False)
-            or parser_config.get("ai_local_model_enabled", False)
-        )
-        
-        if use_new_engine:
-            try:
-                from app.services.parser_engine import parse_file
-                from app.services.parser_engine.parser_engine_dispatcher import parse_result_to_source_document_result
-                import asyncio
-                
-                # 安全的异步调用：避免在已有事件循环中调用 asyncio.run()
-                try:
-                    loop = asyncio.get_running_loop()
-                    if loop.is_running():
-                        parse_result = loop.run_until_complete(
-                            parse_file(source_file.storage_path, db=db)
-                        )
-                    else:
-                        parse_result = asyncio.run(
-                            parse_file(source_file.storage_path, db=db)
-                        )
-                except RuntimeError:
-                    parse_result = asyncio.run(
-                        parse_file(source_file.storage_path, db=db)
-                    )
-                
-                result = parse_result_to_source_document_result(parse_result, source_file.filename)
-                if (result.document_type or "unknown") in {"unknown", "general"} or float(result.confidence or 0) < 0.3:
-                    result = classify_document(source_file.storage_path, source_file.filename)
-            except Exception as e:
-                logger.warning(f"新解析引擎调用失败，降级到旧引擎: {e}")
-                result = classify_document(source_file.storage_path, source_file.filename)
-        else:
-            result = classify_document(source_file.storage_path, source_file.filename)
-        feedback = _extract_source_summary(result)
-
-        # 如果合同解析成功，增强反馈信息
-        if contract_parse_result and contract_parse_result.confidence_score > 0.5:
-            feedback["contract_info"] = {
-                "contract_type": contract_parse_result.contract_type,
-                "parties": [p.name for p in contract_parse_result.parties],
-                "total_amount": str(contract_parse_result.price.total_amount),
-                "signing_date": contract_parse_result.signing_date,
-                "accounting_notes": contract_parse_result.accounting_notes,
-            }
+        classification = classify_document(raw_text[:3000], source_file.filename)
+        feedback = _extract_source_summary(classification)
+        feedback.update({
+            "source_type": "source_file",
+            "extraction_method": "text_extraction",
+            "text_length": len(raw_text),
+            "confidence": classification.confidence,
+        })
 
         archive = _archive_source_file(db, job, source_file, feedback)
         feedback["archive"] = archive
-
-        # 更新文件状态
-        _save_parse_feedback(source_file, feedback, result.raw_text or text)
-        source_file.text_extract_status = "extracted"
-
-        # 向量索引
-        _index_text(
-            db,
-            job.organization_id,
-            "source_file_chunk",
-            source_file.id,
-            text,
-            {
-                "organization_id": job.organization_id,
-                "import_job_id": job.id,
-                "filename": source_file.filename,
-            },
-        )
+        _save_parse_feedback(source_file, feedback, raw_text)
+        source_file.text_extract_status = "text_extracted"
 
         return ProcessingResult(
             file_type="source_file",
             filename=source_file.filename,
             success=True,
-            text_extracted=text[:200] + "..." if len(text) > 200 else text,
+            text_extracted=raw_text,
             archive_path=archive.get("archive_path"),
             archive_context=archive,
         )
-
     except Exception as exc:
-        source_file.text_extract_status = "failed"
-        _save_parse_feedback(
-            source_file,
-            {
-                "document_type": "unknown",
-                "document_type_label": "解析失败",
-                "confidence": 0.0,
-                "summary": "文件上传成功但解析失败，请重新上传、改为人工录入或继续补充其他资料",
-                "voucher_date": None,
-                "amount": None,
-                "counterparty": None,
-                "error_message": str(exc),
-            },
-            "",
-        )
         return ProcessingResult(
             file_type="source_file",
             filename=source_file.filename,
@@ -1197,468 +1026,217 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
         )
 
 
-def _is_contract_text(text: str) -> bool:
-    """
-    判断文本是否为合同内容
+def process_import_job(
+    db: Session,
+    job: ImportJob,
+    *,
+    use_day_book: bool = False,
+    accounting_judgment_policy: str = "compliant_default",
+) -> ImportReport:
+    """处理导入任务
 
-    功能描述：通过关键词匹配判断文本是否为合同
+    功能描述：处理导入任务中的所有文件，生成会计分录或 AI 台账
     业务逻辑：
-        1. 检查是否包含合同关键词（甲方、乙方、合同、协议等）
-        2. 检查是否包含合同条款（违约责任、付款方式等）
-        3. 综合判断置信度
+        1. 获取导入任务下的所有文件
+        2. 根据文件类型选择处理方式：
+           - 会计凭证文件 -> 直接解析并创建分录
+           - 原始文件 -> 提取文本并归档（AI 后续处理）
+        3. 生成导入报告
 
     Args:
-        text: 提取的文本内容
+        db: 数据库会话
+        job: 导入任务
+        use_day_book: 是否使用序时簿模式
+        accounting_judgment_policy: 会计判断策略
 
     Returns:
-        bool: 是否为合同文本
+        ImportReport: 导入报告
     """
-    contract_keywords = [
-        "甲方", "乙方", "丙方", "合同", "协议", "签约",
-        "违约", "付款", "价款", "金额", "税率", "含税",
-        "履行", "标的", "交付", "验收", "质保",
-    ]
-    text_lower = text.lower()
-    keyword_count = sum(1 for keyword in contract_keywords if keyword in text_lower)
-    # 至少匹配3个关键词才认为是合同
-    return keyword_count >= 3
+    if use_day_book:
+        return _process_import_job_as_day_book(db, job)
+
+    source_files = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
+
+    total_entries = 0
+    success_files = 0
+    failed_files = 0
+    file_results: list[ProcessingResult] = []
+    all_tags: list[str] = []
+    all_logic_results: list[Any] = []
+    all_parse_entries: list[dict[str, Any]] = []
+
+    for source_file in source_files:
+        file_type = Path(source_file.filename or "").suffix.lower()
+
+        if _is_accounting_file(file_type) or should_persist_structured_entries(job.source_type):
+            if is_day_book_source_type(job.source_type) or should_persist_structured_entries(job.source_type):
+                result = _process_import_job_as_day_book(db, job)
+                return result
+
+            result, tags, logic_report, parse_entries = _process_accounting_file(db, job, source_file)
+            file_results.append(result)
+            if result.success:
+                success_files += 1
+                total_entries += result.entries_created
+                all_tags.extend(tags)
+                if logic_report:
+                    all_logic_results.append(logic_report)
+                all_parse_entries.extend(parse_entries)
+            else:
+                failed_files += 1
+
+        elif _is_source_file(file_type) or job.source_type in AI_EVIDENCE_SOURCE_TYPES:
+            result = _process_source_file(db, job, source_file)
+            file_results.append(result)
+            if result.success:
+                success_files += 1
+            else:
+                failed_files += 1
+
+        else:
+            file_results.append(ProcessingResult(
+                file_type="unknown",
+                filename=source_file.filename,
+                success=False,
+                error_message=f"不支持的文件类型：{file_type}",
+            ))
+            failed_files += 1
+
+    # 合并逻辑校验报告
+    merged_logic_report: BatchCheckReport | None = None
+    if all_logic_results:
+        merged_entries = []
+        for report in all_logic_results:
+            merged_entries.extend(report.entries)
+        merged_logic_report = generate_batch_report(merged_entries)
+
+    # 生成质量报告
+    quality_report = generate_quality_report(
+        [entry for entry in all_parse_entries],
+        [r for r in file_results if r.success],
+    )
+
+    return ImportReport(
+        job_id=job.id,
+        total_files=len(source_files),
+        success_files=success_files,
+        failed_files=failed_files,
+        total_entries=total_entries,
+        file_results=file_results,
+        logic_report=merged_logic_report,
+        quality_report=quality_report,
+    )
 
 
-
-def process_import_job(db: Session, job: ImportJob) -> ImportReport:
-    """
-    处理导入任务
-
-    支持两种文件类型分别处理：
-    - 会计凭证文件 (.xlsx, .xls, .csv) → 解析分录
-    - 原始文件 (.pdf, .txt, .md, .doc, .docx, 图片) → 提取文本
-
-    支持两种数据来源模式：
-    - voucher_import（默认）：标准凭证导入模式
-    - audit_day_book：审计序时簿模式，增加凭证合并、借贷平衡校验、跳号检测
-
-    集成功能：
-    - 多维度 tags 语义标签
-    - 逻辑校验（摘要-科目匹配）
-    - 风险案例匹配
-    - 解析超时保护（30 秒）
-    - PDF OCR 支持（纯图片型 PDF 自动识别）
-    """
-    job.status = "processing"
-    job.error_message = None
-    db.commit()
-
-    output_path = get_import_output_path(job.source_type)
-
-    # 超时保护：30 秒超时后自动设置为 draft
-    timeout_occurred = False
-    timeout_error = ""
-
-    def _on_timeout():
-        nonlocal timeout_occurred, timeout_error
-        timeout_occurred = True
-        timeout_error = "解析超时：文件处理时间超过 30 秒，已保存为草稿供后续重试"
-        try:
-            job.status = "draft"
-            job.error_message = timeout_error
-            job.draft_data = {
-                "stage": "parse_timeout",
-                "error_message": timeout_error,
-                "failed_at": datetime.utcnow().isoformat(),
-                "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
-            }
-            db.commit()
-        except Exception:
-            pass
-
-    timer = threading.Timer(30.0, _on_timeout)
-    timer.start()
+def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport:
+    """使用序时簿模式处理导入任务。"""
+    source_files = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
+    file_results: list[ProcessingResult] = []
+    total_entries = 0
+    success_files = 0
+    failed_files = 0
 
     try:
-        # 序时簿模式（审计 / 记账）：调用专用处理逻辑
-        if is_day_book_source_type(job.source_type):
-            day_book_result = process_day_book_import(db, job)
-            if not day_book_result.success:
-                job.status = "failed"
-                job.error_message = day_book_result.error_message
-                db.commit()
-                timer.cancel()
-                return ImportReport(
-                    job_id=job.id,
-                    total_files=0,
-                    success_files=0,
-                    failed_files=1,
-                    total_entries=0,
-                    output_path=output_path,
-                    error_message=day_book_result.error_message,
-                    parse_diagnostics=day_book_result.parse_diagnostics,
-                    file_results=[
-                        ProcessingResult(
-                            file_type="accounting_entry",
-                            filename=job.source_type,
-                            success=False,
-                            error_message=day_book_result.error_message or "序时簿处理失败",
-                            parse_diagnostics=day_book_result.parse_diagnostics,
-                            recommended_mode="day_book_import",
-                        )
-                    ],
-                )
+        day_result: DayBookProcessingResult = process_day_book_import(db, job)
 
-            job.entry_count = day_book_result.entries_created
-            job.status = "completed"
-            db.commit()
-            timer.cancel()
+        for source_file in source_files:
+            file_type = Path(source_file.filename or "").suffix.lower()
+            if not (_is_accounting_file(file_type) or should_persist_structured_entries(job.source_type)):
+                continue
 
-            period_suggestion = None
-            if day_book_result.entries_created > 0:
-                generate_risks(db, job.id)
-                period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
+            file_results.append(ProcessingResult(
+                file_type="accounting_entry",
+                filename=source_file.filename,
+                success=day_result.success,
+                entries_created=day_result.entries_created if day_result.success else 0,
+                error_message=day_result.error_message,
+            ))
 
-            return ImportReport(
-                job_id=job.id,
-                total_files=1,
-                success_files=1,
-                failed_files=0,
-                total_entries=day_book_result.entries_created,
-                output_path=output_path,
-                period_suggestion=period_suggestion,
-                day_book_report=day_book_result.report,
-                file_results=[
-                    ProcessingResult(
-                        file_type="accounting_entry",
-                        filename=job.source_type,
-                        success=True,
-                        entries_created=day_book_result.entries_created,
-                    )
-                ],
-            )
-
-        file_results: list[ProcessingResult] = []
-        total_entries = 0
-        all_entries: list[dict[str, Any]] = []
-        all_tags: list[str] = []
-        logic_reports: list[BatchCheckReport] = []
-
-        try:
-            files = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
-
-            for source_file in files:
-                file_type = source_file.file_type.lower()
-
-                # 根据文件类型选择处理方式
-                if _is_accounting_file(file_type):
-                    if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
-                        result = _process_structured_preview(db, job, source_file)
-                        file_results.append(result)
-                        continue
-
-                    if not should_persist_structured_entries(job.source_type):
-                        result = _process_structured_preview(db, job, source_file)
-                        file_results.append(result)
-                        continue
-
-                    result, tags, logic_report, parsed_entries = _process_accounting_file(db, job, source_file)
-                    total_entries += result.entries_created
-                    file_results.append(result)
-                    all_tags.extend(tags)
-                    if logic_report:
-                        logic_reports.append(logic_report)
-
-                    # 复用解析的分录，避免重复解析
-                    if parsed_entries:
-                        all_entries.extend(parsed_entries)
-
-                elif _is_source_file(file_type):
-                    if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
-                        result = _process_ai_register_file(db, job, source_file)
-                    else:
-                        result = _process_source_file(db, job, source_file)
-                    file_results.append(result)
-
-                else:
-                    # 不支持的文件格式，返回友好错误信息
-                    supported_formats = ", ".join(
-                        sorted(
-                            ACCOUNTING_FILE_TYPES | SOURCE_FILE_TYPES
-                        )
-                    )
-                    friendly_error = (
-                        f"不支持的文件类型: {file_type}。"
-                        f"当前支持的格式包括：{supported_formats}。"
-                        f"请转换格式后重新上传，或联系管理员处理。"
-                    )
-                    result = ProcessingResult(
-                        file_type="unknown",
-                        filename=source_file.filename,
-                        success=False,
-                        error_message=friendly_error,
-                    )
-                    file_results.append(result)
-
-            # 生成质量报告（仅针对会计分录）
-            quality_report = None
-            if all_entries:
-                quality_report = generate_quality_report(all_entries)
-
-            # 合并逻辑校验报告
-            combined_logic_report = None
-            if logic_reports:
-                total_errors = sum(r.error_count for r in logic_reports)
-                total_warnings = sum(r.warning_count for r in logic_reports)
-                total_inconsistent = sum(r.inconsistent_entries for r in logic_reports)
-                combined_logic_report = {
-                    "total_errors": total_errors,
-                    "total_warnings": total_warnings,
-                    "total_inconsistent": total_inconsistent,
-                    "consistency_rate": (len(all_entries) - total_inconsistent) / max(len(all_entries), 1) * 100 if all_entries else 0,
-                }
-
-            # 更新任务状态
-            job.entry_count = total_entries
-            success_files = sum(1 for r in file_results if r.success)
-            failed_files = len(file_results) - success_files
-            report_error_message: str | None = None
-            report_parse_diagnostics: dict[str, Any] | None = None
-            report_output_path = output_path
-
-            structured_previews = [r for r in file_results if r.file_type == "structured_preview"]
-            if structured_previews:
-                report_output_path = "structured_preview"
-                failed_structured = [r for r in structured_previews if not r.success]
-                if failed_structured:
-                    # 解析失败时保存草稿数据，进入 draft 状态供用户重试
-                    job.status = "draft"
-                    report_error_message = failed_structured[0].error_message
-                    report_parse_diagnostics = failed_structured[0].parse_diagnostics
-                    job.error_message = report_error_message
-                    job.draft_data = {
-                        "stage": "structured_preview_failed",
-                        "file_results": [{
-                            "filename": r.filename,
-                            "success": r.success,
-                            "error_message": r.error_message,
-                            "parse_diagnostics": r.parse_diagnostics,
-                            "entries_created": r.entries_created,
-                        } for r in file_results],
-                        "total_entries": total_entries,
-                        "failed_at": datetime.utcnow().isoformat(),
-                        "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
-                    }
-                else:
-                    job.status = "completed"
-            elif failed_files > 0 and total_entries == 0:
-                # 所有文件解析失败，保存草稿数据进入 draft 状态
-                job.status = "draft"
-                report_error_message = next((r.error_message for r in file_results if r.error_message), "导入处理失败")
-                job.error_message = report_error_message
-                job.draft_data = {
-                    "stage": "all_files_failed",
-                    "file_results": [{
-                        "filename": r.filename,
-                        "success": r.success,
-                        "error_message": r.error_message,
-                        "parse_diagnostics": r.parse_diagnostics,
-                        "entries_created": r.entries_created,
-                    } for r in file_results],
-                    "total_entries": total_entries,
-                    "failed_at": datetime.utcnow().isoformat(),
-                    "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
-                }
-            else:
-                job.status = "completed"
-
-            # 生成风险
-            if total_entries > 0:
-                generate_risks(db, job.id)
-
-            db.commit()
-
-            period_suggestion = None
-            if total_entries > 0 and is_day_book_source_type(job.source_type):
-                period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
-
-            register_summary = [
-                {
-                    "filename": item.filename,
-                    "register_type": item.register_type,
-                    "register_count": item.register_count,
-                    "register_ids": item.register_ids,
-                    "module_label": item.module_label,
-                    "module_path": item.module_path,
-                    "module_registrations": item.module_registrations,
-                    "semantic_decomposition": item.semantic_decomposition,
-                    "semantic_tags": item.semantic_tags,
-                    "risk_hints": item.risk_hints,
-                    "draft_only": item.draft_only,
-                    "success": item.success,
-                    "archive_path": item.archive_path,
-                    "archive_context": item.archive_context,
-                }
-                for item in file_results
-                if item.file_type == "register_ledger"
-            ] or None
-
-            timer.cancel()
-            return ImportReport(
-                job_id=job.id,
-                total_files=len(file_results),
-                success_files=success_files,
-                failed_files=failed_files,
-                total_entries=total_entries,
-                output_path=report_output_path,
-                period_suggestion=period_suggestion,
-                quality_report=quality_report,
-                register_summary=register_summary,
-                file_results=file_results,
-                error_message=report_error_message,
-                parse_diagnostics=report_parse_diagnostics,
-            )
-
-        except Exception as exc:
-            # 如果超时已经发生，使用超时错误信息
-            if timeout_occurred:
-                job.status = "draft"
-                job.error_message = timeout_error
-                job.draft_data = {
-                    "stage": "parse_timeout",
-                    "error_message": timeout_error,
-                    "failed_at": datetime.utcnow().isoformat(),
-                    "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
-                }
-            else:
-                job.status = "failed"
-                job.error_message = str(exc)
-            db.commit()
-            timer.cancel()
-
-            return ImportReport(
-                job_id=job.id,
-                total_files=len(file_results),
-                success_files=0,
-                failed_files=len(file_results),
-                total_entries=total_entries,
-                output_path=output_path,
-                file_results=file_results,
-            )
-
-    except Exception as exc:
-        # 外层异常处理
-        if timeout_occurred:
-            job.status = "draft"
-            job.error_message = timeout_error
-            job.draft_data = {
-                "stage": "parse_timeout",
-                "error_message": timeout_error,
-                "failed_at": datetime.utcnow().isoformat(),
-                "request_id": f"draft-{job.id}-{int(datetime.utcnow().timestamp())}",
-            }
+        if day_result.success:
+            success_files = len(file_results)
+            total_entries = day_result.entries_created
         else:
-            job.status = "failed"
-            job.error_message = str(exc)
-        db.commit()
-        timer.cancel()
+            failed_files = len(file_results)
 
         return ImportReport(
             job_id=job.id,
-            total_files=0,
+            total_files=len(source_files),
+            success_files=success_files,
+            failed_files=failed_files,
+            total_entries=total_entries,
+            file_results=file_results,
+            day_book_report=day_result.report,
+        )
+    except Exception as exc:
+        for source_file in source_files:
+            file_type = Path(source_file.filename or "").suffix.lower()
+            if not (_is_accounting_file(file_type) or should_persist_structured_entries(job.source_type)):
+                continue
+
+            file_results.append(ProcessingResult(
+                file_type="accounting_entry",
+                filename=source_file.filename,
+                success=False,
+                error_message=str(exc),
+            ))
+            failed_files += 1
+
+        return ImportReport(
+            job_id=job.id,
+            total_files=len(source_files),
             success_files=0,
-            failed_files=0,
+            failed_files=failed_files,
             total_entries=0,
-            output_path=output_path,
-            file_results=[],
+            file_results=file_results,
+            day_book_report=None,
         )
 
 
 def get_import_summary(report: ImportReport) -> dict[str, Any]:
-    """生成导入摘要"""
-    summary = {
+    """将 ImportReport 转换为前端可读的摘要字典。"""
+    return {
         "job_id": report.job_id,
         "total_files": report.total_files,
         "success_files": report.success_files,
         "failed_files": report.failed_files,
         "total_entries": report.total_entries,
         "output_path": report.output_path,
-        "file_summary": [],
+        "period_suggestion": report.period_suggestion,
+        "register_summary": report.register_summary,
+        "quality_score": report.quality_report.quality_score if report.quality_report else 0.0,
+        "logic_check_error_count": report.logic_report.error_count if report.logic_report else 0,
+        "file_results": [
+            {
+                "file_type": r.file_type,
+                "filename": r.filename,
+                "success": r.success,
+                "entries_created": r.entries_created,
+                "error_message": r.error_message,
+                "template_name": r.template_name,
+                "quality_score": r.quality_score,
+                "register_type": r.register_type,
+                "register_count": r.register_count,
+                "module_label": r.module_label,
+                "module_path": r.module_path,
+                "archive_path": r.archive_path,
+                "recommended_mode": r.recommended_mode,
+            }
+            for r in report.file_results
+        ],
     }
 
-    if report.error_message:
-        summary["error_message"] = report.error_message
-    if report.parse_diagnostics is not None:
-        summary["parse_diagnostics"] = report.parse_diagnostics
 
-    if report.period_suggestion is not None:
-        summary["period_suggestion"] = report.period_suggestion
-
-    if report.register_summary is not None:
-        summary["register_summary"] = report.register_summary
-
-    if report.day_book_report is not None:
-        report_data = report.day_book_report
-        summary["day_book_report"] = {
-            "total_vouchers": report_data.total_vouchers,
-            "total_entries": report_data.total_entries,
-            "skip_count": report_data.skip_count,
-            "unbalanced_count": report_data.unbalanced_count,
-            "completeness_score": report_data.completeness_score,
-            "missing_voucher_nos": report_data.missing_voucher_nos,
-            "unbalanced_vouchers": [
-                {
-                    "voucher_no": item.voucher_no,
-                    "debit_total": str(item.debit_total),
-                    "credit_total": str(item.credit_total),
-                    "difference": str(item.difference),
-                    "entry_count": item.entry_count,
-                }
-                for item in report_data.unbalanced_vouchers
-            ],
-        }
-
-    for result in report.file_results:
-        file_info = {
-            "filename": result.filename,
-            "type": result.file_type,
-            "success": result.success,
-        }
-        if result.file_type == "accounting_entry":
-            file_info["entries"] = result.entries_created
-            file_info["template"] = result.template_name
-            file_info["quality_score"] = result.quality_score
-        if result.file_type == "structured_preview":
-            file_info["entries"] = result.entries_created
-            file_info["template"] = result.template_name
-            file_info["quality_score"] = result.quality_score
-        if result.file_type == "register_ledger":
-            file_info["register_type"] = result.register_type
-            file_info["register_count"] = result.register_count
-            file_info["register_ids"] = result.register_ids
-            file_info["module_label"] = result.module_label
-            file_info["module_path"] = result.module_path
-            file_info["module_registrations"] = result.module_registrations
-            file_info["draft_only"] = result.draft_only
-        if result.error_message:
-            file_info["error"] = result.error_message
-        if result.recommended_mode:
-            file_info["recommended_mode"] = result.recommended_mode
-        if result.parse_diagnostics:
-            file_info["parse_diagnostics"] = result.parse_diagnostics
-
-        summary["file_summary"].append(file_info)
-
-    # 质量报告
-    if report.quality_report:
-        summary["quality"] = {
-            "overall_score": report.quality_report.overall_score,
-            "valid_entries": report.quality_report.valid_entries,
-            "invalid_entries": report.quality_report.invalid_entries,
-            "recommendations": report.quality_report.recommendations,
-        }
-
-    # 逻辑校验报告
-    if hasattr(report, "logic_report") and report.logic_report:
-        summary["logic_check"] = {
-            "total_errors": report.logic_report.error_count,
-            "total_warnings": report.logic_report.warning_count,
-            "consistency_rate": report.logic_report.consistency_rate,
-        }
-
-    return summary
+def generate_import_report(
+    db: Session,
+    job: ImportJob,
+    *,
+    accounting_judgment_policy: str = "compliant_default",
+) -> ImportReport:
+    """生成导入报告"""
+    report = process_import_job(
+        db,
+        job,
+        use_day_book=is_day_book_source_type(job.source_type),
+        accounting_judgment_policy=accounting_judgment_policy,
+    )
+    return report

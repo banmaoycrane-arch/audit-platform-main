@@ -14,6 +14,10 @@ from app.db.models import (
     OpeningBalance,
     Organization,
 )
+from app.models.ledger import Ledger
+from app.models.team import Team
+from app.models.user import User
+from app.services.ledger_management_service import create_ledger
 from app.db.session import Base, get_db
 from app.main import app
 
@@ -48,43 +52,36 @@ def _seed(TestingSessionLocal):
     """期初平衡 + 本期收入1000 / 费用100 / 所得税50 → 净利润 850"""
     db = TestingSessionLocal()
     try:
-        org = Organization(name="结转测试", fiscal_year=2026)
-        db.add(org)
-        db.flush()
-        period = AccountingPeriod(
-            organization_id=org.id,
-            period_code="2026-01",
-            start_date=date(2026, 1, 1),
-            end_date=date(2026, 1, 31),
-        )
-        db.add(period)
+        team = Team(name="结转测试团队", type="virtual")
+        db.add(team)
         db.flush()
 
-        for code, name, category, direction in [
-            ("1002", "银行存款", "asset", "debit"),
-            ("1122", "应收账款", "asset", "debit"),
-            ("4001", "实收资本", "equity", "credit"),
-            ("4103", "本年利润", "equity", "credit"),
-            ("2221", "应交税费", "liability", "credit"),
-            ("6001", "主营业务收入", "profit", "credit"),
-            ("6601", "销售费用", "profit", "debit"),
-            ("6801", "所得税费用", "profit", "debit"),
-        ]:
-            db.add(
-                ChartOfAccounts(
-                    code=code, name=name, parent_code=None, level=1,
-                    category=category, direction=direction,
-                    is_terminal=True, status="active", is_system=True,
-                )
-            )
+        user = User(username="结转测试用户", phone="13800000006", team_id=team.id)
+        db.add(user)
+        db.flush()
+
+        ledger = create_ledger(
+            db,
+            team_id=team.id,
+            name="结转测试账簿",
+            accounting_start_date=date(2026, 1, 1),
+        )
+        db.flush()
+
+        period = db.query(AccountingPeriod).filter(
+            AccountingPeriod.ledger_id == ledger.id,
+            AccountingPeriod.period_code == "2026-01",
+        ).first()
+
+        org_id = period.organization_id
 
         db.add(OpeningBalance(
-            organization_id=org.id, period_id=period.id, account_code="1002",
-            debit_balance=Decimal("1000"), credit_balance=Decimal("0"),
+            organization_id=org_id, ledger_id=ledger.id, period_id=period.id,
+            account_code="1002", debit_balance=Decimal("1000"), credit_balance=Decimal("0"),
         ))
         db.add(OpeningBalance(
-            organization_id=org.id, period_id=period.id, account_code="4001",
-            debit_balance=Decimal("0"), credit_balance=Decimal("1000"),
+            organization_id=org_id, ledger_id=ledger.id, period_id=period.id,
+            account_code="4001", debit_balance=Decimal("0"), credit_balance=Decimal("1000"),
         ))
 
         # 本期发生（手工编排：收入 1000 / 费用 100 / 所得税 50）
@@ -98,14 +95,14 @@ def _seed(TestingSessionLocal):
             ("2221", Decimal("0"), Decimal("50")),
         ]:
             db.add(AccountingEntry(
-                organization_id=org.id, import_job_id=0,
-                voucher_no="测-001", voucher_date=date(2026, 1, 15),
+                ledger_id=ledger.id, organization_id=org_id,
+                import_job_id=0, voucher_no="测-001", voucher_date=date(2026, 1, 15),
                 account_code=code, account_name=code,
                 debit_amount=debit, credit_amount=credit,
                 entry_line_no=1,
             ))
         db.commit()
-        return org.id, period.id
+        return org_id, period.id
     finally:
         db.close()
 
@@ -123,6 +120,8 @@ def test_pl_transfer_makes_balance_sheet_balanced(client):
 
     # 执行结转
     transfer = test_client.post(f"/api/accounting-periods/{period_id}/pl-transfer")
+    if transfer.status_code != 200:
+        print(f"Transfer error: {transfer.status_code} - {transfer.json()}")
     assert transfer.status_code == 200
     body = transfer.json()
     assert body["status"] == "pl_transferred"

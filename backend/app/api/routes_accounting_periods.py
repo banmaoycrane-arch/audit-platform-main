@@ -21,6 +21,7 @@ from app.schemas.accounting_period import (
 )
 from app.services.accounting_period_service import AccountingPeriodService
 from app.services import period_close_service
+from app.services.voucher_service import VoucherValidationError
 from app.services.ledger_context_service import (
     resolve_organization_id_for_ledger,
     resolve_or_create_organization_for_ledger,
@@ -272,10 +273,10 @@ def pl_transfer(period_id: int, db: Session = Depends(get_db)) -> dict:
     if not period:
         raise HTTPException(status_code=404, detail="会计期间不存在")
     try:
-        return period_close_service.auto_pl_transfer(db, period.organization_id, period_id)
+        return period_close_service.auto_pl_transfer(db, period.ledger_id, period_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    except PermissionError as exc:
+    except (PermissionError, ValueError, VoucherValidationError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -285,7 +286,7 @@ def pl_transfer_reverse(period_id: int, db: Session = Depends(get_db)) -> dict:
     if not period:
         raise HTTPException(status_code=404, detail="会计期间不存在")
     try:
-        return period_close_service.reverse_pl_transfer(db, period.organization_id, period_id)
+        return period_close_service.reverse_pl_transfer(db, period.ledger_id, period_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except PermissionError as exc:

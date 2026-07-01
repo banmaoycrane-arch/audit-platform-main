@@ -35,22 +35,26 @@ EXPENSE_ACCOUNTS = {
 }
 
 
-def compute_account_balances(db: Session, organization_id: int, period_id: int) -> list[dict[str, Any]]:
+def compute_account_balances(db: Session, ledger_id: int | None, period_id: int) -> list[dict[str, Any]]:
     period = db.get(AccountingPeriod, period_id)
     if not period:
         raise LookupError("会计期间不存在")
+    effective_ledger_id = ledger_id if ledger_id is not None else period.ledger_id
+    if effective_ledger_id is not None and period.ledger_id is not None and period.ledger_id != effective_ledger_id:
+        raise ValueError("会计期间不属于指定账簿")
 
-    accounts = (
-        db.query(ChartOfAccounts)
-        .order_by(ChartOfAccounts.code)
-        .all()
-    )
+    query = db.query(ChartOfAccounts)
+    if effective_ledger_id is not None:
+        query = query.filter(ChartOfAccounts.ledger_id == effective_ledger_id)
+    else:
+        query = query.filter(ChartOfAccounts.ledger_id.is_(None))
+    accounts = query.order_by(ChartOfAccounts.code).all()
 
     opening_map = {
         ob.account_code: ob
         for ob in db.query(OpeningBalance)
         .filter(
-            OpeningBalance.organization_id == organization_id,
+            OpeningBalance.ledger_id == ledger_id,
             OpeningBalance.period_id == period_id,
         )
         .all()
@@ -63,7 +67,7 @@ def compute_account_balances(db: Session, organization_id: int, period_id: int) 
             func.sum(AccountingEntry.credit_amount).label("credit"),
         )
         .filter(
-            AccountingEntry.organization_id == organization_id,
+            AccountingEntry.ledger_id == ledger_id,
             AccountingEntry.voucher_date >= period.start_date,
             AccountingEntry.voucher_date <= period.end_date,
         )
@@ -106,8 +110,8 @@ def compute_account_balances(db: Session, organization_id: int, period_id: int) 
     return rows
 
 
-def trial_balance_report(db: Session, organization_id: int, period_id: int) -> dict[str, Any]:
-    rows = compute_account_balances(db, organization_id, period_id)
+def trial_balance_report(db: Session, ledger_id: int, period_id: int) -> dict[str, Any]:
+    rows = compute_account_balances(db, ledger_id, period_id)
     totals = {
         "opening_debit": sum(r["opening_debit"] for r in rows),
         "opening_credit": sum(r["opening_credit"] for r in rows),
@@ -225,8 +229,8 @@ def _sum_codes(rows_by_code: dict[str, dict], codes: list[str], side: str) -> De
     return total
 
 
-def balance_sheet(db: Session, organization_id: int, period_id: int) -> dict[str, Any]:
-    rows = compute_account_balances(db, organization_id, period_id)
+def balance_sheet(db: Session, ledger_id: int, period_id: int) -> dict[str, Any]:
+    rows = compute_account_balances(db, ledger_id, period_id)
     presentation_rows, reclassification_adjustments = _apply_counterparty_reclassification(rows)
     assets_total = _category_total(presentation_rows, "asset")
     liabilities_total = _category_total(presentation_rows, "liability")
@@ -243,8 +247,8 @@ def balance_sheet(db: Session, organization_id: int, period_id: int) -> dict[str
     }
 
 
-def income_statement(db: Session, organization_id: int, period_id: int) -> dict[str, Any]:
-    rows = compute_account_balances(db, organization_id, period_id)
+def income_statement(db: Session, ledger_id: int, period_id: int) -> dict[str, Any]:
+    rows = compute_account_balances(db, ledger_id, period_id)
     rows_by_code = {r["account_code"]: r for r in rows}
 
     revenue = {k: float(_sum_codes(rows_by_code, codes, "credit")) for k, codes in INCOME_ACCOUNTS.items()}

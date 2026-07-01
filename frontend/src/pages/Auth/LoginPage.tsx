@@ -19,6 +19,7 @@ export function LoginPage() {
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [smsLoginError, setSmsLoginError] = useState<string | null>(null)
   const [showSetPassword, setShowSetPassword] = useState(false)
+  const [displaySmsCode, setDisplaySmsCode] = useState<string | null>(null)
 
   const finishLogin = async (accessToken: string) => {
     localStorage.setItem('token', accessToken)
@@ -118,7 +119,8 @@ export function LoginPage() {
     try {
       setSmsLoading(true)
       const res = await api.getSmsCode(phone)
-      const smsCode = res.code || res.sms_code
+      const smsCode = res.code || res.sms_code || res.verify_code
+      setDisplaySmsCode(smsCode || null)
       message.success(smsCode ? `验证码已发送: ${smsCode}` : res.message || '验证码已发送')
       setSmsCountdown(60)
       const timer = setInterval(() => {
@@ -131,6 +133,7 @@ export function LoginPage() {
         })
       }, 1000)
     } catch (e: any) {
+      setDisplaySmsCode(null)
       message.error(e.message || '获取验证码失败')
     } finally {
       setSmsLoading(false)
@@ -218,6 +221,31 @@ export function LoginPage() {
               }
             />
           </Form.Item>
+          {displaySmsCode && (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: 12,
+                backgroundColor: '#fff7e6',
+                border: '2px solid #faad14',
+                borderRadius: 6,
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ fontSize: 14, color: '#fa8c16', marginBottom: 4 }}>本次验证码</div>
+              <div
+                style={{
+                  fontSize: 28,
+                  fontWeight: 'bold',
+                  color: '#ff6034',
+                  letterSpacing: '8px',
+                  fontFamily: "'Courier New', monospace",
+                }}
+              >
+                {displaySmsCode}
+              </div>
+            </div>
+          )}
           <Form.Item>
             <Button type="primary" htmlType="submit" block size="large" loading={smsLoginLoading}>
               登录

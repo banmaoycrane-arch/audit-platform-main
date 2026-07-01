@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     secret_key: str | None = None
     super_admin_usernames: str = ""
     super_admin_phones: str = ""
-    sms_return_code_in_dev: bool = False
+    sms_return_code_in_dev: bool = True
     cors_allow_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
     llm_max_concurrent_models: int = 1          # 最大并发模型数（同时运行的LLM数量）
     llm_memory_limit_mb: int = 8192             # 模型内存限制（MB），超过则降级
