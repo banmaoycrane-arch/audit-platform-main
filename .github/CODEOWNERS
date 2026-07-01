@@ -1,0 +1,32 @@
+# CODEOWNERS - 代码所有者配置
+# GitHub 仓库 Settings → Code review → Code owners 中生效
+# 格式：<文件路径模式> @<GitHub用户名>
+
+# === 全局默认 ===
+*                           @banmaoycrane-arch
+
+# === 后端核心财务逻辑 ===
+backend/app/services/        @banmaoycrane-arch
+backend/app/api/             @banmaoycrane-arch
+backend/app/models/          @banmaoycrane-arch
+backend/app/db/              @banmaoycrane-arch
+
+# === 后端审计模块 ===
+backend/app/services/audit_* @banmaoycrane-arch
+backend/app/api/routes_audit* @banmaoycrane-arch
+
+# === 数据库迁移 ===
+backend/alembic/             @banmaoycrane-arch
+
+# === 前端核心页面 ===
+frontend/src/pages/          @banmaoycrane-arch
+frontend/src/App.tsx         @banmaoycrane-arch
+
+# === CI/CD 与配置 ===
+.github/workflows/           @banmaoycrane-arch
+.github/CODEOWNERS           @banmaoycrane-arch
+GIT_WORKFLOW.md              @banmaoycrane-arch
+
+# === 项目规则与文档 ===
+.trae/rules/                 @banmaoycrane-arch
+AGENTS.md                    @banmaoycrane-arch

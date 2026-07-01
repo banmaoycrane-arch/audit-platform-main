@@ -82,9 +82,17 @@ htmlcov/
 *.tmp
 *.temp
 temp/
+.dbg/
+debug-*.md
 
-# Test data files
-test_*.csv
-test_*.py
-test_*.json
-check_health.py
+# Backend temporary scripts
+backend/tmp_*.py
+backend/tmp_*.ps1
+
+# Test sample data (not test code)
+samples/
+backend/samples/
+
+# Database backups
+*.db.pre_*
+*.db.bak
