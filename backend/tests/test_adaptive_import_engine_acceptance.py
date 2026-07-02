@@ -11,6 +11,8 @@ from app.api.routes_imports import _import_reports
 from app.db.models import AccountingEntry, SourceFile
 from app.db.session import Base, get_db
 from app.main import app
+from app.models.ledger import Ledger
+from app.models.team import Team
 from app.services.tagging_service import suggest_voucher_type
 
 
@@ -50,10 +52,30 @@ def client(monkeypatch, tmp_path):
         Base.metadata.drop_all(bind=engine)
 
 
-def _create_job(test_client: TestClient) -> int:
+def _seed_ledger(TestingSessionLocal) -> int:
+    db = TestingSessionLocal()
+    try:
+        team = Team(name="自适应导入验收团队")
+        db.add(team)
+        db.flush()
+        ledger = Ledger(name="自适应导入验收账簿", team_id=team.id)
+        db.add(ledger)
+        db.commit()
+        return ledger.id
+    finally:
+        db.close()
+
+
+def _create_job(test_client: TestClient, TestingSessionLocal) -> int:
+    ledger_id = _seed_ledger(TestingSessionLocal)
     response = test_client.post(
         "/api/import-jobs",
-        json={"organization_name": "自适应导入验收企业", "industry": "manufacturing", "fiscal_year": 2026},
+        json={
+            "organization_name": "自适应导入验收企业",
+            "industry": "manufacturing",
+            "fiscal_year": 2026,
+            "ledger_id": ledger_id,
+        },
         headers=test_client._auth_headers,
     )
     assert response.status_code == 200
@@ -71,7 +93,7 @@ def _upload_csv(test_client: TestClient, job_id: int, filename: str, csv_text: s
 
 def test_standard_csv_import_creates_entries_and_report(client):
     test_client, TestingSessionLocal = client
-    job_id = _create_job(test_client)
+    job_id = _create_job(test_client, TestingSessionLocal)
     csv_text = "\n".join([
         "voucher_no,voucher_date,summary,account_code,account_name,debit_amount,credit_amount,counterparty",
         "银-001,2026-01-05,收到客户银行回款,1002,银行存款,10000,0,客户A",
@@ -102,7 +124,7 @@ def test_standard_csv_import_creates_entries_and_report(client):
 
 def test_custom_header_csv_import_creates_entries(client):
     test_client, TestingSessionLocal = client
-    job_id = _create_job(test_client)
+    job_id = _create_job(test_client, TestingSessionLocal)
     csv_text = "\n".join([
         "凭证号,日期,摘要,科目编码,科目名称,借方,贷方,对方单位",
         "记-002,2026-02-10,支付供应商货款,2202,应付账款,5000,0,供应商A",
@@ -146,7 +168,7 @@ def test_source_file_upload_parse_returns_feedback_fields(client):
     assert parse_response.status_code == 200
     parsed_file = parse_response.json()
     assert parsed_file["upload_status"] == "uploaded"
-    assert parsed_file["parse_status"] == "extracted"
+    assert parsed_file["parse_status"] == "text_extracted"
     assert parsed_file["recognized_document_type"] == "invoice"
     assert parsed_file["parse_feedback"]["document_type"] == "invoice"
     assert parsed_file["parse_feedback"]["voucher_date"] == "2026-06-10"
@@ -160,7 +182,7 @@ def test_source_file_upload_parse_returns_feedback_fields(client):
     db = TestingSessionLocal()
     try:
         source_file = db.get(SourceFile, uploaded_file["id"])
-        assert source_file.text_extract_status == "extracted"
+        assert source_file.text_extract_status == "text_extracted"
     finally:
         db.close()
 

@@ -13,7 +13,8 @@ from app.models.user import User
 from app.models.user_ledger_auth import UserLedgerAuth
 from app.models.project import Project
 from app.models.project_member import ProjectMember
-from app.db.models import Entity
+from app.db.models import Entity, Organization, SmsVerificationCode
+from app.models.project_ledger import ProjectLedger
 from app.core.config import get_settings
 import app.core.security as security
 from app.core.security import create_access_token, decode_token
@@ -25,8 +26,11 @@ def setup_module() -> None:
     # Recreate auth-related tables to ensure schema matches current model
     tables = [
         ProjectMember.__table__,
+        ProjectLedger.__table__,
         Project.__table__,
         Entity.__table__,
+        Organization.__table__,
+        SmsVerificationCode.__table__,
         UserLedgerAuth.__table__,
         User.__table__,
         Ledger.__table__,
@@ -38,8 +42,11 @@ def setup_module() -> None:
         Ledger.__table__,
         User.__table__,
         UserLedgerAuth.__table__,
+        Organization.__table__,
+        SmsVerificationCode.__table__,
         Entity.__table__,
         Project.__table__,
+        ProjectLedger.__table__,
         ProjectMember.__table__,
     ])
 
@@ -48,8 +55,11 @@ def teardown_module() -> None:
     db = SessionLocal()
     try:
         db.execute(text("DELETE FROM project_members"))
+        db.execute(text("DELETE FROM project_ledgers"))
         db.execute(text("DELETE FROM projects"))
         db.execute(text("DELETE FROM entities"))
+        db.execute(text("DELETE FROM sms_verification_codes"))
+        db.execute(text("DELETE FROM organizations"))
         db.execute(text("DELETE FROM user_ledger_auths"))
         db.execute(text("DELETE FROM users"))
         db.execute(text("DELETE FROM ledgers"))

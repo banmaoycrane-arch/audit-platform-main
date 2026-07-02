@@ -172,6 +172,18 @@ def create_job(
         if team_id:
             unknown_project = get_or_create_unknown_project(db, team_id)
             project_id = unknown_project.id
+            if payload.ledger_id:
+                link = (
+                    db.query(ProjectLedger)
+                    .filter(
+                        ProjectLedger.project_id == project_id,
+                        ProjectLedger.ledger_id == payload.ledger_id,
+                    )
+                    .first()
+                )
+                if not link:
+                    db.add(ProjectLedger(project_id=project_id, ledger_id=payload.ledger_id))
+                    db.flush()
 
     _ensure_project_ledger_context(
         db,

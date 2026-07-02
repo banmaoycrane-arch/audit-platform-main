@@ -258,7 +258,7 @@ def suggest_tags_for_entry(
             )
         )
 
-    if auto_create_categories:
+    if auto_create_categories and ledger_id is not None:
         for suggestion in suggestions:
             get_or_create_category(
                 db,

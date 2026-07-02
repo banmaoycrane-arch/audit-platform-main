@@ -1052,7 +1052,7 @@ def process_import_job(
     Returns:
         ImportReport: 导入报告
     """
-    if use_day_book:
+    if use_day_book or is_day_book_source_type(job.source_type):
         return _process_import_job_as_day_book(db, job)
 
     source_files = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
@@ -1068,11 +1068,14 @@ def process_import_job(
     for source_file in source_files:
         file_type = Path(source_file.filename or "").suffix.lower()
 
-        if _is_accounting_file(file_type) or should_persist_structured_entries(job.source_type):
-            if is_day_book_source_type(job.source_type) or should_persist_structured_entries(job.source_type):
-                result = _process_import_job_as_day_book(db, job)
-                return result
-
+        if job.source_type in AI_EVIDENCE_SOURCE_TYPES:
+            result = _process_ai_register_file(db, job, source_file)
+            file_results.append(result)
+            if result.success:
+                success_files += 1
+            else:
+                failed_files += 1
+        elif _is_accounting_file(file_type) and should_persist_structured_entries(job.source_type):
             result, tags, logic_report, parse_entries = _process_accounting_file(db, job, source_file)
             file_results.append(result)
             if result.success:
@@ -1085,7 +1088,7 @@ def process_import_job(
             else:
                 failed_files += 1
 
-        elif _is_source_file(file_type) or job.source_type in AI_EVIDENCE_SOURCE_TYPES:
+        elif _is_source_file(file_type):
             result = _process_source_file(db, job, source_file)
             file_results.append(result)
             if result.success:
@@ -1115,6 +1118,14 @@ def process_import_job(
         [entry for entry in all_parse_entries],
         [r for r in file_results if r.success],
     )
+
+    if failed_files == 0 and success_files > 0:
+        if total_entries > 0:
+            job.status = "completed"
+            job.entry_count = total_entries
+        elif job.source_type in AI_EVIDENCE_SOURCE_TYPES:
+            job.status = "parsed"
+        db.commit()
 
     return ImportReport(
         job_id=job.id,
@@ -1155,6 +1166,9 @@ def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport
         if day_result.success:
             success_files = len(file_results)
             total_entries = day_result.entries_created
+            job.status = "completed"
+            job.entry_count = total_entries
+            db.commit()
         else:
             failed_files = len(file_results)
 

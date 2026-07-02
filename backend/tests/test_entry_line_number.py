@@ -9,6 +9,8 @@ from sqlalchemy.pool import StaticPool
 from app.db.models import ImportJob, SourceFile
 from app.db.session import Base, get_db
 from app.main import app
+from app.models.ledger import Ledger
+from app.models.team import Team
 from app.services.import_service import process_import_job
 
 
@@ -63,10 +65,30 @@ def _build_csv(rows: list[dict]) -> bytes:
     return (header + body + "\n").encode("utf-8-sig")
 
 
-def _create_job(test_client: TestClient) -> int:
+def _seed_ledger(SessionLocal) -> int:
+    db = SessionLocal()
+    try:
+        team = Team(name="行号测试团队")
+        db.add(team)
+        db.flush()
+        ledger = Ledger(name="行号测试账簿", team_id=team.id)
+        db.add(ledger)
+        db.commit()
+        return ledger.id
+    finally:
+        db.close()
+
+
+def _create_job(test_client: TestClient, SessionLocal) -> int:
+    ledger_id = _seed_ledger(SessionLocal)
     response = test_client.post(
         "/api/import-jobs",
-        json={"organization_name": "行号测试企业", "industry": "general", "fiscal_year": 2026},
+        json={
+            "organization_name": "行号测试企业",
+            "industry": "general",
+            "fiscal_year": 2026,
+            "ledger_id": ledger_id,
+        },
         headers=test_client._auth_headers,
     )
     assert response.status_code == 200
@@ -104,7 +126,7 @@ def _process(SessionLocal, job_id: int) -> None:
 
 def test_same_voucher_assigns_continuous_line_numbers(client):
     test_client, SessionLocal = client
-    job_id = _create_job(test_client)
+    job_id = _create_job(test_client, SessionLocal)
     csv_bytes = _build_csv([
         {"voucher_no": "记-001", "voucher_date": "2026-01-01", "summary": "采购", "account_code": "1403", "account_name": "原材料", "debit_amount": 1000, "credit_amount": 0, "counterparty": "供应商A"},
         {"voucher_no": "记-001", "voucher_date": "2026-01-01", "summary": "采购", "account_code": "2202", "account_name": "应付账款", "debit_amount": 0, "credit_amount": 1000, "counterparty": "供应商A"},
@@ -120,7 +142,7 @@ def test_same_voucher_assigns_continuous_line_numbers(client):
 
 def test_different_vouchers_have_independent_line_numbers(client):
     test_client, SessionLocal = client
-    job_id = _create_job(test_client)
+    job_id = _create_job(test_client, SessionLocal)
     csv_bytes = _build_csv([
         {"voucher_no": "记-001", "voucher_date": "2026-01-01", "summary": "采购", "account_code": "1403", "account_name": "原材料", "debit_amount": 1000, "credit_amount": 0, "counterparty": "供应商A"},
         {"voucher_no": "记-001", "voucher_date": "2026-01-01", "summary": "采购", "account_code": "2202", "account_name": "应付账款", "debit_amount": 0, "credit_amount": 1000, "counterparty": "供应商A"},
@@ -140,7 +162,7 @@ def test_different_vouchers_have_independent_line_numbers(client):
 
 def test_missing_voucher_no_defaults_to_one(client):
     test_client, SessionLocal = client
-    job_id = _create_job(test_client)
+    job_id = _create_job(test_client, SessionLocal)
     csv_bytes = _build_csv([
         {"voucher_no": "", "voucher_date": "2026-01-03", "summary": "无凭证号A", "account_code": "1001", "account_name": "库存现金", "debit_amount": 100, "credit_amount": 0, "counterparty": ""},
         {"voucher_no": "", "voucher_date": "2026-01-03", "summary": "无凭证号B", "account_code": "1001", "account_name": "库存现金", "debit_amount": 200, "credit_amount": 0, "counterparty": ""},
