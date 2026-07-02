@@ -55,6 +55,9 @@ ACCOUNTING_JUDGMENT_POLICIES: dict[str, str] = {
 }
 
 OUTPUT_VAT_ACCOUNT = ("22210107", "应交税费-应交增值税-销项税额")
+DEFAULT_INVOICE_NET = 1000.0
+DEFAULT_INVOICE_VAT = 130.0
+DEFAULT_INVOICE_GROSS = 1130.0
 REVENUE_ACCOUNT = ("6001", "主营业务收入")
 AR_ACCOUNT = ("1122", "应收账款")
 PREPAID_REVENUE_ACCOUNT = ("2203", "预收账款")
@@ -523,6 +526,8 @@ def _build_invoice_sales_drafts(
             account_code=debit_code,
             account_name=debit_name,
             summary=f"{summary_base} {debit_action}",
+            debit_amount=DEFAULT_INVOICE_GROSS,
+            credit_amount=0.0,
             source_file_id=source_file.id,
             evidence_type="invoice",
             metadata=base_metadata,
@@ -535,6 +540,8 @@ def _build_invoice_sales_drafts(
             account_code=REVENUE_ACCOUNT[0],
             account_name=REVENUE_ACCOUNT[1],
             summary=f"{summary_base} 确认收入",
+            debit_amount=0.0,
+            credit_amount=DEFAULT_INVOICE_NET,
             source_file_id=source_file.id,
             evidence_type="invoice",
             metadata=base_metadata,
@@ -547,6 +554,8 @@ def _build_invoice_sales_drafts(
             account_code=OUTPUT_VAT_ACCOUNT[0],
             account_name=OUTPUT_VAT_ACCOUNT[1],
             summary=f"{summary_base} 确认销项税额",
+            debit_amount=0.0,
+            credit_amount=DEFAULT_INVOICE_VAT,
             source_file_id=source_file.id,
             evidence_type="invoice",
             metadata=base_metadata,
@@ -585,6 +594,8 @@ def _build_invoice_purchase_drafts(
             account_code="6401",
             account_name="主营业务成本",
             summary=f"{summary_base} 确认采购成本",
+            debit_amount=DEFAULT_INVOICE_NET,
+            credit_amount=0.0,
             source_file_id=source_file.id,
             evidence_type="invoice",
             metadata=base_metadata,
@@ -597,6 +608,8 @@ def _build_invoice_purchase_drafts(
             account_code="22210101",
             account_name="应交税费-应交增值税-进项税额",
             summary=f"{summary_base} 确认进项税额",
+            debit_amount=DEFAULT_INVOICE_VAT,
+            credit_amount=0.0,
             source_file_id=source_file.id,
             evidence_type="invoice",
             metadata=base_metadata,
@@ -609,6 +622,8 @@ def _build_invoice_purchase_drafts(
             account_code="2202",
             account_name="应付账款",
             summary=f"{summary_base} 确认应付",
+            debit_amount=0.0,
+            credit_amount=DEFAULT_INVOICE_GROSS,
             source_file_id=source_file.id,
             evidence_type="invoice",
             metadata=base_metadata,
@@ -652,6 +667,8 @@ def _build_invoice_vat_only_drafts(
             account_code=debit_code,
             account_name=debit_name,
             summary=f"{summary_base} {debit_action}（价税分离-税额部分）",
+            debit_amount=DEFAULT_INVOICE_VAT,
+            credit_amount=0.0,
             source_file_id=source_file.id,
             evidence_type="invoice",
             metadata=base_metadata,
@@ -664,6 +681,8 @@ def _build_invoice_vat_only_drafts(
             account_code=OUTPUT_VAT_ACCOUNT[0],
             account_name=OUTPUT_VAT_ACCOUNT[1],
             summary=f"{summary_base} 补确认销项税额",
+            debit_amount=0.0,
+            credit_amount=DEFAULT_INVOICE_VAT,
             source_file_id=source_file.id,
             evidence_type="invoice",
             metadata=base_metadata,

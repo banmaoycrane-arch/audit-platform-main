@@ -15,6 +15,8 @@ from app.db.models import (
     Organization,
     SourceFile,
 )
+from app.models.ledger import Ledger
+from app.models.team import Team
 from app.models.lifecycle_log import LifecycleLog
 from app.db.session import Base, get_db
 from app.main import app
@@ -77,13 +79,24 @@ def test_lifecycle_log_uses_independent_session_without_committing_caller_transa
         check_db.close()
 
 
+def _seed_ledger(db) -> int:
+    team = Team(name="生成测试团队")
+    db.add(team)
+    db.flush()
+    ledger = Ledger(name="生成测试账簿", team_id=team.id)
+    db.add(ledger)
+    db.flush()
+    return ledger.id
+
+
 def _seed(TestingSessionLocal):
     db = TestingSessionLocal()
     try:
         org = Organization(name="生成测试", fiscal_year=2026)
         db.add(org)
         db.flush()
-        job = ImportJob(organization_id=org.id, status="completed", entry_count=2, file_count=0)
+        ledger_id = _seed_ledger(db)
+        job = ImportJob(organization_id=org.id, ledger_id=ledger_id, status="completed", entry_count=2, file_count=0)
         db.add(job)
         db.flush()
         db.add(
@@ -106,6 +119,7 @@ def _seed(TestingSessionLocal):
         )
         period = AccountingPeriod(
             organization_id=org.id,
+            ledger_id=ledger_id,
             period_code="2026-01",
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 31),
@@ -154,8 +168,10 @@ def _seed_source_files(TestingSessionLocal, files: list[dict]):
         org = Organization(name="资料充分性测试", fiscal_year=2026)
         db.add(org)
         db.flush()
+        ledger_id = _seed_ledger(db)
         job = ImportJob(
             organization_id=org.id,
+            ledger_id=ledger_id,
             status="parsed",
             source_type="source_documents",
             file_count=len(files),
@@ -165,6 +181,7 @@ def _seed_source_files(TestingSessionLocal, files: list[dict]):
         db.flush()
         period = AccountingPeriod(
             organization_id=org.id,
+            ledger_id=ledger_id,
             period_code="2026-02",
             start_date=date(2026, 2, 1),
             end_date=date(2026, 2, 28),
@@ -488,7 +505,24 @@ def test_commit_drafts_extracts_auxiliary_and_source_tags_from_metadata(client):
                 ],
             },
             "tags": [],
-        }
+        },
+        {
+            "voucher_no": "记-辅助-001",
+            "voucher_date": "2026-01-15",
+            "summary": "支付研发项目服务费",
+            "account_code": "1002",
+            "account_name": "银行存款",
+            "debit_amount": 0,
+            "credit_amount": 100,
+            "counterparty": "服务商B",
+            "entry_line_no": 2,
+            "metadata": {
+                "source": "ai_generated",
+                "evidence_status": "sufficient",
+                "is_blocked": False,
+            },
+            "tags": [],
+        },
     ]
 
     commit = test_client.post(

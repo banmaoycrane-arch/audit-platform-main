@@ -1114,10 +1114,7 @@ def process_import_job(
         merged_logic_report = generate_batch_report(merged_entries)
 
     # 生成质量报告
-    quality_report = generate_quality_report(
-        [entry for entry in all_parse_entries],
-        [r for r in file_results if r.success],
-    )
+    quality_report = generate_quality_report([entry for entry in all_parse_entries])
 
     if failed_files == 0 and success_files > 0:
         if total_entries > 0:
@@ -1208,7 +1205,7 @@ def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport
 
 def get_import_summary(report: ImportReport) -> dict[str, Any]:
     """将 ImportReport 转换为前端可读的摘要字典。"""
-    return {
+    summary: dict[str, Any] = {
         "job_id": report.job_id,
         "total_files": report.total_files,
         "success_files": report.success_files,
@@ -1238,6 +1235,26 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
             for r in report.file_results
         ],
     }
+    if report.day_book_report is not None:
+        day_book = report.day_book_report
+        summary["day_book_report"] = {
+            "total_vouchers": day_book.total_vouchers,
+            "total_entries": day_book.total_entries,
+            "skip_count": day_book.skip_count,
+            "unbalanced_count": day_book.unbalanced_count,
+            "completeness_score": day_book.completeness_score,
+            "missing_voucher_nos": day_book.missing_voucher_nos,
+            "unbalanced_vouchers": [
+                {
+                    "voucher_no": item.voucher_no,
+                    "debit_total": float(item.debit_total),
+                    "credit_total": float(item.credit_total),
+                    "difference": float(item.difference),
+                }
+                for item in day_book.unbalanced_vouchers
+            ],
+        }
+    return summary
 
 
 def generate_import_report(

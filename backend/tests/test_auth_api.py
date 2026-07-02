@@ -59,6 +59,7 @@ def teardown_module() -> None:
         db.execute(text("DELETE FROM projects"))
         db.execute(text("DELETE FROM entities"))
         db.execute(text("DELETE FROM sms_verification_codes"))
+        db.execute(text("DELETE FROM accounting_periods"))
         db.execute(text("DELETE FROM organizations"))
         db.execute(text("DELETE FROM user_ledger_auths"))
         db.execute(text("DELETE FROM users"))
