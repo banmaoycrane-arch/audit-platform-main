@@ -1,28 +1,114 @@
 # AGENTS.md
 
-## Cursor Cloud specific instructions
+## 项目定位
 
-This repo is a finance/audit SaaS MVP (审计风险识别系统) with two services. Standard install/run/test commands live in `README.md` and the root `package.json` scripts; this section only captures non-obvious caveats for cloud agents (the update script already refreshes dependencies on startup).
+本仓库是「财务向量审计系统」MVP，目标是为审计项目提供「从账簿数据导入 → 记账闭环 → 审计风险识别 → 工作底稿」的一体化工具。
 
-### Services
+当前阶段聚焦两条核心主线：
+- **记账主线**：项目 → 账簿 → 会计分录 → 凭证 → 期间 → 报表。
+- **审计主线**：审计任务 → 业务循环 → 风险识别 → 审计证据 → 工作底稿 → 审计发现。
 
-| Service | Dev command (run from repo root) | URL | Notes |
-| --- | --- | --- | --- |
-| Backend (FastAPI + uvicorn) | `source .venv/bin/activate && pnpm dev:backend` | http://127.0.0.1:8000 | Python deps live in a repo-root virtualenv at `.venv`. Health: `/health`. |
-| Frontend (React + Vite, pnpm) | `pnpm dev:frontend` | http://127.0.0.1:5173 | Vite proxies `/api` and `/health` to `127.0.0.1:8000`. |
+AI 在该系统中的定位：**只生成建议、草稿、标签和风险提示**，不直接生成正式凭证、不执行结账、不确认最终审计结论。
 
-Use a tmux session for each dev server so it survives across tool calls.
+---
 
-### Non-obvious caveats
+## 一、核心术语与业务边界
 
-- Python deps are installed into a repo-root venv (`/workspace/.venv`), created with `python3 -m venv`. Activate it (`source .venv/bin/activate`) before running `pnpm dev:backend`, `pytest`, or `uvicorn`; the `pnpm dev:backend` script calls `uvicorn` directly and does not activate the venv for you.
-- Backend dev port is `8000` (root `package.json` `dev:backend`), and the Vite proxy targets `8000` (`frontend/vite.config.ts`). Keep them aligned. The source of truth is `package.json` + `vite.config.ts` (some README snippets still show other ports like `8010`). A `git reset`/checkout that touches the tracked `backend/finance_audit.db` will roll the dev database back to the committed state and wipe locally-registered test users.
-- Default datastore is SQLite at `backend/finance_audit.db` (committed) and a local Qdrant path at `qdrant_local_storage`. PostgreSQL/Redis/Qdrant in `docker-compose.yml` are optional; nothing in the core dev/test flow requires Docker.
-- `backend/.env` only sets `SECRET_KEY`; leaving `DATABASE_URL` unset is intentional and falls back to SQLite (see `backend/app/core/config.py`).
-- `bcrypt` must stay `<4.1`: `passlib 1.7.4`'s bcrypt backend-detection probe sends a >72-byte secret, which `bcrypt>=4.1` rejects with `ValueError`, breaking all password hashing/auth. This is pinned in `backend/pyproject.toml`. If auth/register tests start failing with `ValueError`, check the installed bcrypt version.
-- `frontend` imports `dayjs` directly but pnpm's strict isolation hides antd's copy; `dayjs` is therefore a direct dependency in `frontend/package.json`.
+### 1.1 组织与权限
 
-### Build / test health notes
+- **Team（团队）**：事务所 / 虚拟项目组 / 企业财务共享中心。
+- **Project（项目）**：一次具体审计或核算任务，归属于一个 Team。
+- **Ledger（账簿）**：严格对应一个会计主体（Accounting Entity）。
+- **UserLedgerAuth**：团队成员对某个账簿的访问授权，审计工作必须绑定到账簿。
 
-- `pnpm build:frontend` runs `tsc -b` first, so any new TypeScript type error blocks packaging (and deployment). The Vite **dev** server (`pnpm dev:frontend`) does NOT type-check, so a page can work in dev yet fail to build. Always run `pnpm build:frontend` before treating a change as deploy-ready. Past upgrades have repeatedly introduced such blockers (e.g. missing imports, `string | null` vs `string | undefined`, store methods used before they exist).
-- A handful of backend tests fail due to test-code bugs / shared-SQLite test ordering (e.g. `test_lifecycle.py` references an unimported `UserLedgerAuth`; `test_me_with_token` passes in isolation but fails under full-suite ordering). The vast majority pass (≈248/255). Run focused tests in isolation when validating.
+### 1.2 记账主线核心概念
+
+- **Accounting Entry（会计分录/序时账条目）**：最小记账单位，必须归属于一个 Ledger。
+- **Voucher（记账凭证）**：由若干分录组成，借贷必须平衡。
+- **Period（会计期间）**：状态为 open / pl_transferred / closed。
+  - open：可录入、可修改凭证。
+  - pl_transferred：已完成损益结转，资产负债表必须平衡。
+  - closed：已结账，期间数据原则上不可修改，修改需特殊权限或反结账流程。
+- **EntryTag / DocumentTag**：用于给分录或文档打语义标签，支撑向量检索与风险识别。
+
+### 1.3 审计主线核心概念
+
+- **AuditTask（审计任务）**：必须绑定 `ledger_id`，且该 ledger 必须属于所选 project。
+- **AuditScope（审计范围）**：支持按业务循环（by_cycle）选择，至少包含一个循环：
+  - 销售与收款循环
+  - 采购与付款循环
+  - 生产与存货循环
+  - 筹资与投资循环
+  - 人力资源与薪酬循环
+- **Business Cycle（业务循环）**：审计抽样的基本单元。
+- **Workpaper（工作底稿）**：审计证据、调整分录、结论的载体。
+- **Audit Finding（审计发现）**：风险等级 + 事实描述 + 影响 + 建议。
+
+---
+
+## 二、绝对不可违背的财务规则
+
+1. **借贷平衡**：任何凭证的借方合计必须等于贷方合计。
+2. **期间不可随意修改**：已结账期间（closed）的凭证、分录、期初余额修改需要审计日志和权限控制。
+3. **损益结转后资产负债表必须平衡**：若不平衡，必须回溯到凭证、期初、期间处理。
+4. **虚拟核算单位必须依托实体对象**：不能凭空建立核算单位。
+5. **AI 不绕过人工复核**：AI 输出只能是草稿 / 建议 / 标签 / 风险提示，正式凭证、结账、报表由确定性规则 + 人工确认控制。
+
+---
+
+## 三、开发与技术约束
+
+### 3.1 技术栈
+
+- 后端：Python + FastAPI + SQLAlchemy + SQLite（默认）/ PostgreSQL（可选）。
+- 前端：React + Vite + Ant Design + TypeScript。
+- 向量存储：Qdrant（本地路径 `qdrant_local_storage`）。
+- 包管理：pnpm（前端），pip + venv（后端）。
+
+### 3.2 启动命令（从仓库根目录执行）
+
+| 服务 | 命令 | 地址 |
+|---|---|---|
+| 后端 | `pnpm dev:backend` | http://127.0.0.1:8000 |
+| 前端 | `pnpm dev:frontend` | http://127.0.0.1:5173 |
+| 健康检查 | 浏览器访问 | http://127.0.0.1:8000/health |
+
+Windows 下无需 `source .venv/bin/activate`，Trae 终端会自动使用项目配置好的 Python 环境。
+
+### 3.3 常见坑
+
+- `bcrypt` 必须 `< 4.1`，否则密码哈希会报 `ValueError`。
+- `frontend` 使用 `dayjs` 直接依赖，不是通过 antd 间接引入。
+- `pnpm build:frontend` 会先跑 TypeScript 类型检查，dev 时能跑不代表能 build。
+- 后端测试用共享 SQLite 数据库，部分测试在完整跑时可能因顺序失败，建议单独跑目标测试文件。
+
+---
+
+## 四、代码与命名规范
+
+- 变量/函数：`snake_case`，完整英文单词，禁止无意义缩写。
+- 类名：`PascalCase`。
+- 金额：统一使用 `decimal.Decimal`，保留 2 位小数，四舍五入 `ROUND_HALF_UP`。
+- 注释：每个 `.py` 文件顶部必须包含模块功能、业务场景、政策依据、输入输出、创建日期。
+- 勾稽校验：核心计算必须配套校验逻辑，校验不通过抛带业务语义的异常。
+
+---
+
+## 五、AI 助手行为要求
+
+1. **先理解业务实质，再谈技术实现**。任何功能都要先问“这在财务实务中意味着什么”。
+2. **用财务语言确认，用技术语言解释**。不假设用户懂技术术语。
+3. **涉及会计准则、审计逻辑、税务处理时，优先尊重用户的专业判断**。
+4. **涉及技术架构、数据库设计、API 设计时，给出建议并解释原因**，最终由用户决策。
+5. **每个技术决策简要说明“为什么”**。
+6. **遇到容易踩坑的地方提前提醒**（状态机、并发、数据一致性、报表勾稽）。
+7. **优先实现财务主线流程**，再补充周边功能。
+8. **财务逻辑错误 = 最高优先级 bug**。
+
+---
+
+## 六、测试与验收
+
+- 每个功能完成后，给出测试地址和验证方法。
+- 财务主流程和财务逻辑修复应尽量达到 L6（测试与真实数据验证完成）。
+- 推荐执行顺序：阻塞 bug → 上下文和主数据边界 → 记账闭环 → 审计闭环 → AI/EntryTag/向量增强 → 银行/税务/固定资产/进销存扩展。
