@@ -122,6 +122,18 @@ class ModuleRegistration:
     semantic_only: bool = False
     reason: str = ""
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "module_key": self.module_key,
+            "module_label": self.module_label,
+            "module_path": self.module_path,
+            "register_ids": self.register_ids,
+            "register_count": self.register_count,
+            "accounting_dimension": self.accounting_dimension,
+            "semantic_only": self.semantic_only,
+            "reason": self.reason,
+        }
+
 
 @dataclass
 class RegisterIngestionResult:

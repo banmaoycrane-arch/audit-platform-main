@@ -572,7 +572,8 @@ def _process_accounting_file(
         # 按 voucher_no 分组
         groups: dict[str, list[tuple[int, dict[str, Any]]]] = {}
         for i, entry_data in enumerate(parse_result.entries):
-            voucher_no = str(entry_data.get("voucher_no") or f"__no_voucher__:{i}").strip()
+            raw_voucher_no = str(entry_data.get("voucher_no") or "").strip()
+            voucher_no = raw_voucher_no or "__no_voucher__"
             groups.setdefault(voucher_no, []).append((i, entry_data))
 
         created_vouchers: list[Any] = []

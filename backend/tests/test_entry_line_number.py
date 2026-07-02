@@ -174,5 +174,5 @@ def test_missing_voucher_no_defaults_to_one(client):
     _process(SessionLocal, job_id)
 
     entries = _list_entries(test_client, job_id)
-    line_nos = [e["entry_line_no"] for e in entries]
-    assert line_nos and all(no == 1 for no in line_nos)
+    assert len(entries) == 4
+    assert sorted(e["entry_line_no"] for e in entries) == [1, 2, 3, 4]
