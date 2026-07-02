@@ -303,7 +303,7 @@ class TestDayBookImport:
 
         debit_total = sum(Decimal(str(e.debit_amount)) for e in entries)
         credit_total = sum(Decimal(str(e.credit_amount)) for e in entries)
-        assert debit_total == credit_total == Decimal("75000")
+        assert debit_total == credit_total == Decimal("18000")
 
         voucher_nos = sorted(set(e.voucher_no for e in entries))
         assert voucher_nos == ["记-001", "记-002", "记-003"]

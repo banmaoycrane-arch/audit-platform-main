@@ -120,6 +120,7 @@ def _process(SessionLocal, job_id: int) -> None:
         db.commit()
         job = db.get(ImportJob, job_id)
         process_import_job(db, job)
+        db.commit()
     finally:
         db.close()
 
@@ -129,8 +130,8 @@ def test_same_voucher_assigns_continuous_line_numbers(client):
     job_id = _create_job(test_client, SessionLocal)
     csv_bytes = _build_csv([
         {"voucher_no": "记-001", "voucher_date": "2026-01-01", "summary": "采购", "account_code": "1403", "account_name": "原材料", "debit_amount": 1000, "credit_amount": 0, "counterparty": "供应商A"},
-        {"voucher_no": "记-001", "voucher_date": "2026-01-01", "summary": "采购", "account_code": "2202", "account_name": "应付账款", "debit_amount": 0, "credit_amount": 1000, "counterparty": "供应商A"},
         {"voucher_no": "记-001", "voucher_date": "2026-01-01", "summary": "进项税", "account_code": "2221", "account_name": "应交税费", "debit_amount": 130, "credit_amount": 0, "counterparty": "供应商A"},
+        {"voucher_no": "记-001", "voucher_date": "2026-01-01", "summary": "采购", "account_code": "2202", "account_name": "应付账款", "debit_amount": 0, "credit_amount": 1130, "counterparty": "供应商A"},
     ])
     _upload_csv(test_client, job_id, csv_bytes)
     _process(SessionLocal, job_id)
@@ -165,7 +166,9 @@ def test_missing_voucher_no_defaults_to_one(client):
     job_id = _create_job(test_client, SessionLocal)
     csv_bytes = _build_csv([
         {"voucher_no": "", "voucher_date": "2026-01-03", "summary": "无凭证号A", "account_code": "1001", "account_name": "库存现金", "debit_amount": 100, "credit_amount": 0, "counterparty": ""},
+        {"voucher_no": "", "voucher_date": "2026-01-03", "summary": "无凭证号A贷方", "account_code": "6001", "account_name": "主营业务收入", "debit_amount": 0, "credit_amount": 100, "counterparty": ""},
         {"voucher_no": "", "voucher_date": "2026-01-03", "summary": "无凭证号B", "account_code": "1001", "account_name": "库存现金", "debit_amount": 200, "credit_amount": 0, "counterparty": ""},
+        {"voucher_no": "", "voucher_date": "2026-01-03", "summary": "无凭证号B贷方", "account_code": "6001", "account_name": "主营业务收入", "debit_amount": 0, "credit_amount": 200, "counterparty": ""},
     ])
     _upload_csv(test_client, job_id, csv_bytes)
     _process(SessionLocal, job_id)

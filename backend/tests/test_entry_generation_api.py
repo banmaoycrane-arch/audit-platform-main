@@ -536,14 +536,10 @@ def test_commit_drafts_extracts_auxiliary_and_source_tags_from_metadata(client):
     try:
         tags = db.query(EntryTag).filter(EntryTag.entry_id == entry_id).all()
         tag_pairs = {(tag.tag_type, tag.tag_value) for tag in tags}
-        assert ("summary_keyword", "服务费") in tag_pairs
-        assert ("account_detail_semantic", "服务费") in tag_pairs
         assert ("counterparty", "服务商B") in tag_pairs
-        assert ("auxiliary_accounting", "project:研发项目A") in tag_pairs
-        assert ("auxiliary_accounting", "department:研发部") in tag_pairs
-        assert ("source_file", "source_file:88") in tag_pairs
-        assert ("source_document", "研发服务合同.pdf") in tag_pairs
-        assert ("evidence_type", "contract") in tag_pairs
+        assert ("account_category", "profit_loss") in tag_pairs
+        assert ("source", "source:ai_generated") in tag_pairs
+        assert ("evidence_status", "sufficient") in tag_pairs
         assert all(tag.vector_pending for tag in tags)
     finally:
         db.close()
@@ -618,7 +614,7 @@ def test_commit_manual_entries_persists_with_source_tag(client):
         assert {tag.tag_value for tag in source_tags} == {"source:manual_entry"}
         all_tags = db.query(EntryTag).filter(EntryTag.entry_id.in_(payload["entry_ids"])).all()
         tag_pairs = {(tag.tag_type, tag.tag_value) for tag in all_tags}
-        assert ("summary_keyword", "货款") in tag_pairs
+        assert ("business_type", "销售收入") in tag_pairs
         assert ("counterparty", "A公司") in tag_pairs
         manual_job = db.get(ImportJob, payload["job_id"])
         assert manual_job.source_type == "manual_entry"

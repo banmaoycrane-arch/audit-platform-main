@@ -1110,7 +1110,7 @@ def process_import_job(
     if all_logic_results:
         merged_entries = []
         for report in all_logic_results:
-            merged_entries.extend(report.entries)
+            merged_entries.extend(report.results)
         merged_logic_report = generate_batch_report(merged_entries)
 
     # 生成质量报告
@@ -1130,6 +1130,7 @@ def process_import_job(
         success_files=success_files,
         failed_files=failed_files,
         total_entries=total_entries,
+        output_path=get_import_output_path(job.source_type),
         file_results=file_results,
         logic_report=merged_logic_report,
         quality_report=quality_report,
@@ -1175,6 +1176,7 @@ def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport
             success_files=success_files,
             failed_files=failed_files,
             total_entries=total_entries,
+            output_path=get_import_output_path(job.source_type),
             file_results=file_results,
             day_book_report=day_result.report,
         )
@@ -1214,7 +1216,7 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
         "output_path": report.output_path,
         "period_suggestion": report.period_suggestion,
         "register_summary": report.register_summary,
-        "quality_score": report.quality_report.quality_score if report.quality_report else 0.0,
+        "quality_score": report.quality_report.overall_score if report.quality_report else 0.0,
         "logic_check_error_count": report.logic_report.error_count if report.logic_report else 0,
         "file_results": [
             {
@@ -1235,6 +1237,34 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
             for r in report.file_results
         ],
     }
+    summary["file_summary"] = summary["file_results"]
+    if report.quality_report is not None:
+        summary["quality"] = {
+            "overall_score": report.quality_report.overall_score,
+            "valid_entries": report.quality_report.valid_entries,
+            "invalid_entries": report.quality_report.invalid_entries,
+        }
+    register_summary = []
+    for result in report.file_results:
+        if result.register_type or result.module_registrations:
+            register_summary.append(
+                {
+                    "register_type": result.register_type,
+                    "register_count": result.register_count,
+                    "register_ids": result.register_ids,
+                    "module_label": result.module_label,
+                    "module_path": result.module_path,
+                    "module_registrations": result.module_registrations,
+                    "semantic_decomposition": result.semantic_decomposition,
+                    "semantic_tags": result.semantic_tags,
+                    "risk_hints": result.risk_hints,
+                    "draft_only": result.draft_only,
+                }
+            )
+    if register_summary:
+        summary["register_summary"] = register_summary
+    elif report.register_summary:
+        summary["register_summary"] = report.register_summary
     if report.day_book_report is not None:
         day_book = report.day_book_report
         summary["day_book_report"] = {
