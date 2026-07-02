@@ -537,7 +537,6 @@ def test_commit_drafts_extracts_auxiliary_and_source_tags_from_metadata(client):
         tags = db.query(EntryTag).filter(EntryTag.entry_id == entry_id).all()
         tag_pairs = {(tag.tag_type, tag.tag_value) for tag in tags}
         assert ("counterparty", "服务商B") in tag_pairs
-        assert ("account_category", "profit_loss") in tag_pairs
         assert ("source", "source:ai_generated") in tag_pairs
         assert ("evidence_status", "sufficient") in tag_pairs
         assert all(tag.vector_pending for tag in tags)

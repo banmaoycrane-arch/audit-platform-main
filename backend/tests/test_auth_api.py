@@ -23,50 +23,25 @@ client = TestClient(app)
 
 
 def setup_module() -> None:
-    # Recreate auth-related tables to ensure schema matches current model
-    tables = [
-        ProjectMember.__table__,
-        ProjectLedger.__table__,
-        Project.__table__,
-        Entity.__table__,
-        Organization.__table__,
-        SmsVerificationCode.__table__,
-        UserLedgerAuth.__table__,
-        User.__table__,
-        Ledger.__table__,
-        Team.__table__,
-    ]
-    Base.metadata.drop_all(bind=engine, tables=tables)
-    Base.metadata.create_all(bind=engine, tables=[
-        Team.__table__,
-        Ledger.__table__,
-        User.__table__,
-        UserLedgerAuth.__table__,
-        Organization.__table__,
-        SmsVerificationCode.__table__,
-        Entity.__table__,
-        Project.__table__,
-        ProjectLedger.__table__,
-        ProjectMember.__table__,
-    ])
+    Base.metadata.create_all(bind=engine)
 
 
 def teardown_module() -> None:
     db = SessionLocal()
     try:
-        db.execute(text("DELETE FROM project_members"))
-        db.execute(text("DELETE FROM project_ledgers"))
-        db.execute(text("DELETE FROM projects"))
-        db.execute(text("DELETE FROM entities"))
-        db.execute(text("DELETE FROM sms_verification_codes"))
-        db.execute(text("DELETE FROM accounting_periods"))
-        db.execute(text("DELETE FROM organizations"))
-        db.execute(text("DELETE FROM vouchers"))
-        db.execute(text("DELETE FROM import_jobs"))
-        db.execute(text("DELETE FROM user_ledger_auths"))
-        db.execute(text("DELETE FROM users"))
-        db.execute(text("DELETE FROM ledgers"))
-        db.execute(text("DELETE FROM teams"))
+        test_phones = (
+            "13800138000", "13800138001", "13800138002", "13800138003", "13800138004",
+            "13800138005", "13800138013", "13800138014", "13800138020", "13800138021",
+            "13800138022",
+        )
+        for phone in test_phones:
+            db.execute(text("DELETE FROM sms_verification_codes WHERE phone = :phone"), {"phone": phone})
+            user = db.execute(text("SELECT id FROM users WHERE phone = :phone"), {"phone": phone}).first()
+            if user:
+                user_id = user[0]
+                db.execute(text("DELETE FROM user_ledger_auths WHERE user_id = :uid"), {"uid": user_id})
+                db.execute(text("DELETE FROM project_members WHERE user_id = :uid"), {"uid": user_id})
+                db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
         db.commit()
     finally:
         db.close()
