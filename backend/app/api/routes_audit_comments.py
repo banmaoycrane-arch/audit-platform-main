@@ -1,3 +1,4 @@
+from typing import Any
 """审计评论 API 路由。
 
 模块功能：提供审计评论的增删查接口
@@ -15,7 +16,7 @@ from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.audit_workflow import AuditCommentCreate, AuditCommentRead
-from app.services import audit_comment_service
+import app.services.audit.audit_comment_service as audit_comment_service
 
 router = APIRouter(prefix="/api/audit/comments", tags=["audit-comments"])
 
@@ -26,7 +27,7 @@ def list_comments(
     target_id: int = Query(..., description="评论目标ID"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     try:
         return audit_comment_service.get_comments(db, target_type, target_id)
     except ValueError as exc:
@@ -38,7 +39,7 @@ def create_comment(
     payload: AuditCommentCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> dict[str, Any]:
     try:
         return audit_comment_service.create_comment(db, payload, current_user.id)
     except ValueError as exc:

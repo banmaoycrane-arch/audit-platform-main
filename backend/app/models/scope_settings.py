@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """账簿 / 团队 / 项目 / 主体 管理配置模型。"""
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column
@@ -17,7 +18,7 @@ class LedgerSettings(Base):
     ledger_id: Mapped[int] = mapped_column(
         ForeignKey("ledgers.id"), unique=True, index=True, nullable=False
     )
-    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -35,7 +36,7 @@ class TeamSettings(Base):
     team_id: Mapped[int] = mapped_column(
         ForeignKey("teams.id"), unique=True, index=True, nullable=False
     )
-    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -53,7 +54,7 @@ class ProjectSettings(Base):
     project_id: Mapped[int] = mapped_column(
         ForeignKey("projects.id"), unique=True, index=True, nullable=False
     )
-    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -71,7 +72,7 @@ class EntityScopeSettings(Base):
     ledger_id: Mapped[int] = mapped_column(
         ForeignKey("ledgers.id"), unique=True, index=True, nullable=False
     )
-    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -1,8 +1,8 @@
 """底稿语义分解引擎测试。"""
 
-from app.services.draft_semantic_decomposition_service import decompose_draft
-from app.services.llm_client_service import LLMResult
-from app.services.source_document_service import SourceDocumentResult
+from app.services.agent.draft_semantic_decomposition_service import decompose_draft
+from app.services.agent.llm_client_service import LLMResult
+from app.services.basic_data.source_document_service import SourceDocumentResult
 
 
 def _contract_classification(text: str) -> SourceDocumentResult:

@@ -9,6 +9,7 @@
 更新记录：
     2026-07-02  初始创建，实现统一导入 API 端点
 """
+from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
@@ -16,28 +17,20 @@ from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.db.models import ImportJob
-from app.services.unified_import_service import (
+from app.services.doc_parsing.unified_import_service import (
     create_unified_import_job,
     upload_and_process_unified_import,
     get_unified_import_result,
 )
-from app.services.import_service import resolve_storage_path
-from app.services.import_routing_service import is_day_book_source_type
+from app.services.doc_parsing.import_service import resolve_storage_path  # type: ignore[attr-defined]
+from app.services.doc_parsing.import_routing_service import is_day_book_source_type
 
 
 router = APIRouter(prefix="/api/unified-import", tags=["统一导入"])
 
 
 @router.post("/jobs")
-def create_unified_import_job_api(
-    mode: str = Form(...),
-    organization_id: int = Form(...),
-    ledger_id: int = Form(...),
-    project_id: int | None = Form(None),
-    organization_name: str = Form("默认企业"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def create_unified_import_job_api(mode: str = Form(...), organization_id: int = Form(...), ledger_id: int = Form(...), project_id: int | None = Form(None), organization_name: str = Form("默认企业"), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     """
     创建统一导入任务
 
@@ -96,12 +89,7 @@ def create_unified_import_job_api(
 
 
 @router.post("/jobs/{job_id}/upload")
-def upload_and_process_unified_import_api(
-    job_id: int,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def upload_and_process_unified_import_api(job_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     """
     上传并处理统一导入
 
@@ -134,7 +122,7 @@ def upload_and_process_unified_import_api(
     if file_type not in {"xlsx", "xls", "csv"}:
         raise HTTPException(status_code=400, detail="仅支持 Excel (.xlsx/.xls) 和 CSV 文件")
 
-    storage_path = resolve_storage_path(f"uploads/{job_id}/{file.filename}")
+    storage_path = resolve_storage_path(f"uploads/{job_id}/{file.filename or "upload"}")
 
     try:
         file_content = file.file.read()
@@ -143,13 +131,13 @@ def upload_and_process_unified_import_api(
             db,
             job=job,
             file=file_content,
-            file_name=file.filename,
+            file_name=file.filename or "upload",
             storage_path=storage_path,
         )
 
         db.commit()
 
-        response_data = {
+        response_data: dict[str, Any] = {
             "success": result.error_message is None,
             "data": {
                 "job_id": result.job_id,
@@ -192,11 +180,7 @@ def upload_and_process_unified_import_api(
 
 
 @router.get("/jobs/{job_id}/result")
-def get_unified_import_result_api(
-    job_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def get_unified_import_result_api(job_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     """
     获取统一导入结果
 
@@ -220,7 +204,7 @@ def get_unified_import_result_api(
     try:
         result = get_unified_import_result(db, job_id=job_id)
 
-        response_data = {
+        response_data: dict[str, Any] = {
             "success": True,
             "data": {
                 "job_id": result.job_id,

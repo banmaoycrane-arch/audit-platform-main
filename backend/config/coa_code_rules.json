@@ -1,0 +1,41 @@
+{
+  "version": "1.0.0",
+  "levels": [
+    {
+      "level": 1,
+      "segment_length": 4,
+      "min_code": "1000",
+      "max_code": "9999",
+      "pattern": "^\\d{4}$",
+      "description": "一级科目"
+    },
+    {
+      "level": 2,
+      "segment_length": 2,
+      "min_code": "01",
+      "max_code": "99",
+      "pattern": "^\\d{2}$",
+      "description": "二级科目"
+    },
+    {
+      "level": 3,
+      "segment_length": 2,
+      "min_code": "01",
+      "max_code": "99",
+      "pattern": "^\\d{2}$",
+      "description": "三级科目"
+    }
+  ],
+  "max_level": 3,
+  "allowed_charset": "numeric",
+  "auto_generation": {
+    "pad_with_zero": true,
+    "start_sequence": 1,
+    "skip_zero_ending": false
+  },
+  "validation": {
+    "require_parent_exists": true,
+    "require_continuous": false,
+    "allow_custom_code": true
+  }
+}

@@ -75,7 +75,7 @@ def test_upsert_and_list(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["account_code"] == "1002"
-    assert body["debit_balance"] == 1000
+    assert body["debit_balance"] == "1000.00"
 
     listing = test_client.get(
         "/api/opening-balances",
@@ -97,14 +97,14 @@ def test_repeat_upsert_does_not_duplicate(client):
     test_client.post("/api/opening-balances", json=payload)
     payload["debit_balance"] = 2000
     second = test_client.post("/api/opening-balances", json=payload).json()
-    assert second["debit_balance"] == 2000
+    assert second["debit_balance"] == "2000.00"
 
     listing = test_client.get(
         "/api/opening-balances",
         params={"organization_id": org_id, "period_id": period_id},
     ).json()
     assert len(listing) == 1
-    assert listing[0]["debit_balance"] == 2000
+    assert listing[0]["debit_balance"] == "2000.00"
 
 
 def test_bulk_upsert_and_trial_balance(client):
@@ -130,8 +130,8 @@ def test_bulk_upsert_and_trial_balance(client):
         "/api/opening-balances/trial-balance",
         params={"organization_id": org_id, "period_id": period_id},
     ).json()
-    assert tb["debit_total"] == 1000
-    assert tb["credit_total"] == 1000
+    assert tb["debit_total"] == "1000.00"
+    assert tb["credit_total"] == "1000.00"
     assert tb["is_balanced"] is True
 
     # 不平衡场景
@@ -233,7 +233,7 @@ def test_opening_balances_scoped_by_ledger_period(client):
         params={"organization_id": org_id, "period_id": period_a_id, "ledger_id": ledger_a_id},
     ).json()
     assert len(ledger_a_list) == 1
-    assert ledger_a_list[0]["debit_balance"] == 8888
+    assert ledger_a_list[0]["debit_balance"] == "8888.00"
 
     ledger_b_list = test_client.get(
         "/api/opening-balances",

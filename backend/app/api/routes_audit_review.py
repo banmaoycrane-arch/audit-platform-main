@@ -19,7 +19,7 @@ from app.schemas.audit_workflow import (
     AuditReviewRequestRead,
     AuditReviewSubmit,
 )
-from app.services import audit_review_service
+import app.services.audit.audit_review_service as audit_review_service
 
 router = APIRouter(prefix="/api/audit/review-requests", tags=["audit-review"])
 

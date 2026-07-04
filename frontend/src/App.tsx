@@ -74,6 +74,7 @@ import { VoucherQueryPage } from './pages/VoucherQueryPage'
 import { VoucherCreatePage } from './pages/VoucherCreatePage'
 import { VoucherEditPage } from './pages/VoucherEditPage'
 import { ParserVoucherPreview } from './pages/ParserVoucherPreview'
+import DocumentTagsPage from './pages/DocumentTagsPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -147,7 +148,7 @@ function AppRoutes() {
 
       {/* 公开路由 */}
       <Route path="/home" element={<HomePage />} />
-      <Route path="/entry" element={<AuthGuard><MainShell><UnifiedEntryPage /></MainShell></AuthGuard>} />
+      <Route path="/entry" element={<AuthGuard><UnifiedEntryPage /></AuthGuard>} />
       <Route path="/login" element={<LoggedInRedirect><LoginPage /></LoggedInRedirect>} />
       <Route path="/register" element={<LoggedInRedirect><RegisterPage /></LoggedInRedirect>} />
       <Route path="/forgot-password" element={<LoggedInRedirect><ForgotPasswordPage /></LoggedInRedirect>} />
@@ -193,6 +194,7 @@ function AppRoutes() {
         <Route path="/ledger/vouchers/step/5" element={<LedgerDataGuard><Step5Export /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/draft/:jobId" element={<LedgerDataGuard><DraftPage /></LedgerDataGuard>} />
         <Route path="/parser-voucher/preview" element={<LedgerDataGuard><ParserVoucherPreview /></LedgerDataGuard>} />
+        <Route path="/document-tags" element={<LedgerDataGuard><DocumentTagsPage /></LedgerDataGuard>} />
         <Route path="/audit/step/1" element={<LedgerDataGuard><Step1SelectScope /></LedgerDataGuard>} />
         <Route path="/audit/step/2" element={<LedgerDataGuard><Step2AuditImportSource /></LedgerDataGuard>} />
         <Route path="/audit/step/3" element={<LedgerDataGuard><Step3ImportEntries /></LedgerDataGuard>} />
@@ -251,6 +253,18 @@ function AppRoutes() {
         />
         <Route path="/bank/accounts" element={<LedgerDataGuard><BankAccountsPage /></LedgerDataGuard>} />
         <Route path="/bank/reconciliation" element={<LedgerDataGuard><BankReconciliationPage /></LedgerDataGuard>} />
+        <Route
+          path="/bank/bank-reconciliation-ledger"
+          element={(
+            <LedgerDataGuard>
+              <PlaceholderModulePage
+                title="银行对账台账"
+                description="银行对账台账用于汇总各银行账户的调节表编制记录、未达账项和余额调节结果，支持银行资金审计。"
+                items={['账户调节汇总', '未达账项', '余额调节结果']}
+              />
+            </LedgerDataGuard>
+          )}
+        />
         <Route
           path="/bank/third-party-accounts"
           element={(
@@ -350,6 +364,46 @@ function AppRoutes() {
             />
           )}
         />
+        <Route
+          path="/fixed-assets/addition"
+          element={(
+            <PlaceholderModulePage
+              title="资产增加"
+              description="资产增加用于记录固定资产购置、自建、调入等增加业务，是资产卡片和折旧计提的前置环节。"
+              items={['资产购置', '自建转固', '资产调入', '验收与入账']}
+            />
+          )}
+        />
+        <Route
+          path="/fixed-assets/reduction"
+          element={(
+            <PlaceholderModulePage
+              title="资产减少"
+              description="资产减少用于记录固定资产报废、出售、盘亏等减少业务，并联动累计折旧清理。"
+              items={['资产报废', '资产出售', '盘亏处理', '清理损益']}
+            />
+          )}
+        />
+        <Route
+          path="/fixed-assets/asset-change-ledger"
+          element={(
+            <PlaceholderModulePage
+              title="资产增减台账"
+              description="资产增减台账用于汇总固定资产本期增加、减少和变动记录，支持资产审计与折旧复核。"
+              items={['本期增加汇总', '本期减少汇总', '资产变动记录']}
+            />
+          )}
+        />
+        <Route
+          path="/fixed-assets/settings"
+          element={(
+            <PlaceholderModulePage
+              title="资产设置"
+              description="资产设置用于维护资产类别、折旧政策、使用部门和存放地点等固定资产核算基础参数。"
+              items={['资产类别', '折旧政策', '使用部门', '存放地点']}
+            />
+          )}
+        />
         <Route path="/inventory" element={<InventoryWorkspace />} />
         <Route
           path="/inventory/purchase-in"
@@ -366,6 +420,36 @@ function AppRoutes() {
               title="库存流水"
               description="库存流水用于记录存货收发存明细，是成本结转、盘点差异和存货审计的重要依据。"
               items={['采购入库流水', '销售出库流水', '盘点与调拨流水']}
+            />
+          )}
+        />
+        <Route
+          path="/inventory/sale-out"
+          element={(
+            <PlaceholderModulePage
+              title="销售出库"
+              description="销售出库用于记录销售发货、成本结转与出库核对，后续与收入确认和库存结转联动。"
+              items={['销售出库单', '成本结转', '出库核对']}
+            />
+          )}
+        />
+        <Route
+          path="/inventory/stock-receipt-ledger"
+          element={(
+            <PlaceholderModulePage
+              title="库存收发台账"
+              description="库存收发台账用于汇总采购入库、销售出库、盘点和调拨的收发存记录，支持存货审计与成本分析。"
+              items={['入库汇总', '出库汇总', '收发存余额']}
+            />
+          )}
+        />
+        <Route
+          path="/inventory/settings"
+          element={(
+            <PlaceholderModulePage
+              title="库存设置"
+              description="库存设置用于维护仓库、物料分类、计量单位和成本计价方式等存货核算基础参数。"
+              items={['仓库资料', '物料分类', '计价方式', '期初库存']}
             />
           )}
         />

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import ImportJob
 from app.db.session import get_db
-from app.services.audit_report_service import (
+from app.services.audit.audit_report_service import (
     SUPPORTED_FORMATS,
     build_report_payload,
     report_to_json,
@@ -25,11 +25,7 @@ router = APIRouter(prefix="/api/audit-tests", tags=["audit-export"])
 
 
 @router.get("/{job_id}/export")
-def export_audit_report(
-    job_id: int,
-    format: str = "xlsx",
-    db: Session = Depends(get_db),
-):
+def export_audit_report(job_id: int, format: str = "xlsx", db: Session = Depends(get_db)) -> StreamingResponse:
     fmt = format.lower()
     if fmt not in SUPPORTED_FORMATS:
         raise HTTPException(

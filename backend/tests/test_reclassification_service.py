@@ -13,7 +13,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.services.reclassification_service import (
+from app.services.accounting.reclassification_service import (
     classify_counterparty_balance,
     get_main_account_category,
 )

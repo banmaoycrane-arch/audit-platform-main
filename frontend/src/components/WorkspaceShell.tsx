@@ -8,6 +8,7 @@ import {
   InboxOutlined,
   ShoppingOutlined,
   SafetyOutlined,
+  TagOutlined,
 } from '@ant-design/icons'
 
 const { Title, Paragraph } = Typography
@@ -34,6 +35,7 @@ const workspaceTabs = [
   { key: 'basic', label: '基础资料', path: '/basic/workspace', icon: <InboxOutlined /> },
   { key: 'inventory', label: '存货', path: '/inventory/workspace', icon: <ShoppingOutlined /> },
   { key: 'fixed-assets', label: '固定资产', path: '/fixed-assets/workspace', icon: <SafetyOutlined /> },
+  { key: 'document-tags', label: '文档标签', path: '/document-tags', icon: <TagOutlined /> },
 ]
 
 export function WorkspaceShell({ title, description, functionsList, children }: WorkspaceShellProps) {

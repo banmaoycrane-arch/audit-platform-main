@@ -1,8 +1,14 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
+
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
+
+if TYPE_CHECKING:
+    from app.models.team import Team
+    from app.models.user_ledger_auth import UserLedgerAuth
 
 
 class User(Base):

@@ -17,7 +17,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.core.dependencies import get_current_user
 from app.schemas.audit_workflow import AuditWorkBranchCreate, AuditWorkBranchRead
-from app.services import audit_branch_service
+import app.services.audit.audit_branch_service as audit_branch_service
 
 router = APIRouter(prefix="/api/audit/branches", tags=["audit-branches"])
 

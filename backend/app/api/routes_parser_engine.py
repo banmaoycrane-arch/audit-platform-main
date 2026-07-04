@@ -12,8 +12,10 @@ from app.schemas.parser_engine import (
     ParseResultResponse,
     LLMComparisonResponse,
     ParserEngineStatusResponse,
+    ParserQualityDashboardResponse,
 )
-from app.services.parser_engine.unified_parser_service import convert_parse_result_to_dict
+from app.services.doc_parsing.parser_engine.unified_parser_service import convert_parse_result_to_dict
+from app.services.doc_parsing.parser_engine.parse_quality_metric_service import get_quality_dashboard
 from app.storage.local_storage import resolve_storage_path
 
 router = APIRouter(prefix="/api/parser-engine", tags=["parser-engine"])
@@ -33,7 +35,7 @@ def get_parser_engine_status() -> ParserEngineStatusResponse:
     """获取解析引擎状态和配置信息"""
     settings = get_settings()
     
-    from app.services.parser_engine import (
+    from app.services.doc_parsing.parser_engine.parse_result import (
         FileFormat,
         DocumentType,
     )
@@ -144,7 +146,7 @@ def parse_file_endpoint(
     
     try:
         import asyncio
-        from app.services.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher, performance_monitor
+        from app.services.doc_parsing.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher, performance_monitor
         
         parse_start = performance_monitor.record_parse_start()
         stage_start = time.time()
@@ -217,7 +219,7 @@ def parse_source_file(file_id: int, db: Session = Depends(get_db)) -> ParseResul
     
     try:
         import asyncio
-        from app.services.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher
+        from app.services.doc_parsing.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher
         
         start_time = time.time()
         
@@ -266,19 +268,18 @@ def multi_llm_compare(
     
     try:
         import asyncio
-        from app.services.parser_engine import format_recognizer
-        from app.services.parser_engine import document_type_classifier
-        from app.services.parser_engine.parser_engine_dispatcher import (
+        from app.services.doc_parsing.parser_engine import format_recognizer
+        from app.services.doc_parsing.parser_engine import document_type_classifier
+        from app.services.doc_parsing.parser_engine.parser_engine_dispatcher import (
             multi_llm_comparison,
             extract_text_from_file,
         )
         
         start_time = time.time()
         
-        format_result = format_recognizer.recognize_format(source_path)
+        format_result = format_recognizer.recognize_file_format(source_path)
         type_result = document_type_classifier.classify_document_type(
             source_path,
-            source_file.filename,
             format_result.file_format,
         )
         extracted_text = extract_text_from_file(
@@ -316,21 +317,25 @@ def multi_llm_compare(
         total_duration_ms = (time.time() - start_time) * 1000
         
         engine_results = []
-        for er in comparison_result.engine_results:
-            engine_results.append({
-                "engine_id": er.engine_id,
-                "engine_type": er.engine_type.value if hasattr(er.engine_type, 'value') else str(er.engine_type),
-                "confidence": er.confidence,
-                "result_data": er.result_data,
-                "parse_duration_ms": er.parse_duration_ms,
-            })
+        for engine_id, er in comparison_result.engine_results.items():
+            if er:
+                engine_results.append({
+                    "engine_id": engine_id,
+                    "engine_type": er.engine.value if hasattr(er.engine, 'value') else str(er.engine),
+                    "confidence": er.confidence,
+                    "result_data": er.data,
+                    "parse_duration_ms": getattr(er, 'parse_duration_ms', 0),
+                })
+        
+        final_result_data = comparison_result.final_result.data if comparison_result.final_result else {}
+        final_confidence = comparison_result.final_result.confidence if comparison_result.final_result else 0.0
         
         return LLMComparisonResponse(
-            document_type=comparison_result.document_type.value if hasattr(comparison_result.document_type, 'value') else str(comparison_result.document_type),
-            final_result=comparison_result.final_result,
-            final_confidence=comparison_result.final_confidence,
-            comparison_strategy=comparison_result.comparison_strategy,
-            field_consistency_rate=comparison_result.field_consistency_rate,
+            document_type=comparison_result.final_result.document_type.value if comparison_result.final_result else "",
+            final_result=final_result_data,
+            final_confidence=final_confidence,
+            comparison_strategy="",
+            field_consistency_rate=0.0,
             engine_results=engine_results,
             total_duration_ms=round(total_duration_ms, 2),
         )
@@ -350,13 +355,36 @@ def get_performance_statistics() -> dict[str, Any]:
     - 按文档类型统计平均耗时
     - 错误类型分布
     """
-    from app.services.parser_engine import get_performance_stats
+    from app.services.doc_parsing.parser_engine.parser_engine_dispatcher import get_performance_stats
     return get_performance_stats()
 
 
 @router.post("/performance-stats/reset")
 def reset_performance_statistics() -> dict[str, Any]:
     """重置解析引擎性能统计数据"""
-    from app.services.parser_engine import reset_performance_stats
+    from app.services.doc_parsing.parser_engine.parser_engine_dispatcher import reset_performance_stats
     reset_performance_stats()
     return {"status": "success", "message": "性能统计数据已重置"}
+
+
+@router.get("/quality-dashboard", response_model=ParserQualityDashboardResponse)
+def get_parser_quality_dashboard(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    document_type: str | None = None,
+    db: Session = Depends(get_db),
+) -> ParserQualityDashboardResponse:
+    """
+    获取解析稳定性指标看板数据
+
+    - 总体解析次数与复核率
+    - 字段准确率、文档完整率、一致性率、稳定性评分
+    - 按日期/文档类型的趋势数据
+    """
+    dashboard_data = get_quality_dashboard(
+        db=db,
+        start_date=start_date,
+        end_date=end_date,
+        document_type=document_type,
+    )
+    return ParserQualityDashboardResponse(**dashboard_data)

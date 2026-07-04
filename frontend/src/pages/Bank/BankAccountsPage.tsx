@@ -3,6 +3,7 @@ import { Button, Card, Col, Form, Input, InputNumber, message, Modal, Row, Selec
 import { PlusOutlined, BankOutlined } from '@ant-design/icons'
 import { api, type BankAccount } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
+import { formatAmount } from '../../money'
 
 const { Title, Paragraph } = Typography
 
@@ -81,7 +82,7 @@ export function BankAccountsPage() {
       title: '当前余额',
       dataIndex: 'current_balance',
       key: 'current_balance',
-      render: (value: number) => `¥ ${Number(value).toLocaleString()}`,
+      render: (value: number) => formatAmount(value),
     },
     {
       title: '状态',

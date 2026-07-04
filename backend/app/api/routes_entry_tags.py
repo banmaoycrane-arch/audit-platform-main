@@ -6,26 +6,25 @@ EntryTag / TagCategory / TagMappingRule API 路由。
 """
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.services.entry_tag_service import (
+from app.services.accounting.entry_tag_service import (
     aggregate_tags_by_category,
     create_entry_tag,
     delete_entry_tag,
-    get_entry_tag_by_id,
     list_entry_tags,
     list_tag_history,
     update_entry_tag,
 )
-from app.services.entry_tag_vector_service import EntryTagVectorService
-from app.services.legacy_tag_import_service import (
+from app.services.accounting.entry_tag_vector_service import EntryTagVectorService
+from app.services.doc_parsing.legacy_tag_import_service import (
     LegacyTagRecord,
     import_legacy_tags,
 )
-from app.services.tag_category_service import (
+from app.services.doc_parsing.tag_category_service import (
     build_category_tree,
     create_category,
     delete_category,
@@ -34,7 +33,7 @@ from app.services.tag_category_service import (
     list_categories,
     update_category,
 )
-from app.services.tag_mapping_rule_service import (
+from app.services.doc_parsing.tag_mapping_rule_service import (
     apply_mapping_rules,
     create_mapping_rule,
     delete_mapping_rule,
@@ -116,6 +115,12 @@ class LegacyTagImportRequest(BaseModel):
     auto_create_category: bool = True
 
 
+class BatchEntryTagQuery(BaseModel):
+    entry_ids: list[int] = Field(default_factory=list)
+    ledger_id: int | None = None
+    category_code: str | None = None
+
+
 class ApplyMappingRequest(BaseModel):
     source_type: str
     source_values: list[str]
@@ -156,8 +161,14 @@ def get_tag_categories(
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """查询标签分类列表或树。"""
+    categories: list[dict[str, Any]]
     if parent_id is not None:
-        categories = list_categories(db, ledger_id, parent_id=parent_id)
+        raw_categories = list_categories(db, ledger_id, parent_id=parent_id)
+        categories = [{
+            "id": c.id, "code": c.code, "name": c.name, "description": c.description or "",
+            "parent_id": c.parent_id, "value_type": c.value_type, "source_table": c.source_table or "",
+            "is_mandatory": c.is_mandatory, "sort_order": c.sort_order, "status": c.status
+        } for c in raw_categories]
     else:
         categories = build_category_tree(db, ledger_id)
     return categories
@@ -263,6 +274,52 @@ def get_entry_tags(
             "entry_id": t.entry_id,
             "ledger_id": t.ledger_id,
             "category_id": t.category_id,
+            "tag_name": t.tag_name,
+            "tag_value": t.tag_value,
+            "display_name": t.display_name,
+            "weight": t.weight,
+            "confidence": t.confidence,
+            "tag_source": t.tag_source,
+            "reviewed_by_user": t.reviewed_by_user,
+        }
+        for t in tags
+    ]
+
+
+@router.post("/tags/batch", response_model=list[dict[str, Any]])
+def batch_get_entry_tags(
+    data: BatchEntryTagQuery,
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """
+    批量查询分录标签。
+
+    业务场景：
+        前端导入结果页需要一次性展示大量分录的辅助核算标签，
+        避免逐条分录发起的 N+1 查询。
+
+    输入数据：
+        entry_ids: 分录 ID 列表
+        ledger_id: 可选账簿边界
+        category_code: 可选分类过滤
+
+    输出结果：
+        命中分录的标签列表（与 /tags 单条查询返回字段一致）
+    """
+    tags = list_entry_tags(
+        db,
+        entry_ids=data.entry_ids,
+        ledger_id=data.ledger_id,
+        category_code=data.category_code,
+    )
+    return [
+        {
+            "id": t.id,
+            "entry_id": t.entry_id,
+            "ledger_id": t.ledger_id,
+            "category_id": t.category_id,
+            "category_code": t.category.category_code if t.category else None,
+            "category_name": t.category.category_name if t.category else None,
             "tag_name": t.tag_name,
             "tag_value": t.tag_value,
             "display_name": t.display_name,
@@ -476,7 +533,7 @@ def import_legacy_tags_api(
 # ============ 向量同步与自然语言检索 ============
 
 @router.post("/sync-vector")
-def sync_entry_tags_vector(limit: int = 100, db: Session = Depends(get_db)) -> dict:
+def sync_entry_tags_vector(limit: int = 100, db: Session = Depends(get_db)) -> dict[str, Any]:
     """同步待处理标签到向量库。"""
     return EntryTagVectorService(db).sync_pending(limit)
 

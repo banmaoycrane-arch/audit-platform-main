@@ -7,6 +7,8 @@ from app.models.project_ledger import ProjectLedger
 from app.models.project_member import ProjectMember
 from app.models.lifecycle_log import LifecycleLog
 from app.models.binding_request import BindingRequest
+from app.models.parse_correction import ParseCorrection, ParsingRulePatch
+from app.models.parse_quality_metric import ParseQualityMetric, ParseQualitySummary
 from app.models.scope_settings import (
     EntityScopeSettings,
     LedgerSettings,
@@ -24,6 +26,10 @@ __all__ = [
     "ProjectMember",
     "LifecycleLog",
     "BindingRequest",
+    "ParseCorrection",
+    "ParsingRulePatch",
+    "ParseQualityMetric",
+    "ParseQualitySummary",
     "LedgerSettings",
     "TeamSettings",
     "ProjectSettings",

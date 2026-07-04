@@ -15,6 +15,7 @@ import {
 import { api, type AccountingEntry, type AccountingPeriod } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
 import { WorkspaceShell } from '../../components/WorkspaceShell'
+import { sumDecimals } from '../../money'
 
 const functionsList = [
   { key: 'vouchers', icon: <FileTextOutlined />, label: '凭证管理', path: '/ledger/vouchers/step/1' },
@@ -52,13 +53,13 @@ function groupPendingVouchers(entries: AccountingEntry[]): PendingVoucherRow[] {
     byVoucher.set(entry.voucher_no, list)
   }
   return Array.from(byVoucher.entries()).map(([voucherNo, lines]) => {
-    const amount = lines.reduce((sum, line) => sum + Number(line.debit_amount || 0), 0)
+    const amount = sumDecimals(lines.map(line => line.debit_amount || 0))
     return {
       key: voucherNo,
       voucher_no: voucherNo,
       date: lines[0]?.voucher_date || '-',
       summary: lines[0]?.summary || '-',
-      amount: `¥ ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      amount: `¥ ${amount.toFixed(2)}`,
       status: STATUS_LABEL[lines[0]?.review_status] || lines[0]?.review_status || '待复核',
     }
   })

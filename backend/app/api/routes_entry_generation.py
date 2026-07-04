@@ -1,4 +1,5 @@
-from datetime import date, datetime
+from typing import Any
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import json
 import time
@@ -11,15 +12,16 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AccountingEntry, AccountingPeriod, ImportJob, Organization, SourceFile
 from app.db.session import get_db
-from app.services import entry_generation_service, lifecycle_service
-from app.services.audit_day_book_service import process_day_book_import
-from app.services.import_routing_service import is_day_book_source_type
+from app.services.accounting import entry_generation_service
+from app.services.shared import lifecycle_service
+from app.services.audit.audit_day_book_service import process_day_book_import
+from app.services.doc_parsing.import_routing_service import is_day_book_source_type
 
 router = APIRouter(prefix="/api/import-jobs", tags=["entry-generation"])
 
 
 #region debug-point generate-entries-runtime
-def _debug_report_generate_entries(event: str, payload: dict) -> None:
+def _debug_report_generate_entries(event: str, payload: dict[str, Any]) -> None:
     try:
         data = json.dumps(
             {
@@ -44,7 +46,7 @@ def _debug_report_generate_entries(event: str, payload: dict) -> None:
 
 
 #region debug-point daybook-step3-performance
-def _debug_report_daybook_step3_performance(event: str, payload: dict) -> None:
+def _debug_report_daybook_step3_performance(event: str, payload: dict[str, Any]) -> None:
     try:
         data = json.dumps(
             {
@@ -69,7 +71,7 @@ def _debug_report_daybook_step3_performance(event: str, payload: dict) -> None:
 
 
 #region debug-point auto-period-step3
-def _debug_report_auto_period_step3(event: str, payload: dict) -> None:
+def _debug_report_auto_period_step3(event: str, payload: dict[str, Any]) -> None:
     try:
         data = json.dumps(
             {
@@ -113,24 +115,24 @@ class CommitPayload(BaseModel):
     period_id: int | None = None
     period_start_date: date | None = None
     period_end_date: date | None = None
-    drafts: list[dict]
+    drafts: list[dict[str, Any]]
 
 
 class ManualEntryPayload(BaseModel):
     organization_name: str = "临时组织"
     period_id: int
-    drafts: list[dict]
+    drafts: list[dict[str, Any]]
 
 
 class ManualSwitchLogPayload(BaseModel):
     period_id: int
     reason: str | None = None
-    recognized_evidence: list[dict] = []
+    recognized_evidence: list[dict[str, Any]] = []
     manual_fields: list[str] = []
-    draft_metadata: dict = {}
+    draft_metadata: dict[str, Any] = {}
 
 
-def _clean_manual_entry_metadata(metadata: dict) -> dict:
+def _clean_manual_entry_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     cleaned_metadata = dict(metadata or {})
     cleaned_metadata["source"] = "manual_entry"
     for key in (
@@ -144,7 +146,7 @@ def _clean_manual_entry_metadata(metadata: dict) -> dict:
     return cleaned_metadata
 
 
-def _validate_manual_entry_drafts(drafts: list[dict], period: AccountingPeriod) -> None:
+def _validate_manual_entry_drafts(drafts: list[dict[str, Any]], period: AccountingPeriod) -> None:
     if not drafts:
         raise ValueError("人工凭证至少需要一条分录")
 
@@ -209,7 +211,7 @@ def _get_fallback_period(db: Session, job: ImportJob) -> AccountingPeriod | None
     return query.order_by(AccountingPeriod.start_date.asc()).first()
 
 
-def _batch_create_periods_if_needed(db: Session, job: ImportJob, start_date: date, end_date: date) -> dict:
+def _batch_create_periods_if_needed(db: Session, job: ImportJob, start_date: date, end_date: date) -> dict[str, Any]:
     created_count = 0
     skipped_count = 0
     created_periods: list[AccountingPeriod] = []
@@ -281,7 +283,7 @@ def _batch_create_periods_if_needed(db: Session, job: ImportJob, start_date: dat
     }
 
 
-def _attach_auto_period_metadata(db: Session, job: ImportJob, drafts: list[dict]) -> dict:
+def _attach_auto_period_metadata(db: Session, job: ImportJob, drafts: list[dict[str, Any]]) -> dict[str, Any]:
     periods = (
         db.query(AccountingPeriod)
         .filter(AccountingPeriod.organization_id == job.organization_id)
@@ -329,19 +331,22 @@ def generate_entries(
     job_id: int,
     payload: GeneratePayload,
     db: Session = Depends(get_db),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
 
     is_adaptive_mode = payload.period_start_date is not None and payload.period_end_date is not None
-    batch_period_result: dict | None = None
+    batch_period_result: dict[str, Any] | None = None
 
     if is_adaptive_mode:
-        if payload.period_start_date > payload.period_end_date:
+        start_date = payload.period_start_date
+        end_date = payload.period_end_date
+        assert start_date is not None and end_date is not None
+        if start_date > end_date:
             raise HTTPException(status_code=400, detail="期间范围开始日期不能晚于结束日期")
         batch_period_result = _batch_create_periods_if_needed(
-            db, job, payload.period_start_date, payload.period_end_date
+            db, job, start_date, end_date
         )
         period = _get_fallback_period(db, job)
         if not period:
@@ -453,7 +458,7 @@ def commit_entries(
     job_id: int,
     payload: CommitPayload,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
@@ -462,10 +467,10 @@ def commit_entries(
         raise HTTPException(status_code=404, detail="未找到可用于保存草稿的会计期间，请先维护会计期间")
     try:
         source_entry_ids = [
-            int(draft.get("source_entry_id"))
+            int(source_entry_id)
             for draft in payload.drafts
             if (draft.get("metadata") or {}).get("accounting_flow") == "imported_day_book"
-            and draft.get("source_entry_id") is not None
+            and (source_entry_id := draft.get("source_entry_id")) is not None
         ]
         if source_entry_ids:
             entries = (
@@ -495,7 +500,7 @@ def log_ai_draft_manual_switch(
     job_id: int,
     payload: ManualSwitchLogPayload,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
@@ -503,7 +508,7 @@ def log_ai_draft_manual_switch(
     if not period:
         raise HTTPException(status_code=404, detail="会计期间不存在")
 
-    switch_time = datetime.utcnow().isoformat()
+    switch_time = datetime.now(timezone.utc).isoformat()
     reason = payload.reason or "证据不足以达成真实性、准确性、截止性、充分性审计目的，转人工补充分录。"
     log_metadata = {
         "original_draft_metadata": payload.draft_metadata,
@@ -532,7 +537,7 @@ def log_ai_draft_manual_switch(
 def commit_manual_entries(
     payload: ManualEntryPayload,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     period = db.get(AccountingPeriod, payload.period_id)
     if not period:
         raise HTTPException(status_code=404, detail="会计期间不存在")
@@ -554,7 +559,7 @@ def commit_manual_entries(
     db.add(job)
     db.flush()
 
-    drafts: list[dict] = []
+    drafts: list[dict[str, Any]] = []
     for draft in payload.drafts:
         draft = dict(draft)
         draft["metadata"] = _clean_manual_entry_metadata(draft.get("metadata") or {})

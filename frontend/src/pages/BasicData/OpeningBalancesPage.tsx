@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, Table, Select, Space, InputNumber, Button, Alert, message, Typography, Tag } from 'antd'
 import { api, type OpeningBalance, type AccountingPeriod, type TrialBalance } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
+import { Money } from '../../money'
 
 const { Title, Text } = Typography
 
@@ -167,12 +168,12 @@ export function OpeningBalancesPage() {
   }
 
   const totals = useMemo(() => {
-    const debit = rows.reduce((s, r) => s + (Number(r.debit_balance) || 0), 0)
-    const credit = rows.reduce((s, r) => s + (Number(r.credit_balance) || 0), 0)
-    return { debit, credit, diff: debit - credit }
+    const debit = Money.sum(rows.map(r => Money.cny(r.debit_balance)))
+    const credit = Money.sum(rows.map(r => Money.cny(r.credit_balance)))
+    return { debit, credit, diff: debit.sub(credit) }
   }, [rows])
 
-  const isBalanced = trial?.is_balanced ?? totals.debit === totals.credit
+  const isBalanced = trial?.is_balanced ?? totals.debit.eq(totals.credit)
 
   return (
     <div>
@@ -232,7 +233,7 @@ export function OpeningBalancesPage() {
         <Alert
           type="error"
           title="期初借贷不平衡"
-          description={`借方合计 ¥${totals.debit.toLocaleString()}，贷方合计 ¥${totals.credit.toLocaleString()}，差额 ¥${(totals.debit - totals.credit).toLocaleString()}`}
+          description={`借方合计 ¥${totals.debit.toFixed(2)}，贷方合计 ¥${totals.credit.toFixed(2)}，差额 ¥${totals.diff.toFixed(2)}`}
           showIcon
           style={{ marginBottom: 16 }}
         />
@@ -240,7 +241,7 @@ export function OpeningBalancesPage() {
       {isBalanced && trial && trial.count > 0 && (
         <Alert
           type="success"
-          title={`期初借贷平衡：¥${totals.debit.toLocaleString()}`}
+          title={`期初借贷平衡：¥${totals.debit.toFixed(2)}`}
           showIcon
           style={{ marginBottom: 16 }}
         />
@@ -281,7 +282,7 @@ export function OpeningBalancesPage() {
                   min={0}
                   step={100}
                   disabled={!currentLedgerId}
-                  onChange={(v) => updateRow(row.account_code, { debit_balance: Number(v ?? 0) })}
+                  onChange={(v) => updateRow(row.account_code, { debit_balance: v ?? 0 })}
                   style={{ width: '100%' }}
                 />
               ),
@@ -297,7 +298,7 @@ export function OpeningBalancesPage() {
                   min={0}
                   step={100}
                   disabled={!currentLedgerId}
-                  onChange={(v) => updateRow(row.account_code, { credit_balance: Number(v ?? 0) })}
+                  onChange={(v) => updateRow(row.account_code, { credit_balance: v ?? 0 })}
                   style={{ width: '100%' }}
                 />
               ),
@@ -316,10 +317,10 @@ export function OpeningBalancesPage() {
                 <strong>合计</strong>
               </Table.Summary.Cell>
               <Table.Summary.Cell index={1}>
-                <strong>¥{totals.debit.toLocaleString()}</strong>
+                <strong>¥{totals.debit.toFixed(2)}</strong>
               </Table.Summary.Cell>
               <Table.Summary.Cell index={2}>
-                <strong>¥{totals.credit.toLocaleString()}</strong>
+                <strong>¥{totals.credit.toFixed(2)}</strong>
               </Table.Summary.Cell>
               <Table.Summary.Cell index={3} />
             </Table.Summary.Row>

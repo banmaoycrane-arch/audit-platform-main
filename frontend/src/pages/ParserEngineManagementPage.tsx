@@ -32,9 +32,12 @@ import {
   CopyOutlined,
   DatabaseOutlined,
   ExclamationCircleOutlined,
+  FileProtectOutlined,
   FileSearchOutlined,
   FileTextOutlined,
+  HeatMapOutlined,
   ReloadOutlined,
+  SafetyOutlined,
   StopOutlined,
   ThunderboltOutlined,
   UploadOutlined,
@@ -44,17 +47,94 @@ import { useAuthStore } from '../stores/authStore'
 
 const { Title, Text } = Typography
 
+type FieldValueDetail = {
+  field_name: string
+  normalized_field_name: string
+  value: unknown
+  engine: string
+  text_position: number | null
+  source_snippet: string | null
+  confidence: number | null
+}
+
+type FieldConflictItem = {
+  field_name: string
+  normalized_field_name: string
+  rule_value: unknown
+  llm_value: unknown
+  conflict_type: string
+  severity: 'high' | 'medium' | 'low'
+  rule_detail: FieldValueDetail | null
+  llm_detail: FieldValueDetail | null
+  description: string
+}
+
+type FieldCoverageItem = {
+  field_name: string
+  normalized_field_name: string
+  value: unknown
+  engine: string
+  detail: FieldValueDetail | null
+}
+
+type ConflictHeatmapCell = {
+  start_position: number
+  end_position: number
+  snippet: string
+  conflict_count: number
+  field_names: string[]
+  density: number
+}
+
+type ContractStructuredContent = {
+  contract_no: string | null
+  contract_name: string | null
+  party_a_name: string | null
+  party_b_name: string | null
+  sign_date: string | null
+  contract_amount: string | null
+  contract_term: string | null
+  payment_terms: string | null
+  project_name: string | null
+  field_sources: Record<string, string>
+  overall_confidence: number
+  review_required: boolean
+  review_reasons: string[]
+}
+
+type ComplianceRiskItem = {
+  risk_type: string
+  severity: 'high' | 'medium' | 'low'
+  description: string
+  related_fields: string[]
+  suggested_action: string
+  policy_basis: string
+}
+
+type ComplianceRiskPreReview = {
+  risk_level: 'low' | 'medium' | 'high' | 'critical'
+  risk_items: ComplianceRiskItem[]
+  based_on: string[]
+}
+
 type EngineDiagnosis = {
   consistency_rate?: number
+  stability_score?: number
   consistent_fields?: Array<{ field: string; normalized_field?: string; value: unknown; rule_value?: unknown; llm_value?: unknown }>
-  conflict_fields?: Array<{ field: string; normalized_field?: string; rule_value: unknown; llm_value: unknown }>
-  rule_only_fields?: Array<{ field: string; normalized_field?: string; rule_value: unknown }>
-  llm_only_fields?: Array<{ field: string; normalized_field?: string; llm_value: unknown }>
+  conflict_fields?: FieldConflictItem[]
+  rule_only_fields?: FieldCoverageItem[]
+  llm_only_fields?: FieldCoverageItem[]
   review_required?: boolean
+  review_reasons?: string[]
   review_reason?: string
   confidence_gap?: number
   rule_field_count?: number
   llm_field_count?: number
+  conflict_heatmap?: ConflictHeatmapCell[]
+  contract_structured_content?: ContractStructuredContent | null
+  compliance_risk_pre_review?: ComplianceRiskPreReview | null
+  raw_text_length?: number
+  processing_time_ms?: number
 }
 
 type ParseApiResult = {
@@ -798,7 +878,7 @@ export function ParserEngineManagementPage() {
                   <Card title={<><CodeOutlined style={{ color: '#52c41a' }} /> 规则引擎</>} size="small">
                     <Text type="secondary">置信度: </Text>
                     <Text strong style={{ fontSize: 18, color: '#52c41a' }}>{formatPercent(latestResult.engine_comparison.rule_confidence as number)}</Text>
-                    <Progress percent={(((latestResult.engine_comparison.rule_confidence as number) || 0) * 100).toFixed(0)} strokeColor="#52c41a" size="small" />
+                    <Progress percent={Math.round((Number(latestResult.engine_comparison.rule_confidence) || 0) * 100)} strokeColor="#52c41a" size="small" />
                     <Text type="secondary" style={{ fontSize: 12 }}>规则引擎主要看模板、关键词、正则字段命中率。</Text>
                   </Card>
                 </Col>
@@ -806,7 +886,7 @@ export function ParserEngineManagementPage() {
                   <Card title={<><ThunderboltOutlined style={{ color: '#1890ff' }} /> LLM大模型</>} size="small">
                     <Text type="secondary">置信度: </Text>
                     <Text strong style={{ fontSize: 18, color: '#1890ff' }}>{formatPercent(latestResult.engine_comparison.llm_confidence as number)}</Text>
-                    <Progress percent={(((latestResult.engine_comparison.llm_confidence as number) || 0) * 100).toFixed(0)} strokeColor="#1890ff" size="small" />
+                    <Progress percent={Math.round((Number(latestResult.engine_comparison.llm_confidence) || 0) * 100)} strokeColor="#1890ff" size="small" />
                     <Text type="secondary" style={{ fontSize: 12 }}>LLM置信度偏低通常表示文本噪声、字段不完整或模型自评保守。</Text>
                   </Card>
                 </Col>
@@ -814,7 +894,7 @@ export function ParserEngineManagementPage() {
                   <Card title="交叉验证" size="small">
                     <Text type="secondary">字段一致率: </Text>
                     <Text strong style={{ fontSize: 18 }}>{formatPercent(latestDiagnosis?.consistency_rate)}</Text>
-                    <Progress percent={((latestDiagnosis?.consistency_rate || 0) * 100).toFixed(0)} strokeColor={latestDiagnosis?.review_required ? '#faad14' : '#52c41a'} size="small" />
+                    <Progress percent={Math.round((Number(latestDiagnosis?.consistency_rate) || 0) * 100)} strokeColor={latestDiagnosis?.review_required ? '#faad14' : '#52c41a'} size="small" />
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       {latestDiagnosis?.consistency_rate === 0 && (latestDiagnosis.rule_field_count || 0) + (latestDiagnosis.llm_field_count || 0) > 0
                         ? '两个引擎识别的字段名差异较大，已按业务含义做别名匹配，仍无一致字段。请展开“原始引擎结果”人工核对。'
@@ -823,6 +903,38 @@ export function ParserEngineManagementPage() {
                   </Card>
                 </Col>
               </Row>
+              {latestDiagnosis && (
+                <Row gutter={16} style={{ marginTop: 16 }}>
+                  <Col span={12}>
+                    <Card title={<><BarChartOutlined /> 解析稳定性评分</>} size="small">
+                      <Text type="secondary">稳定性评分: </Text>
+                      <Text strong style={{ fontSize: 18, color: latestDiagnosis.stability_score && latestDiagnosis.stability_score >= 0.7 ? '#52c41a' : '#faad14' }}>
+                        {formatPercent(latestDiagnosis.stability_score)}
+                      </Text>
+                      <Progress percent={Math.round((Number(latestDiagnosis.stability_score) || 0) * 100)} strokeColor={latestDiagnosis.stability_score && latestDiagnosis.stability_score >= 0.7 ? '#52c41a' : '#faad14'} size="small" />
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        综合一致性率、双引擎置信度、冲突严重程度计算，低于70%建议人工复核。
+                      </Text>
+                    </Card>
+                  </Col>
+                  <Col span={12}>
+                    <Card title={<><SafetyOutlined /> 复核建议</>} size="small">
+                      {latestDiagnosis.review_required ? (
+                        <>
+                          <Text type="warning" strong>建议人工复核</Text>
+                          <ul style={{ marginTop: 8, paddingLeft: 16 }}>
+                            {(latestDiagnosis.review_reasons || (latestDiagnosis.review_reason ? [latestDiagnosis.review_reason] : [])).map((reason, idx) => (
+                              <li key={idx}><Text style={{ fontSize: 12 }}>{reason}</Text></li>
+                            ))}
+                          </ul>
+                        </>
+                      ) : (
+                        <Text type="success">两个引擎结果基本一致，可直接进入下游处理。</Text>
+                      )}
+                    </Card>
+                  </Col>
+                </Row>
+              )}
               {latestDiagnosis && (
                 <Collapse
                   style={{ marginTop: 16 }}
@@ -883,9 +995,9 @@ export function ParserEngineManagementPage() {
                         <Table
                           size="small"
                           pagination={false}
-                          dataSource={latestDiagnosis.conflict_fields?.map((item) => ({ key: item.field, ...item })) || []}
+                          dataSource={latestDiagnosis.conflict_fields?.map((item) => ({ key: item.field_name, ...item })) || []}
                           columns={[
-                            { title: '字段', dataIndex: 'field', key: 'field' },
+                            { title: '字段', dataIndex: 'field_name', key: 'field_name' },
                             { title: '规则引擎值', dataIndex: 'rule_value', key: 'rule_value', render: renderValue },
                             { title: 'LLM值', dataIndex: 'llm_value', key: 'llm_value', render: renderValue },
                           ]}
@@ -907,17 +1019,110 @@ export function ParserEngineManagementPage() {
                           <Col span={12}>
                             <Text strong>仅规则引擎识别</Text>
                             <div style={{ marginTop: 8 }}>
-                              {(latestDiagnosis.rule_only_fields?.length || 0) > 0 ? latestDiagnosis.rule_only_fields?.map((item) => <Tag key={item.field}>{item.field}: {renderValue(item.rule_value)}</Tag>) : <Empty description="无" />}
+                              {(latestDiagnosis.rule_only_fields?.length || 0) > 0 ? latestDiagnosis.rule_only_fields?.map((item) => <Tag key={item.field_name}>{item.field_name}: {renderValue(item.value)}</Tag>) : <Empty description="无" />}
                             </div>
                           </Col>
                           <Col span={12}>
                             <Text strong>仅LLM识别</Text>
                             <div style={{ marginTop: 8 }}>
-                              {(latestDiagnosis.llm_only_fields?.length || 0) > 0 ? latestDiagnosis.llm_only_fields?.map((item) => <Tag color="blue" key={item.field}>{item.field}: {renderValue(item.llm_value)}</Tag>) : <Empty description="无" />}
+                              {(latestDiagnosis.llm_only_fields?.length || 0) > 0 ? latestDiagnosis.llm_only_fields?.map((item) => <Tag color="blue" key={item.field_name}>{item.field_name}: {renderValue(item.value)}</Tag>) : <Empty description="无" />}
                             </div>
                           </Col>
                         </Row>
                       ),
+                    },
+                    {
+                      key: 'heatmap',
+                      label: (
+                        <>
+                          <HeatMapOutlined style={{ marginRight: 4 }} />
+                          冲突热力图 {latestDiagnosis.conflict_heatmap?.length || 0} 个区域
+                        </>
+                      ),
+                      children: (latestDiagnosis.conflict_heatmap?.length || 0) > 0 ? (
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                          {latestDiagnosis.conflict_heatmap?.map((cell, idx) => (
+                            <Card
+                              key={idx}
+                              size="small"
+                              title={
+                                <Space>
+                                  <Tag color={cell.density >= 0.6 ? 'red' : cell.density >= 0.3 ? 'orange' : 'green'}>
+                                    位置 {cell.start_position}-{cell.end_position}
+                                  </Tag>
+                                  <Text type="secondary">冲突字段数: {cell.conflict_count}</Text>
+                                </Space>
+                              }
+                              extra={<Progress percent={Math.round(cell.density * 100)} size="small" style={{ width: 80 }} />}
+                            >
+                              <Text type="secondary">涉及字段: {cell.field_names.join(', ')}</Text>
+                              <pre style={{ background: '#fff2f0', padding: 8, borderRadius: 4, marginTop: 8, whiteSpace: 'pre-wrap', maxHeight: 120, overflowY: 'auto' }}>
+                                {cell.snippet}
+                              </pre>
+                            </Card>
+                          ))}
+                        </Space>
+                      ) : <Empty description="未定位到冲突集中区域" />,
+                    },
+                    {
+                      key: 'contract-content',
+                      label: (
+                        <>
+                          <FileProtectOutlined style={{ marginRight: 4 }} />
+                          合同结构化内容（下游参数）
+                        </>
+                      ),
+                      children: latestDiagnosis.contract_structured_content ? (
+                        <Descriptions bordered column={2} size="small">
+                          <Descriptions.Item label="合同编号">{latestDiagnosis.contract_structured_content.contract_no || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="合同名称">{latestDiagnosis.contract_structured_content.contract_name || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="甲方">{latestDiagnosis.contract_structured_content.party_a_name || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="乙方">{latestDiagnosis.contract_structured_content.party_b_name || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="签订日期">{latestDiagnosis.contract_structured_content.sign_date || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="合同金额">{latestDiagnosis.contract_structured_content.contract_amount || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="合同期限">{latestDiagnosis.contract_structured_content.contract_term || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="付款条款">{latestDiagnosis.contract_structured_content.payment_terms || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="项目名称">{latestDiagnosis.contract_structured_content.project_name || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="整体置信度">
+                            <Progress percent={Math.round(latestDiagnosis.contract_structured_content.overall_confidence * 100)} size="small" />
+                          </Descriptions.Item>
+                        </Descriptions>
+                      ) : <Empty description="非合同文档或暂无可用的结构化内容" />,
+                    },
+                    {
+                      key: 'compliance-risk',
+                      label: (
+                        <>
+                          <SafetyOutlined style={{ marginRight: 4 }} />
+                          合规风险预审（下游参数）
+                        </>
+                      ),
+                      children: latestDiagnosis.compliance_risk_pre_review ? (
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                          <Alert
+                            message={`整体风险等级: ${latestDiagnosis.compliance_risk_pre_review.risk_level}`}
+                            type={
+                              latestDiagnosis.compliance_risk_pre_review.risk_level === 'high' || latestDiagnosis.compliance_risk_pre_review.risk_level === 'critical'
+                                ? 'error'
+                                : latestDiagnosis.compliance_risk_pre_review.risk_level === 'medium'
+                                  ? 'warning'
+                                  : 'success'
+                            }
+                            showIcon
+                          />
+                          {latestDiagnosis.compliance_risk_pre_review.risk_items.map((item, idx) => (
+                            <Card key={idx} size="small" title={item.risk_type} extra={<Tag color={item.severity === 'high' ? 'red' : item.severity === 'medium' ? 'orange' : 'green'}>{item.severity}</Tag>}>
+                              <Text>{item.description}</Text>
+                              <br />
+                              <Text type="secondary">涉及字段: {item.related_fields.join(', ') || '-'}</Text>
+                              <br />
+                              <Text type="secondary">建议措施: {item.suggested_action}</Text>
+                              <br />
+                              <Text type="secondary">政策依据: {item.policy_basis}</Text>
+                            </Card>
+                          ))}
+                        </Space>
+                      ) : <Empty description="暂无合规风险预审结果" />,
                     },
                   ]}
                 />

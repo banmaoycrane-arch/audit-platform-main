@@ -1,62 +1,51 @@
-from datetime import timedelta
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
 from app.main import app
-from app.db.session import SessionLocal, engine
-from app.db.session import Base
+from app.db.session import Base, get_db
+from app.core.config import get_settings
+import app.core.security as security
+from app.core.security import create_access_token, decode_token
+from app.db.models import Entity, SmsVerificationCode
 from app.models.ledger import Ledger
 from app.models.team import Team
 from app.models.user import User
 from app.models.user_ledger_auth import UserLedgerAuth
 from app.models.project import Project
 from app.models.project_member import ProjectMember
-from app.db.models import Entity
-from app.core.config import get_settings
-import app.core.security as security
-from app.core.security import create_access_token, decode_token
-
-client = TestClient(app)
 
 
-def setup_module() -> None:
-    # Recreate auth-related tables to ensure schema matches current model
-    tables = [
-        ProjectMember.__table__,
-        Project.__table__,
-        Entity.__table__,
-        UserLedgerAuth.__table__,
-        User.__table__,
-        Ledger.__table__,
-        Team.__table__,
-    ]
-    Base.metadata.drop_all(bind=engine, tables=tables)
-    Base.metadata.create_all(bind=engine, tables=[
-        Team.__table__,
-        Ledger.__table__,
-        User.__table__,
-        UserLedgerAuth.__table__,
-        Entity.__table__,
-        Project.__table__,
-        ProjectMember.__table__,
-    ])
+@pytest.fixture
+def client():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
 
-def teardown_module() -> None:
-    db = SessionLocal()
+    app.dependency_overrides[get_db] = override_get_db
     try:
-        db.execute(text("DELETE FROM project_members"))
-        db.execute(text("DELETE FROM projects"))
-        db.execute(text("DELETE FROM entities"))
-        db.execute(text("DELETE FROM user_ledger_auths"))
-        db.execute(text("DELETE FROM users"))
-        db.execute(text("DELETE FROM ledgers"))
-        db.execute(text("DELETE FROM teams"))
-        db.commit()
+        with TestClient(app) as test_client:
+            test_client._SessionLocal = TestingSessionLocal
+            yield test_client
     finally:
-        db.close()
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
 
 
 def test_create_access_token_fails_without_secret_key(monkeypatch) -> None:
@@ -74,7 +63,7 @@ def test_configured_secret_key_signs_and_decodes_token() -> None:
     assert payload["sub"] == "1"
 
 
-def test_register_success_and_get_current_user() -> None:
+def test_register_success_and_get_current_user(client) -> None:
     response = client.post("/api/auth/register", json={
         "username": "testuser",
         "phone": "13800138000",
@@ -98,7 +87,7 @@ def test_register_success_and_get_current_user() -> None:
     assert me_data["is_active"] is True
 
 
-def test_register_rejects_duplicate_username() -> None:
+def test_register_rejects_duplicate_username(client) -> None:
     first_response = client.post("/api/auth/register", json={
         "username": "duplicate_username",
         "phone": "13800138010",
@@ -120,7 +109,7 @@ def test_register_rejects_duplicate_username() -> None:
     assert duplicate_response.json()["detail"] == "Username already exists"
 
 
-def test_register_rejects_duplicate_phone() -> None:
+def test_register_rejects_duplicate_phone(client) -> None:
     first_response = client.post("/api/auth/register", json={
         "username": "duplicate_phone_user",
         "phone": "13800138012",
@@ -142,7 +131,7 @@ def test_register_rejects_duplicate_phone() -> None:
     assert duplicate_response.json()["detail"] == "Phone already exists"
 
 
-def test_login_password_success() -> None:
+def test_login_password_success(client) -> None:
     # register first
     client.post("/api/auth/register", json={
         "username": "loginuser",
@@ -160,7 +149,7 @@ def test_login_password_success() -> None:
     assert "access_token" in data
 
 
-def test_login_password_fail() -> None:
+def test_login_password_fail(client) -> None:
     response = client.post("/api/auth/login/password", json={
         "username": "nonexistent",
         "password": "wrongpassword",
@@ -168,7 +157,7 @@ def test_login_password_fail() -> None:
     assert response.status_code == 401
 
 
-def test_sms_code() -> None:
+def test_sms_code(client) -> None:
     response = client.post("/api/auth/sms/code", json={"phone": "13800138002"})
     assert response.status_code == 200
     data = response.json()
@@ -178,7 +167,7 @@ def test_sms_code() -> None:
     assert data["message"] in {"验证码已生成", "验证码已生成（开发模式）"}
 
 
-def test_login_sms_success_and_auto_create() -> None:
+def test_login_sms_success_and_auto_create(client) -> None:
     response = client.post("/api/auth/sms/code", json={"phone": "13800138003"})
     assert response.status_code == 200
     code_data = response.json()
@@ -192,7 +181,7 @@ def test_login_sms_success_and_auto_create() -> None:
     assert "access_token" in data
 
 
-def test_sms_code_is_random_and_single_use() -> None:
+def test_sms_code_is_random_and_single_use(client) -> None:
     first_response = client.post("/api/auth/sms/code", json={"phone": "13800138004"})
     second_response = client.post("/api/auth/sms/code", json={"phone": "13800138004"})
     first_code = first_response.json()["sms_code"]
@@ -220,7 +209,7 @@ def test_sms_code_is_random_and_single_use() -> None:
     assert reused_login.status_code == 401
 
 
-def test_sms_user_can_set_password_and_login_with_password() -> None:
+def test_sms_user_can_set_password_and_login_with_password(client) -> None:
     code_response = client.post("/api/auth/sms/code", json={"phone": "13800138013"})
     code = code_response.json()["sms_code"]
     login_response = client.post("/api/auth/login/sms", json={
@@ -246,7 +235,7 @@ def test_sms_user_can_set_password_and_login_with_password() -> None:
     assert "access_token" in password_login_response.json()
 
 
-def test_login_then_empty_team_and_ledger_lists_are_available() -> None:
+def test_login_then_empty_team_and_ledger_lists_are_available(client) -> None:
     client.post("/api/auth/register", json={
         "username": "empty_init_user",
         "phone": "13800138005",
@@ -271,7 +260,7 @@ def test_login_then_empty_team_and_ledger_lists_are_available() -> None:
     assert ledgers_response.json() == []
 
 
-def test_me_with_token() -> None:
+def test_me_with_token(client) -> None:
     # register and get token
     reg = client.post("/api/auth/register", json={
         "username": "meuser",
@@ -289,12 +278,16 @@ def test_me_with_token() -> None:
     assert data["is_active"] is True
 
 
-def test_me_without_token() -> None:
+def test_me_without_token(client) -> None:
     response = client.get("/api/auth/me")
     assert response.status_code == 401
 
 
-def test_auth_context_for_unbound_user_requires_onboarding() -> None:
+def _get_db_session(client):
+    return client._SessionLocal
+
+
+def test_auth_context_for_unbound_user_requires_onboarding(client) -> None:
     response = client.post("/api/auth/register", json={
         "username": "context_unbound_user",
         "phone": "13800138020",
@@ -325,7 +318,7 @@ def test_auth_context_for_unbound_user_requires_onboarding() -> None:
     assert context["mock_boundaries"]["onboarding_data"] == "real_api"
 
 
-def test_sms_login_preserves_existing_user_context() -> None:
+def test_sms_login_preserves_existing_user_context(client) -> None:
     response = client.post("/api/auth/register", json={
         "username": "sms_context_user",
         "phone": "13800138022",
@@ -350,7 +343,7 @@ def test_sms_login_preserves_existing_user_context() -> None:
     )
     ledger_id = ledger_response.json()["id"]
 
-    db = SessionLocal()
+    db = _get_db_session(client)()
     try:
         db.add(Entity(
             entity_name="短信上下文会计主体",
@@ -381,7 +374,7 @@ def test_sms_login_preserves_existing_user_context() -> None:
 
 
 
-def test_auth_context_for_bound_user_can_enter_workspace() -> None:
+def test_auth_context_for_bound_user_can_enter_workspace(client) -> None:
     response = client.post("/api/auth/register", json={
         "username": "context_bound_user",
         "phone": "13800138021",
@@ -416,7 +409,7 @@ def test_auth_context_for_bound_user_can_enter_workspace() -> None:
     )
     assert project_response.status_code == 200
 
-    db = SessionLocal()
+    db = _get_db_session(client)()
     try:
         db.add(Entity(
             entity_name="上下文测试会计主体",

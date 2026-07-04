@@ -18,7 +18,7 @@ from app.db.session import Base, get_db
 from app.main import app
 from app.models.ledger import Ledger
 from app.models.team import Team
-from app.services.ledger_timeline_service import initialize_ledger_timeline
+from app.services.shared.ledger_timeline_service import initialize_ledger_timeline
 
 
 @pytest.fixture
@@ -177,8 +177,8 @@ def test_balance_sheet(client):
     # 资产 = 银行存款 900 + 应收账款 1130 = 2030
     # 负债 = 应交税费 180
     # 权益 = 实收资本 1000 + 留存利润（损益类暂不结转，仅作期末资产负债校验）
-    assert body["assets_total"] >= 0
-    assert body["liabilities_total"] >= 0
+    assert Decimal(body["assets_total"]) >= 0
+    assert Decimal(body["liabilities_total"]) >= 0
     # 注意：本测试期间未做"损益结转"，恒等式可能不严格平衡，仅校验字段存在
     assert "is_balanced" in body
 
@@ -193,14 +193,14 @@ def test_income_statement(client):
     assert resp.status_code == 200
     body = resp.json()
     # 营业收入 = 1000，营业成本 = 0，期间费用 = 100，所得税 = 50
-    assert body["operating_revenue"] == 1000
-    assert body["period_expenses"] == 100
+    assert body["operating_revenue"] == "1000.00"
+    assert body["period_expenses"] == "100.00"
     # 营业利润 = 1000 - 0 - 100 + 0(投资) = 900
-    assert body["operating_profit"] == 900
+    assert body["operating_profit"] == "900.00"
     # 总利润 = 900
-    assert body["total_profit"] == 900
+    assert body["total_profit"] == "900.00"
     # 净利润 = 900 - 50
-    assert body["net_profit"] == 850
+    assert body["net_profit"] == "850.00"
 
 
 def _seed_reclassification(TestingSessionLocal):
@@ -313,10 +313,10 @@ def test_balance_sheet_skips_non_standard_account_codes(client):
     assets = {row["account_code"]: row for row in body["assets"]}
     liabilities = {row["account_code"]: row for row in body["liabilities"]}
 
-    assert assets["9999"]["closing_debit"] == 200
+    assert assets["9999"]["closing_debit"] == "200.00"
     assert "reclassified_to_account_code" not in assets["9999"]
     assert assets["1122"]["reclassified_to_account_code"] == "2203"
-    assert liabilities["2203"]["closing_credit"] == 500
+    assert liabilities["2203"]["closing_credit"] == "500.00"
 
     adjustments = body["reclassification_adjustments"]
     assert all(item["from_account_code"] != "9999" for item in adjustments)
@@ -335,12 +335,12 @@ def test_balance_sheet_reclassifies_counterparty_reverse_balances(client):
     assets = {row["account_code"]: row for row in body["assets"]}
     liabilities = {row["account_code"]: row for row in body["liabilities"]}
 
-    assert assets["1122"]["closing_debit"] == 0
+    assert assets["1122"]["closing_debit"] == "0.00"
     assert assets["1122"]["reclassified_to_account_code"] == "2203"
-    assert liabilities["2203"]["closing_credit"] == 500
-    assert liabilities["2202"]["closing_credit"] == 0
+    assert liabilities["2203"]["closing_credit"] == "500.00"
+    assert liabilities["2202"]["closing_credit"] == "0.00"
     assert liabilities["2202"]["reclassified_to_account_code"] == "1123"
-    assert assets["1123"]["closing_debit"] == 300
+    assert assets["1123"]["closing_debit"] == "300.00"
 
     adjustments = body["reclassification_adjustments"]
     assert {item["from_account_code"] for item in adjustments} == {"1122", "2202"}

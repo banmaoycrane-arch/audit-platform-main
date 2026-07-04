@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from typing import Any
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -18,7 +19,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 if settings.database_url.startswith("sqlite"):
 
     @event.listens_for(engine, "connect")
-    def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:
+    def _set_sqlite_pragma(dbapi_connection: Any, _connection_record: Any) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")

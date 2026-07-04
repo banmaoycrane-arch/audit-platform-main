@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
-def fix_source_file_ledger_ids():
+def fix_source_file_ledger_ids() -> None:
     """修复 SourceFile 表中 ledger_id 为空的问题"""
     from app.db.session import SessionLocal
     from app.db.models import SourceFile, ImportJob
@@ -78,7 +78,7 @@ def fix_source_file_ledger_ids():
         db.close()
 
 
-def fix_accounting_entry_sources():
+def fix_accounting_entry_sources() -> None:
     """修复 AccountingEntry 表中 entry_source 为空的问题"""
     from app.db.session import SessionLocal
     from app.db.models import AccountingEntry
@@ -131,7 +131,7 @@ def fix_accounting_entry_sources():
         db.close()
 
 
-def main():
+def main() -> None:
     print("=" * 60)
     print("开始修复历史数据...")
     print("=" * 60)

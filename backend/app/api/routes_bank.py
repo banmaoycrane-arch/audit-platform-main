@@ -1,3 +1,4 @@
+from typing import Any
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -7,8 +8,8 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_ledger, get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.services import bank_service
-from app.services import bank_reconciliation_service
+from app.services.basic_data import bank_service
+from app.services.basic_data import bank_reconciliation_service
 
 router = APIRouter(prefix="/api/bank", tags=["bank"])
 
@@ -135,7 +136,7 @@ def bank_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     ledger_id: int = Depends(require_ledger),
-) -> dict:
+) -> dict[str, Any]:
     return bank_service.get_summary(db, ledger_id)
 
 
@@ -144,7 +145,7 @@ def auto_reconcile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     ledger_id: int = Depends(require_ledger),
-) -> dict:
+) -> dict[str, Any]:
     return bank_service.auto_reconcile(db, ledger_id)
 
 

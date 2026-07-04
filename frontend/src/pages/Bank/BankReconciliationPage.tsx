@@ -28,6 +28,7 @@ import {
   type BankReconcileResult,
 } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
+import { formatAmount } from '../../money'
 
 const { Title, Paragraph } = Typography
 
@@ -167,7 +168,7 @@ export function BankReconciliationPage() {
       title: '金额',
       dataIndex: 'amount',
       key: 'amount',
-      render: (value: number) => `¥ ${Number(value).toLocaleString()}`,
+      render: (value: number) => formatAmount(value),
     },
     { title: '摘要', dataIndex: 'summary', key: 'summary', render: (v: string | null) => v || '-' },
     {
@@ -194,20 +195,20 @@ export function BankReconciliationPage() {
       title: '调节后银行余额',
       dataIndex: 'adjusted_statement_balance',
       key: 'adjusted_statement_balance',
-      render: (value: number) => `¥ ${Number(value).toLocaleString()}`,
+      render: (value: number) => formatAmount(value),
     },
     {
       title: '调节后账面余额',
       dataIndex: 'adjusted_book_balance',
       key: 'adjusted_book_balance',
-      render: (value: number) => `¥ ${Number(value).toLocaleString()}`,
+      render: (value: number) => formatAmount(value),
     },
     {
       title: '差异',
       dataIndex: 'difference',
       key: 'difference',
       render: (value: number) => (
-        <Tag color={Math.abs(value) < 0.01 ? 'success' : 'error'}>¥ {Number(value).toLocaleString()}</Tag>
+        <Tag color={Math.abs(value) < 0.01 ? 'success' : 'error'}>{formatAmount(value)}</Tag>
       ),
     },
     {
@@ -241,7 +242,7 @@ export function BankReconciliationPage() {
       title: '金额',
       dataIndex: 'amount',
       key: 'amount',
-      render: (value: number) => `¥ ${Number(value).toLocaleString()}`,
+      render: (value: number) => formatAmount(value),
     },
     { title: '摘要', dataIndex: 'summary', key: 'summary', render: (v: string | null) => v || '-' },
     { title: '凭证号', dataIndex: 'note', key: 'note', render: (v: string | null) => v || '-' },
@@ -305,20 +306,20 @@ export function BankReconciliationPage() {
           )}
           <Descriptions bordered size="small" column={{ xs: 1, sm: 2, md: 3 }}>
             <Descriptions.Item label="银行对账单余额">
-              ¥ {selectedDraft.statement_balance.toLocaleString()}
+              {formatAmount(selectedDraft.statement_balance)}
             </Descriptions.Item>
             <Descriptions.Item label="企业账面余额">
-              ¥ {selectedDraft.book_balance.toLocaleString()}
+              {formatAmount(selectedDraft.book_balance)}
             </Descriptions.Item>
             <Descriptions.Item label="调节后银行余额">
-              ¥ {selectedDraft.adjusted_statement_balance.toLocaleString()}
+              {formatAmount(selectedDraft.adjusted_statement_balance)}
             </Descriptions.Item>
             <Descriptions.Item label="调节后账面余额">
-              ¥ {selectedDraft.adjusted_book_balance.toLocaleString()}
+              {formatAmount(selectedDraft.adjusted_book_balance)}
             </Descriptions.Item>
             <Descriptions.Item label="差异">
               <Tag color={Math.abs(selectedDraft.difference) < 0.01 ? 'success' : 'error'}>
-                ¥ {selectedDraft.difference.toLocaleString()}
+                {formatAmount(selectedDraft.difference)}
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="状态">

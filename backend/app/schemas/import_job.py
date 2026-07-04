@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -73,4 +73,4 @@ class DayBookReportRead(BaseModel):
     unbalanced_count: int
     completeness_score: float
     missing_voucher_nos: list[str]
-    unbalanced_vouchers: list[dict]
+    unbalanced_vouchers: list[dict[str, Any]]

@@ -1,36 +1,40 @@
+import Decimal from 'decimal.js'
+
 /** 传统记账凭证面额分列：亿千百十万千百十元角分 */
 export const DENOM_LABELS = ['亿', '千', '百', '十', '万', '千', '百', '十', '元', '角', '分'] as const
 
 export const DENOM_CELL_COUNT = DENOM_LABELS.length
 
-export function roundAmount(amount: number): number {
-  return Math.round(amount * 100) / 100
+export function roundAmount(amount: number | Decimal): Decimal {
+  const decimal = amount instanceof Decimal ? amount : new Decimal(amount)
+  return decimal.toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
 }
 
 /** 将金额转为 11 位面额字符（空位为空字符串） */
-export function amountToDenomCells(amount: number): string[] {
-  const cents = Math.max(0, Math.round(roundAmount(amount) * 100))
+export function amountToDenomCells(amount: number | Decimal): string[] {
+  const decimalAmount = roundAmount(amount)
+  const cents = Math.max(0, decimalAmount.times(100).toNumber())
   const padded = cents.toString().padStart(DENOM_CELL_COUNT, '0')
   return padded.split('').map((digit, index) => (digit === '0' && index < padded.length - String(cents).length ? '' : digit))
 }
 
 /** 面额字符转金额（元） */
-export function denomCellsToAmount(cells: string[]): number {
+export function denomCellsToAmount(cells: string[]): Decimal {
   const digits = cells.map(cell => (cell && /\d/.test(cell) ? cell : '0')).join('')
   const cents = Number.parseInt(digits, 10) || 0
   return roundAmount(cents / 100)
 }
 
 /** 合计行中文大写金额（简化版） */
-export function amountToChineseUpper(amount: number): string {
-  const value = roundAmount(amount)
-  if (value === 0) return '零元整'
+export function amountToChineseUpper(amount: number | Decimal): string {
+  const decimalValue = roundAmount(amount)
+  if (decimalValue.isZero()) return '零元整'
 
   const digits = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖']
   const units = ['', '拾', '佰', '仟']
   const bigUnits = ['', '万', '亿']
 
-  const [intPart, decPart = '00'] = value.toFixed(2).split('.')
+  const [intPart, decPart = '00'] = decimalValue.toFixed(2).split('.')
   let intNum = Number.parseInt(intPart, 10)
   let result = ''
 
@@ -53,12 +57,12 @@ export function amountToChineseUpper(amount: number): string {
           }
           temp = Math.floor(temp / 10)
         }
-        sections.unshift(`${sectionText.replace(/零+$/g, '')}${bigUnits[sectionIndex]}`)
+        sections.unshift(`${sectionText.replace(/零+$/, '')}${bigUnits[sectionIndex]}`)
       }
       intNum = Math.floor(intNum / 10000)
       sectionIndex += 1
     }
-    result = sections.join('').replace(/零+/g, '零').replace(/零$/g, '')
+    result = sections.join('').replace(/零+/g, '零').replace(/零$/, '')
   }
 
   const jiao = Number.parseInt(decPart[0] || '0', 10)

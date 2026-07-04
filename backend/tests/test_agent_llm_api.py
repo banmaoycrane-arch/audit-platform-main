@@ -1,7 +1,7 @@
 from uuid import uuid4
 
-from app.services.agent_service import chat_with_agent
-from app.services.llm_client_service import LLMResult
+from app.services.agent.agent_service import chat_with_agent
+from app.services.agent.llm_client_service import LLMResult
 
 
 class FakeLLMClient:

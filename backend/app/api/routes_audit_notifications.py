@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.services import audit_notification_service
+import app.services.audit.audit_notification_service as audit_notification_service
 
 router = APIRouter(prefix="/api/audit/notifications", tags=["audit-notifications"])
 

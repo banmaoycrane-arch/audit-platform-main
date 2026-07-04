@@ -25,7 +25,7 @@ def test_module_import():
     验证点：所有类和函数可正确导入
     """
     # 导入数据结构
-    from app.services.parser_engine import (
+    from app.services.doc_parsing.parser_engine import (
         FileFormat,
         DocumentType,
         DocumentSubType,
@@ -41,19 +41,19 @@ def test_module_import():
     )
     
     # 导入格式识别层
-    from app.services.parser_engine import (
+    from app.services.doc_parsing.parser_engine import (
         FormatRecognizer,
         recognize_file_format,
     )
     
     # 导入类型判断层
-    from app.services.parser_engine import (
+    from app.services.doc_parsing.parser_engine import (
         DocumentTypeClassifier,
         classify_document_type,
     )
     
     # 导入引擎调度层
-    from app.services.parser_engine import (
+    from app.services.doc_parsing.parser_engine import (
         ParserEngineDispatcher,
         parse_file,
     )
@@ -79,7 +79,7 @@ def test_file_format_enum():
     
     验证点：所有预定义的文件格式类型存在
     """
-    from app.services.parser_engine import FileFormat
+    from app.services.doc_parsing.parser_engine import FileFormat
     
     # 验证 PDF 类格式
     assert FileFormat.PDF_TEXT.value == "pdf_text"
@@ -109,7 +109,7 @@ def test_document_type_enum():
     
     验证点：所有预定义的文档类型存在
     """
-    from app.services.parser_engine import DocumentType
+    from app.services.doc_parsing.parser_engine import DocumentType
     
     # 验证现有类型
     assert DocumentType.INVOICE.value == "invoice"
@@ -134,7 +134,7 @@ def test_document_sub_type_enum():
     
     验证点：各主类型下的细分类型定义完整
     """
-    from app.services.parser_engine import DocumentSubType
+    from app.services.doc_parsing.parser_engine import DocumentSubType
     
     # 验证发票细分类型
     assert DocumentSubType.INVOICE_SPECIAL.value == "invoice_special"
@@ -164,7 +164,7 @@ def test_engine_type_enum():
     
     验证点：所有引擎类型定义存在
     """
-    from app.services.parser_engine import EngineType
+    from app.services.doc_parsing.parser_engine import EngineType
     
     assert EngineType.RULE.value == "rule"
     assert EngineType.LLM.value == "llm"
@@ -179,7 +179,7 @@ def test_parse_result_dataclass():
     
     验证点：所有字段定义存在，可正确创建实例
     """
-    from app.services.parser_engine import ParseResult, DocumentType, EngineType
+    from app.services.doc_parsing.parser_engine import ParseResult, DocumentType, EngineType
     from datetime import datetime
     
     # 创建测试实例
@@ -215,7 +215,7 @@ def test_llm_comparison_result_dataclass():
     
     验证点：所有字段定义存在，可正确创建实例
     """
-    from app.services.parser_engine import (
+    from app.services.doc_parsing.parser_engine import (
         LLMComparisonResult,
         ParseResult,
         DocumentType,
@@ -256,7 +256,7 @@ def test_format_recognizer_pdf():
     
     验证点：PDF文件后缀识别正确
     """
-    from app.services.parser_engine import FormatRecognizer
+    from app.services.doc_parsing.parser_engine import FormatRecognizer
     
     recognizer = FormatRecognizer()
     
@@ -276,7 +276,7 @@ def test_format_recognizer_excel():
     
     验证点：Excel文件后缀识别正确
     """
-    from app.services.parser_engine import FormatRecognizer
+    from app.services.doc_parsing.parser_engine import FormatRecognizer
     
     recognizer = FormatRecognizer()
     
@@ -290,8 +290,8 @@ def test_suffix_to_format_mapping():
     
     验证点：所有预定义的后缀映射正确
     """
-    from app.services.parser_engine.format_recognizer import SUFFIX_TO_FORMAT
-    from app.services.parser_engine import FileFormat
+    from app.services.doc_parsing.parser_engine.format_recognizer import SUFFIX_TO_FORMAT
+    from app.services.doc_parsing.parser_engine import FileFormat
     
     # 验证 PDF 类映射
     assert SUFFIX_TO_FORMAT[".pdf"] == FileFormat.PDF_TEXT
@@ -322,8 +322,8 @@ def test_document_type_classifier_keywords():
     
     验证点：各文档类型的关键词定义正确
     """
-    from app.services.parser_engine.document_type_classifier import TYPE_KEYWORDS
-    from app.services.parser_engine import DocumentType
+    from app.services.doc_parsing.parser_engine.document_type_classifier import TYPE_KEYWORDS
+    from app.services.doc_parsing.parser_engine import DocumentType
     
     # 验证发票关键词
     invoice_keywords = TYPE_KEYWORDS.get(DocumentType.INVOICE, {})
@@ -350,8 +350,8 @@ def test_format_to_candidate_types_mapping():
     
     验证点：各文件格式对应的候选类型正确
     """
-    from app.services.parser_engine.document_type_classifier import FORMAT_TO_CANDIDATE_TYPES
-    from app.services.parser_engine import FileFormat, DocumentType
+    from app.services.doc_parsing.parser_engine.document_type_classifier import FORMAT_TO_CANDIDATE_TYPES
+    from app.services.doc_parsing.parser_engine import FileFormat, DocumentType
     
     # 验证 OFD/XML → 发票
     assert DocumentType.INVOICE in FORMAT_TO_CANDIDATE_TYPES[FileFormat.OFD]
@@ -375,7 +375,7 @@ def test_document_type_classifier_class():
     
     验证点：类和方法存在
     """
-    from app.services.parser_engine import DocumentTypeClassifier
+    from app.services.doc_parsing.parser_engine import DocumentTypeClassifier
     
     classifier = DocumentTypeClassifier()
     
@@ -405,7 +405,7 @@ def test_parser_engine_dispatcher_class():
     
     验证点：类和方法存在
     """
-    from app.services.parser_engine import ParserEngineDispatcher
+    from app.services.doc_parsing.parser_engine import ParserEngineDispatcher
     
     dispatcher = ParserEngineDispatcher()
     
@@ -465,7 +465,7 @@ def test_performance_monitor_class():
     3. 可以获取统计数据
     4. 可以重置统计数据
     """
-    from app.services.parser_engine import ParserPerformanceMonitor
+    from app.services.doc_parsing.parser_engine import ParserPerformanceMonitor
     
     monitor = ParserPerformanceMonitor()
     
@@ -554,9 +554,9 @@ def test_performance_monitor_functions():
     1. get_performance_stats 函数可用
     2. reset_performance_stats 函数可用
     """
-    from app.services.parser_engine import get_performance_stats
-    from app.services.parser_engine import reset_performance_stats
-    from app.services.parser_engine import performance_monitor
+    from app.services.doc_parsing.parser_engine import get_performance_stats
+    from app.services.doc_parsing.parser_engine import reset_performance_stats
+    from app.services.doc_parsing.parser_engine import performance_monitor
     
     # 验证函数存在且可调用
     stats = get_performance_stats()

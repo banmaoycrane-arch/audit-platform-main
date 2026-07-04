@@ -1,4 +1,6 @@
 from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,10 +29,10 @@ class ImportJob(Base):
     entry_count: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     # draft_data: 保存解析失败时的原始数据，供草稿页面展示和重试
-    draft_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    draft_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     audit_scope_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
     audit_period_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_periods.id"), nullable=True)
-    audit_account_codes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    audit_account_codes: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -80,7 +82,7 @@ class ExecutionAuditLog(Base):
     risk_level: Mapped[str] = mapped_column(String(40), default="low")
     approval_required: Mapped[bool] = mapped_column(Boolean, default=False)
     approval_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    input_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    input_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     before_snapshot_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     after_snapshot_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     model_provider: Mapped[str | None] = mapped_column(String(80), nullable=True)
@@ -105,7 +107,7 @@ class AgentApproval(Base):
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True, index=True)
     ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
     approval_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    request_args_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    request_args_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     confirmation_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -260,7 +262,7 @@ class EntityVersion(Base):
     effective_date: Mapped[date] = mapped_column(Date)
     
     # 变更内容（JSON格式）
-    changes: Mapped[dict] = mapped_column(JSON)
+    changes: Mapped[dict[str, Any]] = mapped_column(JSON)
     
     # 变更原因
     change_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -400,8 +402,19 @@ class AccountingEntry(Base):
     voucher_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
     voucher_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # 原始导入的科目编码/名称，保留审计追溯
     account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    # 解析后的归一化科目编码/名称
+    # 规则：一级科目保留；税法/准则强制二级科目保留完整层级；
+    # 其余原二级及以下科目段转为 EntryTag
+    resolved_account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    resolved_account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    # 是否需要LLM进一步解析辅助核算维度
+    requires_llm_resolution: Mapped[bool] = mapped_column(Boolean, default=False)
 
     voucher: Mapped["Voucher | None"] = relationship("Voucher", back_populates="entries")
     tags: Mapped[list["EntryTag"]] = relationship("EntryTag", back_populates="entry")
@@ -416,11 +429,11 @@ class AccountingEntry(Base):
     # 来源标记：区分自动生成与手工录入
     entry_source: Mapped[str] = mapped_column(String(20), default="auto")  # "auto" | "manual"
     
-    debit_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
-    credit_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    debit_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    credit_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
     counterparty: Mapped[str | None] = mapped_column(String(200), nullable=True)
     counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)
-    original_row: Mapped[dict] = mapped_column(JSON, default=dict)
+    original_row: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     normalized_text: Mapped[str] = mapped_column(Text, default="")
     entry_line_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     review_status: Mapped[str] = mapped_column(String(20), default="draft")
@@ -476,8 +489,8 @@ class PeriodSnapshot(Base):
     amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     quantity: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="CNY")
-    source_scope: Mapped[dict] = mapped_column(JSON, default=dict)
-    generation_params: Mapped[dict] = mapped_column(JSON, default=dict)
+    source_scope: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    generation_params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     snapshot_status: Mapped[str] = mapped_column(String(40), default="valid")
     generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     invalidated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -644,7 +657,7 @@ class AccountingUnitVersion(Base):
     effective_date: Mapped[date] = mapped_column(Date)
     
     # 变更内容
-    changes: Mapped[dict] = mapped_column(JSON)
+    changes: Mapped[dict[str, Any]] = mapped_column(JSON)
     change_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     # 变更人
@@ -687,7 +700,7 @@ class Industry(Base):
     granularity_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     # 支持的核算单位类型
-    supported_unit_types: Mapped[list] = mapped_column(JSON, default=list)
+    supported_unit_types: Mapped[list[Any]] = mapped_column(JSON, default=list)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -840,8 +853,8 @@ class TransactionOperation(Base):
     entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     
     # 操作详情
-    operation_details: Mapped[dict] = mapped_column(JSON)
-    rollback_details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    operation_details: Mapped[dict[str, Any]] = mapped_column(JSON)
+    rollback_details: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     
     # 状态
     status: Mapped[str] = mapped_column(String(50), default="pending")  # pending/succeeded/failed/rolled_back
@@ -979,6 +992,18 @@ class TagMappingRule(Base):
     created_by_user: Mapped["User | None"] = relationship("User")
 
 
+class CoaCodeRule(Base):
+    __tablename__ = "coa_code_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), default="默认规则")
+    version: Mapped[str] = mapped_column(String(40), default="1.0.0")
+    rule_content: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ChartOfAccounts(Base):
     __tablename__ = "chart_of_accounts"
 
@@ -1035,8 +1060,8 @@ class OpeningBalance(Base):
     ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
     period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id"))
     account_code: Mapped[str] = mapped_column(String(20), index=True)
-    debit_balance: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
-    credit_balance: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    debit_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    credit_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     currency: Mapped[str] = mapped_column(String(10), default="CNY")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -1105,7 +1130,7 @@ class AuditReport(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"), nullable=False)
-    report_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    report_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -1126,9 +1151,9 @@ class AuditFinding(Base):
     audit_conclusion: Mapped[str] = mapped_column(Text, default="")
     risk_statement: Mapped[str] = mapped_column(Text, default="")
     recommendation: Mapped[str] = mapped_column(Text, default="")
-    related_entries: Mapped[list] = mapped_column(JSON, default=list)
-    related_files: Mapped[list] = mapped_column(JSON, default=list)
-    finding_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    related_entries: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    related_files: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    finding_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(40), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -1163,7 +1188,7 @@ class BusinessCycle(Base):
     completeness: Mapped[float] = mapped_column(Float, default=0.0)
     
     # 风险标记
-    risk_flags: Mapped[dict] = mapped_column(JSON, default=dict)
+    risk_flags: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -1198,7 +1223,7 @@ class CycleBreak(Base):
     
     severity: Mapped[str] = mapped_column(String(40))  # high/medium/low
     description: Mapped[str] = mapped_column(Text)
-    affected_steps: Mapped[list] = mapped_column(JSON, default=list)
+    affected_steps: Mapped[list[Any]] = mapped_column(JSON, default=list)
     
     # 审计建议
     suggestion: Mapped[str] = mapped_column(Text)
@@ -1222,16 +1247,16 @@ class InternalControl(Base):
     objective: Mapped[str] = mapped_column(Text)
     
     # 触发条件
-    trigger_conditions: Mapped[list] = mapped_column(JSON, default=list)
+    trigger_conditions: Mapped[list[Any]] = mapped_column(JSON, default=list)
     
     # 证据要求
-    evidence_required: Mapped[list] = mapped_column(JSON, default=list)
+    evidence_required: Mapped[list[Any]] = mapped_column(JSON, default=list)
     
     # 频率要求
     frequency: Mapped[str] = mapped_column(String(50))  # per_transaction/daily/monthly
     
     # 行业适用性
-    industries: Mapped[list] = mapped_column(JSON, default=list)
+    industries: Mapped[list[Any]] = mapped_column(JSON, default=list)
     company_size: Mapped[str] = mapped_column(String(50))  # large/medium/small
     
     # 风险关联
@@ -1252,8 +1277,8 @@ class ControlTest(Base):
     
     # 测试结果
     is_executed: Mapped[bool] = mapped_column(Boolean, default=False)
-    evidence_found: Mapped[list] = mapped_column(JSON, default=list)
-    evidence_missing: Mapped[list] = mapped_column(JSON, default=list)
+    evidence_found: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    evidence_missing: Mapped[list[Any]] = mapped_column(JSON, default=list)
     execution_quality: Mapped[str] = mapped_column(String(50))  # full/partial/none
     
     # 风险评估
@@ -1282,7 +1307,7 @@ class ControlAlert(Base):
     alert_level: Mapped[str] = mapped_column(String(40))
     business_type: Mapped[str] = mapped_column(String(50))
     affected_transaction: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    evidence_involved: Mapped[list] = mapped_column(JSON, default=list)
+    evidence_involved: Mapped[list[Any]] = mapped_column(JSON, default=list)
     
     problem_type: Mapped[str] = mapped_column(String(50))  # missing_evidence/incomplete_evidence/delayed_evidence
     description: Mapped[str] = mapped_column(Text)
@@ -1325,7 +1350,7 @@ class Contract(Base):
     tax_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
     
     # 履约义务（收入准则）
-    performance_obligations: Mapped[dict] = mapped_column(JSON, default=dict)
+    performance_obligations: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     transaction_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
     standalone_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
     
@@ -1336,7 +1361,7 @@ class Contract(Base):
     
     # 审计标记
     revenue_recognition_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # point_in_time/over_time
-    risk_flags: Mapped[dict] = mapped_column(JSON, default=dict)
+    risk_flags: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     
     # 账簿与往来归属
     ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
@@ -1396,7 +1421,7 @@ class ContractPerformanceObligation(Base):
     revenue_pending: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
     
     # 审计标记
-    risk_flags: Mapped[dict] = mapped_column(JSON, default=dict)
+    risk_flags: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     audit_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -1424,6 +1449,33 @@ class ContractPaymentTerm(Base):
     paid_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ContractSeal(Base):
+    """合同印章识别结果表。"""
+
+    __tablename__ = "contract_seals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id"), index=True)
+    source_file_id: Mapped[int | None] = mapped_column(ForeignKey("source_files.id"), nullable=True)
+    page_no: Mapped[int] = mapped_column(Integer, default=1)
+
+    # 印章在原始页面中的像素位置 (x1, y1, x2, y2)
+    bbox: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # 标准化印章子图存储路径
+    seal_image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # 按环形角度重组后的识别文字
+    recognized_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 每个文字项的坐标与置信度（JSON 列表）
+    text_items: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=list)
+    # 印章类型初判：contract_seal / finance_seal / legal_person_seal / unknown
+    seal_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    detection_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class Invoice(Base):
@@ -1726,8 +1778,53 @@ class FieldAliasMapping(Base):
     # 置信度
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+# ==================== 文档解析异步任务表 ====================
+
+class DocumentParsingTask(Base):
+    __tablename__ = "document_parsing_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     
+    # 任务标识
+    task_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    task_type: Mapped[str] = mapped_column(String(50))  # single_file/batch_files/embedding/indexing
+    
+    # 关联上下文
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True)
+    
+    # 任务状态
+    status: Mapped[str] = mapped_column(String(40), default="pending")  # pending/running/completed/failed/canceled
+    progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    
+    # 文件信息
+    total_files: Mapped[int] = mapped_column(Integer, default=0)
+    processed_files: Mapped[int] = mapped_column(Integer, default=0)
+    failed_files: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # 输入参数
+    input_params: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    
+    # 输出结果
+    output_result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # 时间信息
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    
+    # 重试信息
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_retries: Mapped[int] = mapped_column(Integer, default=3)
+    
+    __table_args__ = (
+        Index("ix_parsing_task_org_status", "organization_id", "status"),
+        Index("ix_parsing_task_ledger_status", "ledger_id", "status"),
+    )
 
 
 # ==================== 文档标签表 ====================
@@ -1754,6 +1851,33 @@ class DocumentTag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class DocumentTagHistory(Base):
+    """文档标签变更历史记录。"""
+    __tablename__ = "document_tag_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_tag_id: Mapped[int] = mapped_column(Integer, index=True)
+    document_id: Mapped[int] = mapped_column(Integer)
+    document_type: Mapped[str] = mapped_column(String(50))
+
+    action: Mapped[str] = mapped_column(String(20))  # create/update/delete
+
+    before_tag: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    before_tag_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    before_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    before_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    after_tag: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    after_tag_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    after_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    after_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    operator: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class BankAccount(Base):
     __tablename__ = "bank_accounts"
 
@@ -1763,8 +1887,8 @@ class BankAccount(Base):
     account_no: Mapped[str] = mapped_column(String(100))
     account_name: Mapped[str] = mapped_column(String(200))
     coa_account_code: Mapped[str] = mapped_column(String(40), default="1002")
-    opening_balance: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
-    current_balance: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    opening_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    current_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -1777,7 +1901,7 @@ class BankTransaction(Base):
     ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
     transaction_date: Mapped[date] = mapped_column(Date)
     direction: Mapped[str] = mapped_column(String(10))  # in / out
-    amount: Mapped[float] = mapped_column(Numeric(18, 2))
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     counterparty: Mapped[str | None] = mapped_column(String(200), nullable=True)
     reconciliation_status: Mapped[str] = mapped_column(String(20), default="unmatched")
@@ -1794,11 +1918,11 @@ class BankReconciliation(Base):
     ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
     bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
     period_end: Mapped[date] = mapped_column(Date)
-    statement_balance: Mapped[float] = mapped_column(Numeric(18, 2))
-    book_balance: Mapped[float] = mapped_column(Numeric(18, 2))
-    adjusted_statement_balance: Mapped[float] = mapped_column(Numeric(18, 2))
-    adjusted_book_balance: Mapped[float] = mapped_column(Numeric(18, 2))
-    difference: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    statement_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    book_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    adjusted_statement_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    adjusted_book_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    difference: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     status: Mapped[str] = mapped_column(String(20), default="draft")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -1815,7 +1939,7 @@ class BankReconciliationItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     reconciliation_id: Mapped[int] = mapped_column(ForeignKey("bank_reconciliations.id"), index=True)
     item_type: Mapped[str] = mapped_column(String(40))
-    amount: Mapped[float] = mapped_column(Numeric(18, 2))
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
     bank_transaction_id: Mapped[int | None] = mapped_column(ForeignKey("bank_transactions.id"), nullable=True)
     entry_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_entries.id"), nullable=True)
@@ -1833,10 +1957,10 @@ class CounterpartyConfirmation(Base):
     counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True, index=True)
     counterparty_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     balance_type: Mapped[str] = mapped_column(String(40))
-    book_balance: Mapped[float] = mapped_column(Numeric(18, 2))
-    confirmation_amount: Mapped[float] = mapped_column(Numeric(18, 2))
-    reply_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    difference: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    book_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    confirmation_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    reply_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    difference: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     replied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -1888,7 +2012,7 @@ class WorkpaperVersion(Base):
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     template_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     sheet_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    workbook_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    workbook_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     generated_from: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -1903,7 +2027,7 @@ class ProjectWorkflowConfig(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), unique=True, index=True)
     granularity: Mapped[str] = mapped_column(String(20), default="standard")
-    enabled_procedures: Mapped[dict] = mapped_column(JSON, default=list)
+    enabled_procedures: Mapped[list[str]] = mapped_column(JSON, default=list)
     auto_link_workpaper: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -1957,7 +2081,7 @@ class AuditTask(Base):
     # 人员
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    reviewer_ids: Mapped[list | None] = mapped_column(JSON, default=list)
+    reviewer_ids: Mapped[list[Any] | None] = mapped_column(JSON, default=list)
 
     # 关联
     related_finding_id: Mapped[int | None] = mapped_column(ForeignKey("audit_findings.id"), nullable=True)
@@ -1971,7 +2095,7 @@ class AuditTask(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # 标签（对应 GitHub Label）
-    labels: Mapped[list | None] = mapped_column(JSON, default=list)
+    labels: Mapped[list[Any] | None] = mapped_column(JSON, default=list)
 
 
 class AuditWorkBranch(Base):
@@ -2090,7 +2214,7 @@ class AuditComment(Base):
 
     # 评论内容
     content: Mapped[str] = mapped_column(Text)
-    mention_user_ids: Mapped[list | None] = mapped_column(JSON, default=list)
+    mention_user_ids: Mapped[list[Any] | None] = mapped_column(JSON, default=list)
     marker_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     sheet_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     cell_ref: Mapped[str | None] = mapped_column(String(40), nullable=True)
@@ -2147,7 +2271,22 @@ class AuditMilestone(Base):
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     # 快照信息（归档时的版本快照）
-    snapshot_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    snapshot_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+# 注册 app.models 下的模型，确保与 app.db.models 中 relationship 引用的类位于同一 Base metadata。
+# 这些模型在运行时仅依赖 app.db.session.Base，因此放在文件末尾可避免循环导入。
+from app.models import (  # noqa: E402,F401
+    BindingRequest,
+    Ledger,
+    LifecycleLog,
+    Project,
+    ProjectLedger,
+    ProjectMember,
+    Team,
+    User,
+    UserLedgerAuth,
+)

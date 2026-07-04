@@ -9,7 +9,7 @@ from app.models.ledger import Ledger
 from app.models.project import Project
 from app.models.team import Team
 from app.models.user import User
-from app.services import platform_permission_service
+from app.services.auth import platform_permission_service
 from app.api.routes_binding_requests import attach_display_names, build_binding_request_response, BindingRequestResponse
 
 router = APIRouter(prefix="/api/super-admin", tags=["super-admin"])

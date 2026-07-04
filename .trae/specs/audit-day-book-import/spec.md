@@ -47,31 +47,75 @@
 
 系统 SHALL 支持审计模式下的序时簿导入，与凭证导入在语义和处理逻辑上区分。
 
-#### Scenario: 创建序时簿导入任务
+### Requirement: 科目层级解析与Tag生成
 
-- **WHEN** 用户在审计模式 Step3 选择「序时簿导入」Tab 并上传文件
-- **THEN** 前端创建导入任务时传入 `source_type="audit_day_book"`
-- **AND** 后端 `ImportJob.source_type` 存储为 `audit_day_book`
+系统 SHALL 对导入的科目编码/名称进行解析，按"一级科目保留、强制二级科目保留、其余下级段转Tag"原则处理。
 
-#### Scenario: 序时簿解析与分组
+#### Scenario: 一级科目保留
 
-- **WHEN** 后端处理 `source_type=audit_day_book` 的导入任务
-- **THEN** 按 `voucher_no` 将多行分录分组为凭证
-- **AND** 每个凭证的借贷金额必须平衡（借方合计 = 贷方合计）
-- **AND** 不平衡的凭证标记为异常，生成检测报告
+- **WHEN** 导入科目编码为4位（如"1002银行存款"）
+- **THEN** `resolved_account_code` 和 `resolved_account_name` 保留原值
 
-#### Scenario: 序时簿完整性检测
+#### Scenario: 强制二级科目保留完整层级
 
-- **WHEN** 序时簿导入完成
-- **THEN** 系统检测凭证号的连续性
-- **AND** 识别缺失的凭证号（跳号）
-- **AND** 生成跳号检测报告，包含：起始凭证号、结束凭证号、缺失凭证号列表
+- **WHEN** 导入科目属于税法/会计准则强制要求的二级科目（如"2221.01.01应交税费-应交增值税-进项税额"）
+- **THEN** `resolved_account_code` 和 `resolved_account_name` 保留完整层级编码和名称
+- **AND** 不生成 EntryTag
 
-#### Scenario: 序时簿检测报告展示
+#### Scenario: 辅助核算维度转EntryTag
 
-- **WHEN** 用户完成序时簿导入
-- **THEN** 前端展示序时簿检测报告
-- **AND** 报告包含：凭证总数、跳号数量、不平衡凭证数量、完整性评分
+- **WHEN** 导入科目存在下级段（如"1122.01应收账款-A客户"、"6001.01主营业务收入-产品X"）
+- **THEN** `resolved_account_code` 取一级科目（如"1122"、"6001"）
+- **AND** 根据科目类型生成对应类别 EntryTag（customer、product、supplier、department 等）
+
+#### Scenario: 摘要辅助识别Tag
+
+- **WHEN** 导入科目为一级科目，但摘要中包含辅助核算关键词（如"行政部"、"项目A"、"北京"）
+- **THEN** 系统从摘要中提取部门、项目、区域等维度信息
+- **AND** 生成对应类别 EntryTag，标记 `tag_source="llm_suggested"`，`confidence=0.6`
+
+#### Scenario: LLM辅助识别标记（Phase 2）
+
+- **WHEN** 科目被扁平化但未能通过规则识别辅助核算维度（`requires_llm_resolution=true`）
+- **AND** 分录属于往来类/成本费用类科目
+- **THEN** 系统标记该分录需LLM进一步处理
+- **AND** 记录 `requires_llm_resolution=true` 便于后续复盘和分批处理
+
+### Requirement: 往来单位自动识别与关联
+
+系统 SHALL 从科目下级段或对方单位字段中识别往来单位，并自动创建或关联 Counterparty 记录。
+
+#### Scenario: 从科目段识别往来单位
+
+- **WHEN** 导入科目为"1122应收账款-A客户"或"2202应付账款-供应商B"
+- **THEN** 自动提取"客户A"或"供应商B"作为往来单位名称
+- **AND** 创建或关联 Counterparty 记录
+- **AND** 设置 `counterparty_id`
+
+#### Scenario: 从对方单位字段识别
+
+- **WHEN** 导入数据包含"对方单位"字段（如"客户A"）
+- **THEN** 使用对方单位字段值创建或关联 Counterparty
+- **AND** 设置 `counterparty_id`
+
+### Requirement: EntryTag向量同步
+
+系统 SHALL 在分录和Tag创建完成后，将标记为 `vector_pending=true` 的 EntryTag 同步到向量数据库。
+
+#### Scenario: 向量同步成功
+
+- **WHEN** 向量数据库可用
+- **THEN** 同步成功后将 `vector_pending` 更新为 `false`
+
+#### Scenario: 向量同步失败不阻塞主流程
+
+- **WHEN** 向量数据库不可用
+- **THEN** 记录同步失败日志
+- **AND** 保留 `vector_pending=true`，不影响导入流程
+
+### Requirement: TagCategory自动创建
+
+系统 SHALL 在导入过程中自动创建所需的 TagCategory（如 customer、supplier、product、department 等），标记为系统分类（`is_system=true`）。
 
 ## MODIFIED Requirements
 
@@ -83,8 +127,39 @@
 
 `process_import_job` SHALL 根据 `job.source_type` 选择处理分支：
 - `voucher_import`：现有逻辑，直接解析为分录
-- `audit_day_book`：调用序时簿专用处理逻辑，执行分组、平衡校验、完整性检测
+- `audit_day_book`：调用序时簿专用处理逻辑，执行分组、平衡校验、完整性检测、科目解析、Tag生成、Counterparty关联
+
+### Requirement: AccountingEntry模型扩展
+
+`AccountingEntry` SHALL 新增字段：
+- `resolved_account_code`：解析后的归一化科目编码
+- `resolved_account_name`：解析后的归一化科目名称
+- `counterparty_id`：关联的往来单位ID
 
 ## REMOVED Requirements
 
 无。
+
+## 设计决策记录
+
+### 决策1：LLM辅助识别Tag（Phase 2）
+
+**背景**：原始序时簿中可能缺少核算项目或二级科目信息，导致无法通过规则识别辅助核算维度。
+
+**决策**：当前仅在 `account_tag_resolution_service.py` 中设置 `requires_llm_resolution` 标记位，不立即调用LLM。后续可根据标记批量调用LLM从摘要中识别维度并生成Tag。
+
+**记录目的**：便于后期复盘和分阶段实施。
+
+**触发条件**：
+1. 科目被扁平化（原编码存在下级段）
+2. 未能通过规则识别出任何辅助核算维度
+3. 分录属于往来类/成本费用类科目（应收、应付、预收、预付、主营业务收入、生产成本、制造费用、管理费用、销售费用、财务费用）
+4. 摘要不为空
+
+### 决策2：强制二级科目编码硬编码
+
+**背景**：不同财务软件的科目编码方案可能不同，但税法/会计准则强制要求的二级科目（如应交增值税明细）需要统一保留层级。
+
+**决策**：当前使用 `MANDATORY_HIERARCHICAL_ACCOUNTS` 硬编码常见编码，并通过 `MANDATORY_HIERARCHICAL_KEYWORDS` 关键词兜底。后续可考虑从配置文件或数据库加载，支持自定义编码方案。
+
+**记录目的**：明确当前约束，便于后续支持可配置化。

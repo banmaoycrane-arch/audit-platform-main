@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.models import AccountingEntry, AccountingPeriod, ImportJob, Organization, PeriodCloseLog, PeriodSnapshot
 from app.db.session import Base
-from app.services.accounting_period_service import AccountingPeriodService
+from app.services.accounting.accounting_period_service import AccountingPeriodService
 
 
 @pytest.fixture

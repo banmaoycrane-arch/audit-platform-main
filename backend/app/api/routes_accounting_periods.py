@@ -1,5 +1,6 @@
 from datetime import date
 from calendar import monthrange
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
@@ -14,15 +15,16 @@ from app.schemas.accounting_period import (
     AccountingPeriodRecommendation,
     AccountingPeriodSuggestion,
     PeriodActionRequest,
+    PeriodSnapshotRead,
     PeriodSnapshotResponse,
     SnapshotCreateRequest,
     PeriodBatchCreateRequest,
     PeriodBatchCreateResponse,
 )
-from app.services.accounting_period_service import AccountingPeriodService
-from app.services import period_close_service
-from app.services.voucher_service import VoucherValidationError
-from app.services.ledger_context_service import (
+from app.services.accounting.accounting_period_service import AccountingPeriodService
+from app.services.accounting import period_close_service
+from app.services.accounting.voucher_service import VoucherValidationError
+from app.services.shared.ledger_context_service import (
     resolve_organization_id_for_ledger,
     resolve_or_create_organization_for_ledger,
 )
@@ -206,7 +208,8 @@ def create_snapshots(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     db.refresh(period)
-    return PeriodSnapshotResponse(period=_period_response(db, period, source="snapshot"), snapshots=snapshots)
+    snapshot_dtos = [PeriodSnapshotRead.model_validate(s) for s in snapshots]
+    return PeriodSnapshotResponse(period=_period_response(db, period, source="snapshot"), snapshots=snapshot_dtos)
 
 
 @router.get("/{period_id}/summary")
@@ -214,7 +217,7 @@ def get_period_summary(
     period_id: int,
     dimension_type: str = "period_total",
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     period = _ensure_period_exists(db, period_id)
     service = AccountingPeriodService(db)
     try:
@@ -268,7 +271,7 @@ def reopen_period(
 
 
 @router.post("/{period_id}/pl-transfer")
-def pl_transfer(period_id: int, db: Session = Depends(get_db)) -> dict:
+def pl_transfer(period_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     period = db.get(AccountingPeriod, period_id)
     if not period:
         raise HTTPException(status_code=404, detail="会计期间不存在")
@@ -281,10 +284,12 @@ def pl_transfer(period_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/{period_id}/pl-transfer/reverse")
-def pl_transfer_reverse(period_id: int, db: Session = Depends(get_db)) -> dict:
+def pl_transfer_reverse(period_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     period = db.get(AccountingPeriod, period_id)
     if not period:
         raise HTTPException(status_code=404, detail="会计期间不存在")
+    if period.ledger_id is None:
+        raise HTTPException(status_code=400, detail="期间未关联账簿")
     try:
         return period_close_service.reverse_pl_transfer(db, period.ledger_id, period_id)
     except LookupError as exc:

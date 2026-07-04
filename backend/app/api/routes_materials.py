@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Industry, Material
 from app.db.session import get_db
-from app.services.accounting_unit_service import AccountingUnitService
+from app.services.basic_data.accounting_unit_service import AccountingUnitService
 
 router = APIRouter(prefix="/api/materials", tags=["materials"])
 

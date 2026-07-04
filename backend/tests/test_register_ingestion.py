@@ -1,7 +1,7 @@
 """功能模块台账登记测试。"""
 
-from app.services.import_routing_service import get_import_output_path
-from app.services.register_ingestion_service import (
+from app.services.doc_parsing.import_routing_service import get_import_output_path
+from app.services.basic_data.register_ingestion_service import (
     MODULE_DEFINITIONS,
     _detect_contract_modules,
     _normalize_document_type,

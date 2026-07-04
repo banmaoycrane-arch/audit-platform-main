@@ -6,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.models import AuditFinding, ImportJob, Organization
 from app.db.session import Base
-from app.services.audit_report_service import (
+from app.services.audit.audit_report_service import (
     build_report_payload,
     report_to_json,
     report_to_xlsx,

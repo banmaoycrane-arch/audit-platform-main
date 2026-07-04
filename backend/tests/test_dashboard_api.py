@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -174,7 +174,7 @@ def test_dashboard_summary_with_data_returns_counts(client):
                 finding_type="completeness",
                 severity="high",
                 finding_title="序时簿存在跳号",
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
         )
 

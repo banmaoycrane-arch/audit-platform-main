@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from typing import Any
 """
 模块功能：团队管理 API 路由
 业务场景：前端调用创建团队、查询团队列表、查询团队成员、添加团队成员
@@ -17,7 +18,7 @@ from app.db.session import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.ledger import Ledger
-from app.services import ledger_management_service
+from app.services.shared import ledger_management_service
 
 router = APIRouter(prefix="/api/teams", tags=["teams"])
 
@@ -59,7 +60,7 @@ class TeamMemberResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-def _team_response(db: Session, team) -> TeamResponse:
+def _team_response(db: Session, team: Any) -> TeamResponse:
     member_count = db.query(User).filter(User.team_id == team.id).count()
     ledger_count = db.query(Ledger).filter(Ledger.team_id == team.id).count()
     return TeamResponse(
@@ -231,14 +232,7 @@ def list_sub_teams(
     sub_teams = db.query(Team).filter(Team.parent_team_id == team_id).all()
     
     return [
-        TeamHierarchyResponse(
-            id=sub.id,
-            name=sub.name,
-            type=sub.type,
-            parent_team_id=sub.parent_team_id,
-            sub_team_count=len(sub.sub_teams) if hasattr(sub, 'sub_teams') else 0,
-            created_at=str(sub.created_at) if sub.created_at else None,
-        )
+        TeamHierarchyResponse.model_validate(sub)
         for sub in sub_teams
     ]
 
@@ -249,7 +243,7 @@ def get_team_hierarchy(
     depth: int = 3,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> dict[str, Any]:
     """
     获取团队的层级结构。
 
@@ -266,8 +260,8 @@ def get_team_hierarchy(
     """
     from app.models.team import Team
     
-    def build_hierarchy(team: Team, current_depth: int, max_depth: int) -> dict:
-        result = {
+    def build_hierarchy(team: Team, current_depth: int, max_depth: int) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "id": team.id,
             "name": team.name,
             "type": team.type,

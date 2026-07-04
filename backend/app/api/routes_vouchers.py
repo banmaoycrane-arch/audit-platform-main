@@ -33,8 +33,8 @@ from app.schemas.voucher import (
     VoucherStatusTransitionRequest,
     VoucherUpdate,
 )
-from app.services import ledger_management_service
-from app.services.voucher_management_service import (
+from app.services.shared import ledger_management_service
+from app.services.accounting.voucher_management_service import (
     LedgerAccessError,
     PeriodClosedError,
     VoucherDuplicateError,
@@ -42,7 +42,7 @@ from app.services.voucher_management_service import (
     delete_voucher_by_id,
     update_voucher_from_request,
 )
-from app.services.voucher_service import (
+from app.services.accounting.voucher_service import (
     VoucherBalanceError,
     VoucherNotFoundError,
     VoucherStateError,
@@ -83,7 +83,7 @@ def _format_amount(value: float | Decimal | None) -> str:
     """将金额统一格式化为保留 2 位小数字符串。"""
     if value is None:
         return "0.00"
-    return f"{Decimal(str(value)).quantize(Decimal('0.00')):.2f}"
+    return f"{Decimal(str(value)).quantize(Decimal('0.00'))}"
 
 
 def _format_voucher(voucher: Voucher, db: Session) -> VoucherResponse:
@@ -181,12 +181,7 @@ def _split_voucher_no(voucher_no: str) -> tuple[str, str]:
     summary="创建凭证",
     description="手工录入凭证，包含凭证头和分录明细，系统自动校验借贷平衡。",
 )
-def create_voucher_endpoint(
-    data: VoucherCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    current_ledger_id: int | None = Depends(get_current_ledger),
-):
+def create_voucher_endpoint(data: VoucherCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user), current_ledger_id: int | None = Depends(get_current_ledger)) -> VoucherOperationResponse:
     """
     创建凭证接口。
 
@@ -225,11 +220,7 @@ def create_voucher_endpoint(
     summary="查询凭证列表",
     description="按账簿、期间、状态、日期等条件查询凭证列表。",
 )
-def list_vouchers_endpoint(
-    params: VoucherQueryParams = Depends(),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def list_vouchers_endpoint(params: VoucherQueryParams = Depends(), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> VoucherListResponse:
     """查询凭证列表接口。"""
     try:
         if not ledger_management_service.user_has_ledger_access(
@@ -288,11 +279,7 @@ def list_vouchers_endpoint(
     summary="查询凭证详情",
     description="根据凭证ID返回凭证主表和全部分录明细。",
 )
-def get_voucher_endpoint(
-    voucher_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def get_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> VoucherOperationResponse:
     """查询凭证详情接口。"""
     try:
         voucher = get_voucher_by_id(db, voucher_id)
@@ -328,12 +315,7 @@ def get_voucher_endpoint(
     summary="更新凭证",
     description="整体更新凭证头和分录明细，仅草稿状态凭证可编辑。",
 )
-def update_voucher_endpoint(
-    voucher_id: int,
-    data: VoucherUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def update_voucher_endpoint(voucher_id: int, data: VoucherUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> VoucherOperationResponse:
     """更新凭证接口。"""
     try:
         voucher = update_voucher_from_request(
@@ -366,11 +348,7 @@ def update_voucher_endpoint(
     summary="删除凭证",
     description="删除草稿状态凭证及其全部分录行。",
 )
-def delete_voucher_endpoint(
-    voucher_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def delete_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> VoucherOperationResponse:
     """删除凭证接口。"""
     try:
         delete_voucher_by_id(db, user=current_user, voucher_id=voucher_id)
@@ -398,11 +376,7 @@ def delete_voucher_endpoint(
     summary="复核凭证",
     description="将草稿状态凭证复核为 verified 状态。",
 )
-def verify_voucher_endpoint(
-    voucher_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def verify_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> VoucherOperationResponse:
     """复核凭证接口。"""
     try:
         voucher = get_voucher_by_id(db, voucher_id)
@@ -442,11 +416,7 @@ def verify_voucher_endpoint(
     summary="入账凭证",
     description="将已复核凭证入账为 posted 状态。",
 )
-def post_voucher_endpoint(
-    voucher_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def post_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> VoucherOperationResponse:
     """入账凭证接口。"""
     try:
         voucher = get_voucher_by_id(db, voucher_id)
@@ -489,11 +459,7 @@ def post_voucher_endpoint(
     summary="取消凭证",
     description="将凭证状态置为 cancelled，取消后不可再操作。",
 )
-def cancel_voucher_endpoint(
-    voucher_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def cancel_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> VoucherOperationResponse:
     """取消凭证接口。"""
     try:
         voucher = get_voucher_by_id(db, voucher_id)

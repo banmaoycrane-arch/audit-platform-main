@@ -13,7 +13,7 @@ from app.api.routes_imports import _import_reports
 from app.db.models import BankStatement, Contract, ImportJob, Invoice
 from app.db.session import Base, get_db
 from app.main import app
-from app.services.ledger_service import ledger_service
+from app.services.shared.ledger_service import ledger_service
 
 
 from tests.conftest import register_auth_headers
@@ -37,10 +37,10 @@ def client(monkeypatch, tmp_path):
             db.close()
 
     monkeypatch.setattr("app.storage.local_storage.get_settings", lambda: SimpleNamespace(upload_dir=str(tmp_path)))
-    monkeypatch.setattr("app.services.audit_day_book_service.safe_vector_store", lambda: None)
-    monkeypatch.setattr("app.services.import_service.safe_vector_store", lambda: None)
-    monkeypatch.setattr("app.services.register_ingestion_service.classify_document", lambda path, file_name="": __import__(
-        "app.services.source_document_service", fromlist=["SourceDocumentResult"]
+    monkeypatch.setattr("app.services.audit.audit_day_book_service.safe_vector_store", lambda: None)
+    monkeypatch.setattr("app.services.doc_parsing.import_service.safe_vector_store", lambda: None)
+    monkeypatch.setattr("app.services.basic_data.register_ingestion_service.classify_document", lambda path, file_name="": __import__(
+        "app.services.basic_data.source_document_service", fromlist=["SourceDocumentResult"]
     ).SourceDocumentResult(
         document_type="invoice",
         confidence=0.9,
@@ -103,10 +103,10 @@ def test_ai_upload_registers_tax_invoice_module(client):
 
 
 def test_ai_upload_contract_registers_multiple_modules(client, monkeypatch):
-    from app.services.source_document_service import SourceDocumentResult
+    from app.services.basic_data.source_document_service import SourceDocumentResult
 
     monkeypatch.setattr(
-        "app.services.register_ingestion_service.classify_document",
+        "app.services.basic_data.register_ingestion_service.classify_document",
         lambda path, file_name="": SourceDocumentResult(
             document_type="contract",
             confidence=0.9,

@@ -11,6 +11,7 @@ import {
 } from '../api/client'
 import { TraditionalVoucherForm, type VoucherEntryLine } from '../components/voucher/TraditionalVoucherForm'
 import { useAuthStore } from '../stores/authStore'
+import { Money, parseDecimal } from '../money'
 
 const VOUCHER_TYPE_OPTIONS = ['记', '银', '收', '付', '转', '工'].map(value => ({ value, label: value }))
 const CURRENT_ACCOUNT_CODES = ['1122', '2203', '2202', '1123', '1221', '2241']
@@ -27,8 +28,6 @@ const createManualLine = (lineNo: number): VoucherEntryLine => ({
   counterparty: '',
   account_source: 'manual',
 })
-
-const roundAmount = (amount: number) => Math.round(amount * 100) / 100
 
 const isCurrentAccount = (row: VoucherEntryLine) => {
   const accountCode = row.account_code.trim()
@@ -93,15 +92,15 @@ export function VoucherCreatePage() {
     row.summary.trim()
     || row.account_code.trim()
     || row.account_name.trim()
-    || Number(row.debit_amount || 0) > 0
-    || Number(row.credit_amount || 0) > 0
+    || parseDecimal(row.debit_amount || 0).gt(0)
+    || parseDecimal(row.credit_amount || 0).gt(0)
     || row.counterparty.trim()
   ), [rows])
 
-  const debitTotal = roundAmount(activeRows.reduce((sum, row) => sum + Number(row.debit_amount || 0), 0))
-  const creditTotal = roundAmount(activeRows.reduce((sum, row) => sum + Number(row.credit_amount || 0), 0))
-  const balanceDiff = roundAmount(debitTotal - creditTotal)
-  const isBalanced = debitTotal > 0 && creditTotal > 0 && balanceDiff === 0
+  const debitTotal = Money.sum(activeRows.map(row => Money.cny(row.debit_amount)))
+  const creditTotal = Money.sum(activeRows.map(row => Money.cny(row.credit_amount)))
+  const balanceDiff = debitTotal.sub(creditTotal)
+  const isBalanced = debitTotal.isPositive() && creditTotal.isPositive() && balanceDiff.isZero()
 
   useEffect(() => {
     if (!currentLedgerId) return
@@ -229,7 +228,7 @@ export function VoucherCreatePage() {
       message.error('凭证借贷方金额必须平衡且大于 0')
       return null
     }
-    const activeLines = activeRows.filter(row => row.account_code.trim() && (Number(row.debit_amount || 0) > 0 || Number(row.credit_amount || 0) > 0))
+    const activeLines = activeRows.filter(row => row.account_code.trim() && (parseDecimal(row.debit_amount || 0).gt(0) || parseDecimal(row.credit_amount || 0).gt(0)))
     if (activeLines.length < 2) {
       message.error('至少需要两条有效分录')
       return null
@@ -248,8 +247,8 @@ export function VoucherCreatePage() {
         summary: row.summary || remark || '',
         account_code: row.account_code,
         account_name: row.account_name || undefined,
-        debit_amount: Number(row.debit_amount || 0).toFixed(2),
-        credit_amount: Number(row.credit_amount || 0).toFixed(2),
+        debit_amount: parseDecimal(row.debit_amount || 0).toFixed(2),
+        credit_amount: parseDecimal(row.credit_amount || 0).toFixed(2),
         counterparty: row.counterparty || undefined,
       })),
     }

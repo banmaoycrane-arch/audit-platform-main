@@ -22,7 +22,7 @@ from app.models.user import User
 from app.models.project import Project
 from app.models.project_ledger import ProjectLedger
 from app.models.user_ledger_auth import UserLedgerAuth
-from app.services.ledger_timeline_service import initialize_ledger_timeline
+from app.services.shared.ledger_timeline_service import initialize_ledger_timeline
 
 
 # 独立测试数据库，避免污染开发数据库

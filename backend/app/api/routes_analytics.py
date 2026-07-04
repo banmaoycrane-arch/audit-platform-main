@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.services.analytics_service import (
+from app.services.shared.analytics_service import (
     analyze_counterparty,
     analyze_project_cost,
     drill_down_counterparty,

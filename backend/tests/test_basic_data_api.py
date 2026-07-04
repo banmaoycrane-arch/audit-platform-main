@@ -179,7 +179,7 @@ def test_create_retained_earnings_dividend_base_default_true(client):
     resp = client.post(
         "/api/coa",
         json={
-            "code": "410499",
+            "code": "4105",
             "name": "未分配利润-自定义",
             "category": "equity",
             "direction": "credit",
@@ -197,7 +197,7 @@ def test_create_retained_earnings_dividend_base_can_be_false(client):
     resp = client.post(
         "/api/coa",
         json={
-            "code": "410498",
+            "code": "4106",
             "name": "未分配利润-受限",
             "category": "equity",
             "direction": "credit",

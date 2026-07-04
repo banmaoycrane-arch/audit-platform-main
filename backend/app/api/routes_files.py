@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Counterparty, ImportJob, SourceFile
 from app.db.session import get_db
-from app.services.draft_archive_service import load_archive_metadata
+from app.services.doc_parsing.draft_archive_service import load_archive_metadata
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -217,14 +217,14 @@ def list_source_files(
     text_extract_status: str | None = None,
     archive_category: str | None = None,
     db: Session = Depends(get_db),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     selected_ledger_ids = _parse_id_list(ledger_ids)
     if ledger_id is not None:
         selected_ledger_ids.append(ledger_id)
     selected_ledger_ids = sorted(set(selected_ledger_ids))
 
     if project_id:
-        from app.services.draft_archive_service import list_project_archived_files
+        from app.services.doc_parsing.draft_archive_service import list_project_archived_files
 
         items = list_project_archived_files(db, project_id)
         if selected_ledger_ids:
@@ -274,7 +274,7 @@ def list_source_files(
 
 
 @router.get("/{file_id}")
-def get_source_file(file_id: int, db: Session = Depends(get_db)) -> dict:
+def get_source_file(file_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     item = db.get(SourceFile, file_id)
     if not item:
         raise HTTPException(status_code=404, detail="文件不存在")
@@ -284,7 +284,7 @@ def get_source_file(file_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/{file_id}/bind-counterparty")
-def bind_file_counterparty(file_id: int, payload: BindCounterpartyRequest, db: Session = Depends(get_db)) -> dict:
+def bind_file_counterparty(file_id: int, payload: BindCounterpartyRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     item = db.get(SourceFile, file_id)
     if not item:
         raise HTTPException(status_code=404, detail="文件不存在")
@@ -305,7 +305,7 @@ def bind_file_counterparty(file_id: int, payload: BindCounterpartyRequest, db: S
 
 
 @router.patch("/{file_id}/bind-ledger")
-def bind_file_ledger(file_id: int, payload: BindLedgerRequest, db: Session = Depends(get_db)) -> dict:
+def bind_file_ledger(file_id: int, payload: BindLedgerRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     """将文件绑定到账簿，或从账簿解绑"""
     item = db.get(SourceFile, file_id)
     if not item:
@@ -317,7 +317,7 @@ def bind_file_ledger(file_id: int, payload: BindLedgerRequest, db: Session = Dep
 
 
 @router.patch("/{file_id}")
-def update_source_file(file_id: int, payload: UpdateFileRequest, db: Session = Depends(get_db)) -> dict:
+def update_source_file(file_id: int, payload: UpdateFileRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     """更新文件信息（文件名、文件类型、备注）"""
     item = db.get(SourceFile, file_id)
     if not item:
@@ -334,7 +334,7 @@ def update_source_file(file_id: int, payload: UpdateFileRequest, db: Session = D
 
 
 @router.delete("/{file_id}")
-def delete_source_file(file_id: int, db: Session = Depends(get_db)) -> dict:
+def delete_source_file(file_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     """删除文件记录"""
     item = db.get(SourceFile, file_id)
     if not item:

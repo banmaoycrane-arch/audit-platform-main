@@ -13,14 +13,18 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.user import User
 from app.core.dependencies import get_current_user, get_current_ledger
-from app.services.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher
-from app.services.parser_engine.parse_result import ParseResult
-from app.services.parser_voucher_mapper import (
+from app.services.doc_parsing.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher
+from app.services.doc_parsing.parser_engine.parse_result import ParseResult
+from app.services.doc_parsing.parser_voucher_mapper import (
     parse_result_to_voucher_drafts,
     drafts_to_voucher_service_format,
     CandidateVoucherDraft,
 )
-from app.services.voucher_service import (
+from app.services.accounting.voucher_draft_validation_service import (
+    DraftErrorCode,
+    validate_voucher_drafts,
+)
+from app.services.accounting.voucher_service import (
     create_vouchers_from_drafts,
     VoucherSourceType,
     VoucherStatus,
@@ -71,12 +75,23 @@ class ConfirmDraftRequest(BaseModel):
     drafts: list[dict[str, Any]]  # 用户确认后的草稿列表（可修改科目/金额）
 
 
+class DraftValidationErrorItem(BaseModel):
+    """草稿校验错误项"""
+
+    draft_index: int
+    code: str
+    message: str
+    field: str | None = None
+
+
 class ConfirmDraftResponse(BaseModel):
     """B2: 确认生成凭证草稿的响应"""
+
     success: bool
     created_count: int
     voucher_ids: list[int] = []
     error_message: str | None = None
+    errors: list[DraftValidationErrorItem] = []
 
 
 # =============================================================================
@@ -90,7 +105,10 @@ def _extract_parse_result(result: Any) -> ParseResult | None:
 
     # LLMComparisonResult 类型
     if hasattr(result, "final_result") and result.final_result is not None:
-        return result.final_result
+        final_result = result.final_result
+        if isinstance(final_result, ParseResult):
+            return final_result
+        return None
 
     # 双引擎并行解析的 dict 类型
     if isinstance(result, dict):
@@ -137,13 +155,7 @@ def _draft_to_response(draft: CandidateVoucherDraft) -> CandidateVoucherDraftRes
 # =============================================================================
 
 @router.post("/parse-to-drafts", response_model=ParseToDraftsResponse)
-async def parse_to_drafts(
-    organization_id: int = Form(..., description="组织ID"),
-    file: UploadFile = File(..., description="待解析的文件"),
-    sheet_name: str | None = Form(None, description="Excel工作表名称（可选）"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+async def parse_to_drafts(organization_id: int = Form(..., description="组织ID"), file: UploadFile = File(..., description="待解析的文件"), sheet_name: str | None = Form(None, description="Excel工作表名称（可选）"), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> ParseToDraftsResponse:
     """
     B1: 上传文件并解析为候选凭证草稿列表
 
@@ -203,7 +215,7 @@ async def parse_to_drafts(
 
         return ParseToDraftsResponse(
             success=True,
-            document_type=str(parse_result.document_type),
+            document_type=parse_result.document_type.value,
             confidence=parse_result.confidence,
             drafts=[_draft_to_response(d) for d in drafts],
         )
@@ -219,11 +231,7 @@ async def parse_to_drafts(
 
 
 @router.post("/parse-source-file-to-drafts/{file_id}", response_model=ParseToDraftsResponse)
-async def parse_source_file_to_drafts(
-    file_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+async def parse_source_file_to_drafts(file_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> ParseToDraftsResponse:
     """
     B1 变体：解析已上传的源文件并返回候选凭证草稿列表
 
@@ -269,7 +277,7 @@ async def parse_source_file_to_drafts(
 
         return ParseToDraftsResponse(
             success=True,
-            document_type=str(parse_result.document_type),
+            document_type=parse_result.document_type.value,
             confidence=parse_result.confidence,
             drafts=[_draft_to_response(d) for d in drafts],
         )
@@ -285,12 +293,7 @@ async def parse_source_file_to_drafts(
 
 
 @router.post("/confirm-drafts", response_model=ConfirmDraftResponse)
-async def confirm_drafts(
-    request: ConfirmDraftRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    current_ledger_id: int | None = Depends(get_current_ledger),
-):
+async def confirm_drafts(request: ConfirmDraftRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user), current_ledger_id: int | None = Depends(get_current_ledger)) -> ConfirmDraftResponse:
     """
     B2: 确认候选凭证草稿并生成正式凭证草稿
 
@@ -322,8 +325,33 @@ async def confirm_drafts(
             error_message="未指定账簿，请先选择账簿",
         )
 
+    # 1. 端到端统一校验：失败时整张批次不落库
+    validation_report = validate_voucher_drafts(
+        db,
+        ledger_id=ledger_id,
+        organization_id=request.organization_id,
+        drafts=request.drafts,
+    )
+
+    if not validation_report.is_valid:
+        errors = [
+            DraftValidationErrorItem(
+                draft_index=e.draft_index,
+                code=e.code,
+                message=e.message,
+                field=e.field,
+            )
+            for e in validation_report.errors
+        ]
+        return ConfirmDraftResponse(
+            success=False,
+            created_count=0,
+            error_message="凭证草稿校验失败，请修正后重新提交",
+            errors=errors,
+        )
+
     try:
-        # 将用户确认的草稿转换为 voucher_service 格式
+        # 2. 将用户确认的草稿转换为 voucher_service 格式
         draft_dicts = []
         for draft in request.drafts:
             for line in draft.get("lines", []):
@@ -331,6 +359,7 @@ async def confirm_drafts(
                     "voucher_no": draft.get("voucher_no", ""),
                     "voucher_date": draft.get("voucher_date", ""),
                     "summary": draft.get("summary", ""),
+                    "period_id": draft.get("period_id"),
                     "account_code": line.get("account_code", ""),
                     "account_name": line.get("account_name", ""),
                     "debit_amount": str(line.get("debit_amount", "0")),
@@ -338,7 +367,7 @@ async def confirm_drafts(
                     "counterparty": line.get("counterparty"),
                 })
 
-        # 调用凭证服务创建草稿
+        # 3. 调用凭证服务创建草稿
         vouchers = create_vouchers_from_drafts(
             db,
             ledger_id=ledger_id,
@@ -355,12 +384,6 @@ async def confirm_drafts(
             voucher_ids=[v.id for v in vouchers],
         )
 
-    except ValueError as e:
-        return ConfirmDraftResponse(
-            success=False,
-            created_count=0,
-            error_message=f"借贷平衡校验失败：{str(e)}",
-        )
     except Exception as e:
         return ConfirmDraftResponse(
             success=False,

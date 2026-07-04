@@ -3,6 +3,7 @@ import { Card, Table, Typography, Alert, Row, Col, Statistic, message } from 'an
 import { api, type BalanceSheetReport, type TrialBalanceRow } from '../../api/client'
 import { PeriodSelector } from '../../components/PeriodSelector'
 import { useAuthStore } from '../../stores/authStore'
+import { formatAmount } from '../../money'
 
 const { Title } = Typography
 
@@ -31,13 +32,13 @@ export function BalanceSheetPage() {
       title: '期末借',
       dataIndex: 'closing_debit',
       key: 'closing_debit',
-      render: (v: number) => v.toLocaleString(),
+      render: (v: number) => formatAmount(v),
     },
     {
       title: '期末贷',
       dataIndex: 'closing_credit',
       key: 'closing_credit',
-      render: (v: number) => v.toLocaleString(),
+      render: (v: number) => formatAmount(v),
     },
   ]
 
@@ -63,7 +64,7 @@ export function BalanceSheetPage() {
               title="资产负债恒等式不平衡"
               description={
                 <>
-                  <div>资产 {report.assets_total.toLocaleString()} ≠ 负债 {report.liabilities_total.toLocaleString()} + 权益 {report.equity_total.toLocaleString()}</div>
+                  <div>资产 {formatAmount(report.assets_total)} ≠ 负债 {formatAmount(report.liabilities_total)} + 权益 {formatAmount(report.equity_total)}</div>
                   <div style={{ marginTop: 8, color: '#cf1322' }}>
                     可能原因：本期损益尚未结转。请前往「会计期间」执行损益结转。
                   </div>

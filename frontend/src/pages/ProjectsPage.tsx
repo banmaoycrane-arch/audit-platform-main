@@ -17,6 +17,7 @@ import {
 } from '@ant-design/icons'
 import { api, type Ledger, type Team } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import { formatAmount } from '../money'
 
 const { Title, Paragraph, Text } = Typography
 
@@ -312,7 +313,7 @@ export function ProjectsPage() {
           {project.budget != null && (
             <div>
               <DollarOutlined style={{ marginRight: 4 }} />
-              ¥ {project.budget!.toLocaleString()}
+              {formatAmount(project.budget!)}
             </div>
           )}
           {(project.start_date || project.end_date) && (

@@ -3,6 +3,7 @@ import { Card, Typography, Row, Col, Statistic, Descriptions, message } from 'an
 import { api, type IncomeStatementReport } from '../../api/client'
 import { PeriodSelector } from '../../components/PeriodSelector'
 import { useAuthStore } from '../../stores/authStore'
+import { formatAmount } from '../../money'
 
 const { Title } = Typography
 
@@ -73,7 +74,7 @@ export function IncomeStatementPage() {
             <Descriptions column={2} bordered size="small">
               {Object.entries(report.revenue).map(([k, v]) => (
                 <Descriptions.Item key={k} label={REVENUE_LABEL[k] || k}>
-                  ¥{Number(v).toLocaleString()}
+                  {formatAmount(v)}
                 </Descriptions.Item>
               ))}
             </Descriptions>
@@ -83,7 +84,7 @@ export function IncomeStatementPage() {
             <Descriptions column={2} bordered size="small">
               {Object.entries(report.expense).map(([k, v]) => (
                 <Descriptions.Item key={k} label={EXPENSE_LABEL[k] || k}>
-                  ¥{Number(v).toLocaleString()}
+                  {formatAmount(v)}
                 </Descriptions.Item>
               ))}
             </Descriptions>

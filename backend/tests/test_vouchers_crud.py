@@ -28,6 +28,7 @@ client = TestClient(app)
 @pytest.fixture(scope="function")
 def db_session():
     """测试用数据库会话。"""
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     session = Session(engine)
     try:
@@ -77,7 +78,7 @@ def test_organization(db_session):
 @pytest.fixture
 def test_ledger(db_session, test_team, test_user, test_organization):
     """创建测试账簿并授权用户。"""
-    from app.services.coa_service import init_default_accounts
+    from app.services.basic_data.coa_service import init_default_accounts
 
     ledger = Ledger(
         team_id=test_team.id,

@@ -10,6 +10,7 @@
     2026-06-19  增加 request_id、安全响应头和统一错误响应处理
 """
 
+from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -17,6 +18,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response
 
 
 class GatewayMiddleware(BaseHTTPMiddleware):
@@ -35,7 +38,7 @@ class GatewayMiddleware(BaseHTTPMiddleware):
         1. 第一阶段不强制所有接口鉴权，避免影响现有业务流程。
     """
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: Callable[[StarletteRequest], Awaitable[Response]]) -> Response:
         request_id = request.headers.get("X-Request-ID") or str(uuid4())
         request.state.request_id = request_id
 
@@ -47,23 +50,13 @@ class GatewayMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def _sanitize_json_value(value):
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    if isinstance(value, list):
-        return [_sanitize_json_value(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _sanitize_json_value(item) for key, item in value.items()}
-    return value
-
-
 def build_error_response(
     request: Request,
     status_code: int,
     message: str,
     error_code: str,
-    details=None,
-    legacy_detail=None,
+    details: Any | None = None,
+    legacy_detail: Any | None = None,
 ) -> JSONResponse:
     """
     功能描述：构造统一错误响应。
@@ -98,7 +91,6 @@ def build_error_response(
         status_code=status_code,
         content=payload,
         headers={"X-Request-ID": request_id},
-        media_type="application/json; charset=utf-8",
     )
 
 
@@ -121,31 +113,28 @@ def configure_gateway(app: FastAPI) -> None:
 
     @app.exception_handler(HTTPException)
     @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(request: Request, exc: HTTPException | StarletteHTTPException):
-        if isinstance(exc.detail, str):
-            message = exc.detail
-            legacy_detail = exc.detail
-            details = None
-        elif isinstance(exc.detail, dict):
-            message = str(exc.detail.get("message") or "请求处理失败")
-            legacy_detail = exc.detail
-            details = exc.detail
-        else:
-            message = "请求处理失败"
-            legacy_detail = exc.detail
-            details = exc.detail
+    async def http_exception_handler(request: Request, exc: HTTPException | StarletteHTTPException) -> JSONResponse:
+        detail = exc.detail
+        message = "请求处理失败"
+        details = None
+        
+        if hasattr(detail, "get"):
+            message = str(detail.get("message", "请求处理失败"))
+            details = detail
+        elif isinstance(detail, str):
+            message = detail
+        
         return build_error_response(
             request=request,
             status_code=exc.status_code,
             message=message,
             error_code="http_error",
             details=details,
-            legacy_detail=legacy_detail,
         )
 
     @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        validation_details = _sanitize_json_value(exc.errors())
+    async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        validation_details = exc.errors()
         return build_error_response(
             request=request,
             status_code=422,
@@ -156,7 +145,7 @@ def configure_gateway(app: FastAPI) -> None:
         )
 
     @app.exception_handler(Exception)
-    async def unhandled_exception_handler(request: Request, exc: Exception):
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         return build_error_response(
             request=request,
             status_code=500,

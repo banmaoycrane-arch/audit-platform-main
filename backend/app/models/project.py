@@ -10,10 +10,18 @@
     2026-06-18  初始创建 Project 模型
 """
 from datetime import date, datetime
+from typing import TYPE_CHECKING
+
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
+
+if TYPE_CHECKING:
+    from app.models.team import Team
+    from app.models.user import User
+    from app.models.project_ledger import ProjectLedger
+    from app.models.project_member import ProjectMember
 
 
 class Project(Base):

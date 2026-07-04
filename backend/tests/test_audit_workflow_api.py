@@ -12,8 +12,8 @@ from app.main import app
 from app.models.project import Project
 from app.models.project_ledger import ProjectLedger
 from app.models.team import Team
-from app.services.draft_semantic_decomposition_service import decompose_draft
-from app.services.source_document_service import SourceDocumentResult
+from app.services.agent.draft_semantic_decomposition_service import decompose_draft
+from app.services.basic_data.source_document_service import SourceDocumentResult
 
 
 @pytest.fixture

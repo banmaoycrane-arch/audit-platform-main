@@ -8,7 +8,7 @@ from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.global_settings import GlobalSettings
 from app.models.user import User
-from app.services.parser_engine.config_service import get_runtime_parser_engine_config
+from app.services.doc_parsing.parser_engine.config_service import get_runtime_parser_engine_config
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -67,10 +67,7 @@ class TestConnectionRequest(BaseModel):
 
 
 @router.get("/parser-engine", response_model=ParserEngineConfig)
-def get_parser_engine_config(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def get_parser_engine_config(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     """获取当前解析引擎配置"""
     settings = get_settings()
     
@@ -114,10 +111,7 @@ def get_parser_engine_config(
 
 
 @router.post("/parser-engine/test-connection")
-def test_ai_connection(
-    request: TestConnectionRequest,
-    current_user: User = Depends(get_current_user),
-):
+def test_ai_connection(request: TestConnectionRequest, current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     """
     测试AI模型连接是否可用。
 
@@ -139,7 +133,8 @@ def test_ai_connection(
     def fetch_json(url: str, timeout: int = 5) -> dict[str, Any]:
         req = url_request.Request(url, headers=headers, method="GET")
         with url_request.urlopen(req, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            result: dict[str, Any] = json.loads(response.read().decode("utf-8"))
+            return result
 
     def normalize_model_name(name: str) -> str:
         return name.removesuffix(":latest")
@@ -214,7 +209,7 @@ def test_ai_connection(
 
 
 @router.get("/provider-options")
-def get_provider_options():
+def get_provider_options() -> dict[str, Any]:
     """获取可用的AI供应商选项"""
     return {
         "providers": [
@@ -298,7 +293,7 @@ def get_provider_options():
 
 
 @router.get("/ollama-models")
-def get_ollama_models(base_url: str = "http://localhost:11434"):
+def get_ollama_models(base_url: str = "http://localhost:11434") -> dict[str, Any]:
     """获取Ollama服务上的可用模型列表"""
     import json
     from urllib import request as url_request
@@ -360,9 +355,9 @@ class LLMComparisonConfigRequest(BaseModel):
 
 
 @router.get("/parser-engine/llm-engines")
-def get_llm_engines(db: Session = Depends(get_db)):
+def get_llm_engines(db: Session = Depends(get_db)) -> dict[str, Any]:
     """获取多LLM引擎配置列表"""
-    from app.services.llm_engine_config_service import get_llm_engines_config
+    from app.services.agent.llm_engine_config_service import get_llm_engines_config
     config = get_llm_engines_config(db)
     return {
         "success": True,
@@ -373,9 +368,9 @@ def get_llm_engines(db: Session = Depends(get_db)):
 
 
 @router.post("/parser-engine/llm-engines")
-def add_llm_engine(engine: LLMEngineCreateRequest, db: Session = Depends(get_db)):
+def add_llm_engine(engine: LLMEngineCreateRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     """添加一个LLM引擎"""
-    from app.services.llm_engine_config_service import (
+    from app.services.agent.llm_engine_config_service import (
         add_llm_engine,
         LLMEngineConfig,
     )
@@ -398,9 +393,9 @@ def add_llm_engine(engine: LLMEngineCreateRequest, db: Session = Depends(get_db)
 
 
 @router.put("/parser-engine/llm-engines/{engine_id}")
-def update_llm_engine(engine_id: str, engine: LLMEngineUpdateRequest, db: Session = Depends(get_db)):
+def update_llm_engine(engine_id: str, engine: LLMEngineUpdateRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     """更新一个LLM引擎"""
-    from app.services.llm_engine_config_service import update_llm_engine
+    from app.services.agent.llm_engine_config_service import update_llm_engine
     result = update_llm_engine(db, engine_id, engine.model_dump(exclude_unset=True))
     if result is None:
         raise HTTPException(status_code=404, detail="引擎不存在")
@@ -412,9 +407,9 @@ def update_llm_engine(engine_id: str, engine: LLMEngineUpdateRequest, db: Sessio
 
 
 @router.delete("/parser-engine/llm-engines/{engine_id}")
-def delete_llm_engine(engine_id: str, db: Session = Depends(get_db)):
+def delete_llm_engine(engine_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     """删除一个LLM引擎"""
-    from app.services.llm_engine_config_service import delete_llm_engine
+    from app.services.agent.llm_engine_config_service import delete_llm_engine
     result = delete_llm_engine(db, engine_id)
     if result is None:
         raise HTTPException(status_code=404, detail="引擎不存在")
@@ -426,13 +421,9 @@ def delete_llm_engine(engine_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/parser-engine/llm-comparison-config")
-def update_llm_comparison_config(
-    config: LLMComparisonConfigRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def update_llm_comparison_config(config: LLMComparisonConfigRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     """更新LLM对比配置"""
-    from app.services.llm_engine_config_service import (
+    from app.services.agent.llm_engine_config_service import (
         get_llm_engines_config,
         save_llm_engines_config,
     )
@@ -449,11 +440,7 @@ def update_llm_comparison_config(
 
 
 @router.post("/parser-engine")
-def save_parser_engine_config(
-    config: ParserEngineConfig,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def save_parser_engine_config(config: ParserEngineConfig, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     """保存解析引擎配置到数据库"""
     import logging
     logger = logging.getLogger(__name__)
@@ -481,4 +468,91 @@ def save_parser_engine_config(
         "success": True,
         "message": "配置已保存成功！",
         "config": _mask_parser_engine_config(db_config.settings_value),
+    }
+
+
+class AccountTagConfigRequest(BaseModel):
+    version: str
+    mandatory_hierarchical_accounts: list[str] = []
+    mandatory_hierarchical_keywords: list[str] = []
+    account_code_tag_category: dict[str, str] = {}
+    account_name_tag_category: dict[str, str] = {}
+    auxiliary_keywords: dict[str, list[str]] = {}
+
+
+@router.get("/account-tag-rules")
+def get_account_tag_rules(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+    """获取科目与标签解析规则配置"""
+    from app.config.account_tag_config import load_account_tag_config
+
+    config = load_account_tag_config(db)
+    return {
+        "success": True,
+        "config": {
+            "version": config.version,
+            "mandatory_hierarchical_accounts": list(config.mandatory_hierarchical_accounts),
+            "mandatory_hierarchical_keywords": list(config.mandatory_hierarchical_keywords),
+            "account_code_tag_category": config.account_code_tag_category,
+            "account_name_tag_category": config.account_name_tag_category,
+            "auxiliary_keywords": config.auxiliary_keywords,
+        },
+    }
+
+
+@router.post("/account-tag-rules")
+def save_account_tag_rules(config: AccountTagConfigRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+    """保存科目与标签解析规则配置到数据库"""
+    from app.config.account_tag_config import AccountTagConfig, save_account_tag_config_to_db
+
+    account_tag_config = AccountTagConfig(
+        version=config.version,
+        mandatory_hierarchical_accounts=set(config.mandatory_hierarchical_accounts),
+        mandatory_hierarchical_keywords=set(config.mandatory_hierarchical_keywords),
+        account_code_tag_category=config.account_code_tag_category,
+        account_name_tag_category=config.account_name_tag_category,
+        auxiliary_keywords=config.auxiliary_keywords,
+    )
+
+    save_account_tag_config_to_db(db, account_tag_config, user_id=current_user.id)
+
+    return {
+        "success": True,
+        "message": "科目与标签解析规则配置已保存！",
+        "config": {
+            "version": account_tag_config.version,
+            "mandatory_hierarchical_accounts": list(account_tag_config.mandatory_hierarchical_accounts),
+            "mandatory_hierarchical_keywords": list(account_tag_config.mandatory_hierarchical_keywords),
+            "account_code_tag_category": account_tag_config.account_code_tag_category,
+            "account_name_tag_category": account_tag_config.account_name_tag_category,
+            "auxiliary_keywords": account_tag_config.auxiliary_keywords,
+        },
+    }
+
+
+@router.post("/account-tag-rules/reset")
+def reset_account_tag_rules(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+    """重置科目与标签解析规则配置为默认值（从YAML文件加载）"""
+    from app.config.account_tag_config import load_account_tag_config_from_file, save_account_tag_config_to_db, CONFIG_KEY
+    from app.models.global_settings import GlobalSettings
+
+    config = load_account_tag_config_from_file()
+
+    db_config = db.query(GlobalSettings).filter(
+        GlobalSettings.settings_key == CONFIG_KEY
+    ).first()
+    if db_config:
+        db.delete(db_config)
+        db.commit()
+
+    return {
+        "success": True,
+        "message": "科目与标签解析规则配置已重置为默认值！",
+        "config": {
+            "version": config.version,
+            "mandatory_hierarchical_accounts": list(config.mandatory_hierarchical_accounts),
+            "mandatory_hierarchical_keywords": list(config.mandatory_hierarchical_keywords),
+            "account_code_tag_category": config.account_code_tag_category,
+            "account_name_tag_category": config.account_name_tag_category,
+            "auxiliary_keywords": config.auxiliary_keywords,
+        },
     }

@@ -1,16 +1,16 @@
 import { Input, InputNumber } from 'antd'
 import { useEffect, useRef } from 'react'
+import Decimal from 'decimal.js'
 import {
   DENOM_CELL_COUNT,
   DENOM_LABELS,
   amountToDenomCells,
   denomCellsToAmount,
-  roundAmount,
 } from './voucherAmountUtils'
 import './TraditionalVoucherForm.css'
 
 interface AmountDenominationGridProps {
-  value: number
+  value: number | Decimal
   onChange?: (amount: number) => void
   readOnly?: boolean
   quickEntry?: boolean
@@ -30,11 +30,12 @@ export function AmountDenominationGrid({
     inputRefs.current = inputRefs.current.slice(0, DENOM_CELL_COUNT)
   }, [])
 
-  const cells = amountToDenomCells(value)
+  const numValue = value instanceof Decimal ? value.toNumber() : value
+  const cells = amountToDenomCells(numValue)
 
   const emitChange = (nextCells: string[]) => {
     if (!onChange) return
-    onChange(denomCellsToAmount(nextCells))
+    onChange(denomCellsToAmount(nextCells).toNumber())
   }
 
   const focusCell = (index: number) => {
@@ -74,9 +75,9 @@ export function AmountDenominationGrid({
         <InputNumber
           min={0}
           precision={2}
-          value={value || undefined}
+          value={numValue || undefined}
           placeholder="0.00"
-          onChange={(next) => onChange?.(roundAmount(Number(next || 0)))}
+          onChange={(next) => onChange?.(new Decimal(next || 0).toNumber())}
           className="voucher-amount-quick-input"
         />
       </div>

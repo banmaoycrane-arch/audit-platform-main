@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import BusinessCycle, CycleBreak, CycleStep
 from app.db.session import get_db
-from app.services.business_cycle_service import BusinessCycleService
+from app.services.basic_data.business_cycle_service import BusinessCycleService
 
 router = APIRouter(prefix="/api/business-cycles", tags=["business-cycles"])
 

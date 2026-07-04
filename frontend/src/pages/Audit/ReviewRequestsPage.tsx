@@ -103,9 +103,13 @@ export function ReviewRequestsPage() {
     }
   }, [projectId, statusFilter, myFilter, page, pageSize])
 
-  const handleTableChange = (pagination: { current: number; pageSize: number }) => {
-    setPage(pagination.current)
-    setPageSize(pagination.pageSize)
+  const handleTableChange = (pagination: { current?: number; pageSize?: number }) => {
+    if (pagination.current != null) {
+      setPage(pagination.current)
+    }
+    if (pagination.pageSize != null) {
+      setPageSize(pagination.pageSize)
+    }
   }
 
   const handleViewDetail = (record: AuditReviewRequest) => {

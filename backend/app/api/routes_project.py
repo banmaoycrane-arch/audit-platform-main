@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from typing import Any
 """
 模块功能：项目管理 API 路由
 业务场景：前端调用创建项目、关联账簿、分配人员、查询项目列表
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
-from app.services import project_service
+from app.services.shared import project_service
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -215,6 +216,8 @@ def update_project(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="负责人不存在")
 
     updated = project_service.update_project(db, project_id, **update_data)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目更新后未找到")
     return ProjectResponse(
         id=updated.id,
         name=updated.name,
@@ -232,12 +235,12 @@ def update_project(
     )
 
 
-@router.get("/{project_id}/ledgers", response_model=list[dict])
+@router.get("/{project_id}/ledgers", response_model=list[dict[str, Any]])
 def list_project_ledgers(
     project_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """
     查询项目关联的账簿列表。
     """
@@ -286,7 +289,7 @@ def remove_ledger(
     ledger_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> dict[str, Any]:
     """
     解除项目与账簿关联。
     """
@@ -519,7 +522,7 @@ def get_consolidated_report(
     period_end: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> dict[str, Any]:
     """
     获取项目跨账簿汇总报告。
 
@@ -551,14 +554,14 @@ def list_project_files(
     archive_category: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """列出项目下已自动归档的底稿资料。"""
     project = project_service.get_project_by_id(db, project_id)
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
 
     from app.api.routes_files import _to_dict
-    from app.services.draft_archive_service import list_project_archived_files, load_archive_metadata
+    from app.services.doc_parsing.draft_archive_service import list_project_archived_files, load_archive_metadata
 
     items = list_project_archived_files(db, project_id, ledger_id=ledger_id)
     if archive_category:

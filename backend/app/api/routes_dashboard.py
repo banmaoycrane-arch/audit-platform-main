@@ -1,3 +1,4 @@
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -11,7 +12,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.core.dependencies import get_current_user, get_current_ledger
 from app.models.user import User
-from app.services import ledger_management_service
+from app.services.shared import ledger_management_service
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -23,7 +24,7 @@ def get_dashboard_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     current_ledger_id: int | None = Depends(get_current_ledger),
-) -> dict:
+) -> dict[str, Any]:
     """首页 KPI 仪表盘聚合接口（团队级）。
 
     返回：

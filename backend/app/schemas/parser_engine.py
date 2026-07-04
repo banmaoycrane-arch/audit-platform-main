@@ -34,6 +34,31 @@ class LLMComparisonResponse(BaseModel):
     total_duration_ms: float
 
 
+
+
+class QualityTrendItem(BaseModel):
+    date: str
+    document_type: str
+    parse_count: int
+    review_required_count: int
+    avg_consistency_rate: float
+    avg_stability_score: float
+    overall_field_accuracy: float
+    overall_document_completeness: float
+    correction_applied_total: int
+
+
+class ParserQualityDashboardResponse(BaseModel):
+    total_parse_count: int
+    total_review_required_count: int
+    overall_consistency_rate: float
+    overall_stability_score: float
+    overall_field_accuracy: float
+    overall_document_completeness: float
+    review_required_rate: float
+    trend: list[QualityTrendItem]
+
+
 class ParserEngineStatusResponse(BaseModel):
     status: str
     llm_multi_engine_enabled: bool

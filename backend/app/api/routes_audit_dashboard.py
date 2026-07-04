@@ -1,3 +1,4 @@
+from typing import Any
 """审计工作台 API 路由。
 
 模块功能：提供审计工作台统计和列表接口
@@ -23,7 +24,8 @@ from app.schemas.audit_workflow import (
     AuditReviewRequestRead,
     AuditTaskRead,
 )
-from app.services import audit_review_service, audit_task_service
+import app.services.audit.audit_review_service as audit_review_service
+import app.services.audit.audit_task_service as audit_task_service
 
 router = APIRouter(prefix="/api/audit/dashboard", tags=["audit-dashboard"])
 
@@ -128,7 +130,7 @@ def get_todo_tasks(
     project_id: int | None = Query(default=None, description="项目ID筛选"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     return audit_task_service.get_user_todo_tasks(db, current_user.id, project_id=project_id)
 
 
@@ -137,7 +139,7 @@ def get_pending_review(
     project_id: int | None = Query(default=None, description="项目ID筛选"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     return audit_review_service.get_pending_my_review(
         db, current_user.id, project_id=project_id
     )
@@ -148,7 +150,7 @@ def get_submitted(
     project_id: int | None = Query(default=None, description="项目ID筛选"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     return audit_review_service.get_my_submitted(
         db, current_user.id, project_id=project_id
     )

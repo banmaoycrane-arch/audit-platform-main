@@ -1,6 +1,6 @@
 import { Card, Row, Col, Typography, Button, Space, Tag, Statistic } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { FileTextOutlined, AuditOutlined, ArrowRightOutlined, DatabaseOutlined, BarChartOutlined, ShieldOutlined, ZapOutlined } from '@ant-design/icons'
+import { FileTextOutlined, AuditOutlined, ArrowRightOutlined, DatabaseOutlined, BarChartOutlined, LockOutlined, RocketOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import { useState, useEffect } from 'react'
 
@@ -46,7 +46,7 @@ const MODE_OPTIONS = [
     route: '/audit/step/1',
     color: 'purple',
     stats: [
-      { label: '待复核风险', icon: ShieldOutlined, key: 'pending_risks' },
+      { label: '待复核风险', icon: LockOutlined, key: 'pending_risks' },
       { label: '最近发现', icon: AuditOutlined, key: 'recent_findings' },
     ]
   }
@@ -116,7 +116,7 @@ export function UnifiedEntryPage() {
             <Statistic
               title="待复核风险"
               value={summary.pending_risks}
-              prefix={<ShieldOutlined />}
+              prefix={<LockOutlined />}
               valueStyle={{ color: summary.pending_risks > 0 ? '#fa8c16' : undefined }}
             />
           </Card>
@@ -205,7 +205,7 @@ export function UnifiedEntryPage() {
 
       <Card style={{ marginTop: '32px', borderRadius: '16px' }}>
         <Title level={5} style={{ marginBottom: '16px' }}>
-          <ZapOutlined style={{ marginRight: '8px' }} />
+          <RocketOutlined style={{ marginRight: '8px' }} />
           快速导航
         </Title>
         <Row gutter={16}>
@@ -241,7 +241,7 @@ export function UnifiedEntryPage() {
           </Col>
           <Col xs={8} sm={4}>
             <Button block onClick={() => navigate('/risks')}>
-              <ShieldOutlined style={{ marginRight: '8px' }} />
+              <LockOutlined style={{ marginRight: '8px' }} />
               风险中心
             </Button>
           </Col>
@@ -251,7 +251,7 @@ export function UnifiedEntryPage() {
       <Card style={{ marginTop: '16px', borderRadius: '16px', background: '#f6ffed' }}>
         <Space direction="vertical" size={8}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <ZapOutlined style={{ color: '#52c41a', marginRight: '8px' }} />
+            <RocketOutlined style={{ color: '#52c41a', marginRight: '8px' }} />
             <Text strong>使用提示</Text>
           </div>
           <Text type="secondary">

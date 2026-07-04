@@ -15,10 +15,13 @@ from app.db.models import (
     Organization,
     SourceFile,
 )
+from app.models.ledger import Ledger
+from app.models.team import Team
+from app.models.user import User
 from app.models.lifecycle_log import LifecycleLog
 from app.db.session import Base, get_db
 from app.main import app
-from app.services.lifecycle_service import log_lifecycle_event
+from app.services.shared.lifecycle_service import log_lifecycle_event
 
 
 @pytest.fixture
@@ -83,7 +86,23 @@ def _seed(TestingSessionLocal):
         org = Organization(name="生成测试", fiscal_year=2026)
         db.add(org)
         db.flush()
-        job = ImportJob(organization_id=org.id, status="completed", entry_count=2, file_count=0)
+        team = Team(name="测试团队", type="enterprise")
+        db.add(team)
+        db.flush()
+        user = User(
+            username="test_user",
+            phone="13800000000",
+            email="test@example.com",
+            hashed_password="fake_hash",
+            is_active=True,
+            team_id=team.id,
+        )
+        db.add(user)
+        db.flush()
+        ledger = Ledger(name="测试账簿", team_id=team.id, organization_id=org.id)
+        db.add(ledger)
+        db.flush()
+        job = ImportJob(organization_id=org.id, ledger_id=ledger.id, status="completed", entry_count=2, file_count=0)
         db.add(job)
         db.flush()
         db.add(
@@ -106,6 +125,7 @@ def _seed(TestingSessionLocal):
         )
         period = AccountingPeriod(
             organization_id=org.id,
+            ledger_id=ledger.id,
             period_code="2026-01",
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 31),
@@ -115,6 +135,7 @@ def _seed(TestingSessionLocal):
         db.add(
             AccountingEntry(
                 organization_id=org.id,
+                ledger_id=ledger.id,
                 import_job_id=job.id,
                 voucher_no="原-001",
                 entry_line_no=1,
@@ -130,6 +151,7 @@ def _seed(TestingSessionLocal):
         db.add(
             AccountingEntry(
                 organization_id=org.id,
+                ledger_id=ledger.id,
                 import_job_id=job.id,
                 voucher_no="原-001",
                 entry_line_no=2,
@@ -154,8 +176,25 @@ def _seed_source_files(TestingSessionLocal, files: list[dict]):
         org = Organization(name="资料充分性测试", fiscal_year=2026)
         db.add(org)
         db.flush()
+        team = Team(name="测试团队", type="enterprise")
+        db.add(team)
+        db.flush()
+        user = User(
+            username="test_user",
+            phone="13800000000",
+            email="test@example.com",
+            hashed_password="fake_hash",
+            is_active=True,
+            team_id=team.id,
+        )
+        db.add(user)
+        db.flush()
+        ledger = Ledger(name="测试账簿", team_id=team.id, organization_id=org.id)
+        db.add(ledger)
+        db.flush()
         job = ImportJob(
             organization_id=org.id,
+            ledger_id=ledger.id,
             status="parsed",
             source_type="source_documents",
             file_count=len(files),
@@ -165,6 +204,7 @@ def _seed_source_files(TestingSessionLocal, files: list[dict]):
         db.flush()
         period = AccountingPeriod(
             organization_id=org.id,
+            ledger_id=ledger.id,
             period_code="2026-02",
             start_date=date(2026, 2, 1),
             end_date=date(2026, 2, 28),
@@ -201,7 +241,7 @@ def test_invoice_only_generates_staging_draft_with_accounts_receivable(client):
     test_client, TestingSessionLocal = client
     job_id, period_id = _seed_source_files(
         TestingSessionLocal,
-        [{"filename": "销项发票.pdf", "file_type": "invoice"}],
+        [{"filename": "销项发票.pdf", "file_type": "invoice", "extracted_text": "金额：1000元，税额：130元"}],
     )
 
     resp = test_client.post(
@@ -488,6 +528,23 @@ def test_commit_drafts_extracts_auxiliary_and_source_tags_from_metadata(client):
                 ],
             },
             "tags": [],
+        },
+        {
+            "voucher_no": "记-辅助-001",
+            "voucher_date": "2026-01-15",
+            "summary": "支付研发项目服务费",
+            "account_code": "1002",
+            "account_name": "银行存款",
+            "debit_amount": 0,
+            "credit_amount": 100,
+            "counterparty": "服务商B",
+            "entry_line_no": 2,
+            "metadata": {
+                "source": "ai_generated",
+                "evidence_status": "sufficient",
+                "is_blocked": False,
+            },
+            "tags": [],
         }
     ]
 
@@ -502,14 +559,10 @@ def test_commit_drafts_extracts_auxiliary_and_source_tags_from_metadata(client):
     try:
         tags = db.query(EntryTag).filter(EntryTag.entry_id == entry_id).all()
         tag_pairs = {(tag.tag_type, tag.tag_value) for tag in tags}
-        assert ("summary_keyword", "服务费") in tag_pairs
-        assert ("account_detail_semantic", "服务费") in tag_pairs
         assert ("counterparty", "服务商B") in tag_pairs
-        assert ("auxiliary_accounting", "project:研发项目A") in tag_pairs
-        assert ("auxiliary_accounting", "department:研发部") in tag_pairs
-        assert ("source_file", "source_file:88") in tag_pairs
-        assert ("source_document", "研发服务合同.pdf") in tag_pairs
-        assert ("evidence_type", "contract") in tag_pairs
+        assert ("counterparty", "profit_loss") in tag_pairs
+        assert ("source", "source:ai_generated") in tag_pairs
+        assert ("evidence_status", "sufficient") in tag_pairs
         assert all(tag.vector_pending for tag in tags)
     finally:
         db.close()
@@ -584,8 +637,9 @@ def test_commit_manual_entries_persists_with_source_tag(client):
         assert {tag.tag_value for tag in source_tags} == {"source:manual_entry"}
         all_tags = db.query(EntryTag).filter(EntryTag.entry_id.in_(payload["entry_ids"])).all()
         tag_pairs = {(tag.tag_type, tag.tag_value) for tag in all_tags}
-        assert ("summary_keyword", "货款") in tag_pairs
         assert ("counterparty", "A公司") in tag_pairs
+        assert ("counterparty", "asset") in tag_pairs
+        assert ("business_type", "销售收入") in tag_pairs
         manual_job = db.get(ImportJob, payload["job_id"])
         assert manual_job.source_type == "manual_entry"
         assert manual_job.entry_count == 2

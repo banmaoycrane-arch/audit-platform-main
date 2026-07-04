@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,8 +16,8 @@ from app.db.models import (
     SourceFile,
 )
 from app.db.session import get_db
-from app.services.audit_test_service import audit_test_service
-from app.services.ledger_service import ledger_service
+from app.services.audit.audit_test_service import audit_test_service
+from app.services.shared.ledger_service import ledger_service
 
 router = APIRouter(prefix="/api/audit-tests", tags=["audit-tests"])
 
@@ -74,8 +75,8 @@ def _load_job_to_ledgers(db: Session, job: ImportJob) -> None:
 
     entries = db.query(AccountingEntry).filter(AccountingEntry.import_job_id == job.id).all()
     for entry in entries:
-        amount = float(entry.debit_amount or entry.credit_amount or 0)
-        data = {
+        amount = entry.debit_amount or entry.credit_amount or Decimal("0.00")
+        entry_data: dict[str, Any] = {
             "invoice_number": entry.voucher_no,
             "buyer_name": entry.original_entity_name,
             "seller_name": entry.counterparty,
@@ -85,7 +86,7 @@ def _load_job_to_ledgers(db: Session, job: ImportJob) -> None:
             "account_name": entry.account_name,
             "summary": entry.summary,
         }
-        ledger_service.add_invoice(data, f"凭证-{entry.voucher_no or '未编号'}-行{entry.entry_line_no}-{entry.id}")
+        ledger_service.add_invoice(entry_data, f"凭证-{entry.voucher_no or '未编号'}-行{entry.entry_line_no}-{entry.id}")
 
 
 def _build_audit_scope_metadata(db: Session, job: ImportJob) -> dict[str, Any]:
@@ -119,15 +120,16 @@ def _build_scope_label(db: Session, job: ImportJob) -> tuple[str, str]:
     return "全量审计", "全量审计"
 
 
-def _report_to_dict(report) -> dict:
-    return report.model_dump(mode="json")
+def _report_to_dict(report: Any) -> dict[str, Any]:
+    result = report.model_dump(mode="json")
+    return {str(k): result[k] for k in result}
 
 
-def _save_audit_report(db: Session, job_id: int, payload: dict) -> AuditReport:
+def _save_audit_report(db: Session, job_id: int, payload: dict[str, Any]) -> AuditReport:
     report = db.query(AuditReport).filter(AuditReport.import_job_id == job_id).first()
     if report:
         report.report_payload = payload
-        report.updated_at = datetime.utcnow()
+        report.updated_at = datetime.now(timezone.utc)
         return report
     report = AuditReport(import_job_id=job_id, report_payload=payload)
     db.add(report)
@@ -154,7 +156,7 @@ def _finding_to_dict(finding: AuditFinding) -> dict[str, Any]:
     }
 
 
-def _persist_findings(db: Session, job_id: int, findings_payload: list[dict]) -> list[AuditFinding]:
+def _persist_findings(db: Session, job_id: int, findings_payload: list[dict[str, Any]]) -> list[AuditFinding]:
     db.query(AuditFinding).filter(AuditFinding.job_id == job_id).delete()
     db.flush()
     persisted: list[AuditFinding] = []
@@ -183,7 +185,7 @@ def _persist_findings(db: Session, job_id: int, findings_payload: list[dict]) ->
 
 
 @router.post("/{job_id}/run")
-def run_audit_tests(job_id: int, db: Session = Depends(get_db)) -> dict:
+def run_audit_tests(job_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
@@ -206,7 +208,7 @@ def run_audit_tests(job_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/{job_id}/report")
-def get_audit_report(job_id: int, db: Session = Depends(get_db)) -> dict:
+def get_audit_report(job_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     report = db.query(AuditReport).filter(AuditReport.import_job_id == job_id).first()
     if report:
         return dict(report.report_payload or {})
@@ -217,7 +219,7 @@ def get_audit_report(job_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/{job_id}/findings")
-def get_audit_findings(job_id: int, db: Session = Depends(get_db)) -> list[dict]:
+def get_audit_findings(job_id: int, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     findings = db.query(AuditFinding).filter(AuditFinding.job_id == job_id).all()
     if findings:
         return [_finding_to_dict(item) for item in findings]
@@ -232,14 +234,14 @@ def review_audit_finding(
     finding_id: int,
     payload: ReviewPayload,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     if payload.action not in VALID_REVIEW_ACTIONS:
         raise HTTPException(status_code=400, detail="非法的复核动作")
     finding = db.get(AuditFinding, finding_id)
     if not finding:
         raise HTTPException(status_code=404, detail="审计发现不存在")
     finding.status = payload.action
-    finding.updated_at = datetime.utcnow()
+    finding.updated_at = datetime.now(timezone.utc)
     db.add(
         AuditFindingReviewAction(
             finding_id=finding.id,

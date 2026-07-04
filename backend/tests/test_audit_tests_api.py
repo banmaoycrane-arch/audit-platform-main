@@ -18,8 +18,8 @@ from app.db.models import (
 )
 from app.db.session import Base, get_db
 from app.main import app
-from app.services.audit_test_service import audit_test_service
-from app.services.ledger_service import ledger_service
+from app.services.audit.audit_test_service import audit_test_service
+from app.services.shared.ledger_service import ledger_service
 
 
 @pytest.fixture

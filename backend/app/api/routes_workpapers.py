@@ -1,3 +1,4 @@
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -5,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_ledger, get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.services import workpaper_service
+import app.services.audit.workpaper_service as workpaper_service
 
 router = APIRouter(prefix="/api/workpapers", tags=["workpapers"])
 
@@ -29,7 +30,7 @@ class WorkpaperVersionResponse(BaseModel):
     file_size: int | None = None
     template_code: str | None = None
     sheet_count: int | None = None
-    workbook_metadata: dict | None = None
+    workbook_metadata: dict[str, Any] | None = None
     generated_from: str | None = None
     version_no: str
     status: str

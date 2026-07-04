@@ -1,3 +1,4 @@
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -5,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_ledger, get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.services import three_way_match_service
+from app.services.accounting import three_way_match_service
 
 router = APIRouter(prefix="/api/audit/purchase-match", tags=["purchase-match"])
 
@@ -34,10 +35,10 @@ class PurchaseMatchException(BaseModel):
 
 class PurchaseMatchResult(BaseModel):
     ledger_id: int
-    contract: dict
-    invoices: list[dict]
-    inventory_documents: list[dict]
-    totals: dict
+    contract: dict[str, Any]
+    invoices: list[dict[str, Any]]
+    inventory_documents: list[dict[str, Any]]
+    totals: dict[str, Any]
     checks: list[PurchaseMatchCheck]
     exceptions: list[PurchaseMatchException]
     match_status: str
@@ -50,7 +51,7 @@ class PurchaseMatchSummary(BaseModel):
     matched_count: int
     incomplete_count: int
     exception_count: int
-    exception_items: list[dict]
+    exception_items: list[dict[str, Any]]
     results: list[PurchaseMatchResult]
 
 

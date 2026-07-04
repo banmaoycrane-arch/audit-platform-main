@@ -1,9 +1,9 @@
 import csv
 import io
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Iterable
+from typing import Any, Iterable
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -31,8 +31,8 @@ COLUMNS = [
 ]
 
 
-def _serialize(entry: AccountingEntry) -> dict:
-    def _as_str(value):
+def _serialize(entry: AccountingEntry) -> dict[str, Any]:
+    def _as_str(value: Any) -> Any:
         if value is None:
             return ""
         if isinstance(value, (date, datetime)):
@@ -79,7 +79,7 @@ def _entries_to_json(entries: Iterable[AccountingEntry]) -> bytes:
 def post_import_job_entries(
     job_id: int,
     db: Session = Depends(get_db),
-):
+) -> dict[str, Any]:
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
@@ -108,7 +108,7 @@ def post_import_job_entries(
             },
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     posted_count = 0
     for entry in entries:
         if entry.post_status != "posted":
@@ -130,7 +130,7 @@ def export_import_job(
     job_id: int,
     format: str = "xlsx",
     db: Session = Depends(get_db),
-):
+) -> StreamingResponse:
     fmt = format.lower()
     if fmt not in SUPPORTED_FORMATS:
         raise HTTPException(

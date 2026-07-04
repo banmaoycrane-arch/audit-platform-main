@@ -5,6 +5,7 @@ import type { TablePaginationConfig } from 'antd/es/table'
 import type { ColumnsType } from 'antd/es/table'
 import { api, type AccountingEntry } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { formatAmount } from '../../money'
 
 const { Title } = Typography
 
@@ -226,13 +227,13 @@ export function Step4ReviewEntries() {
       title: '借方金额',
       dataIndex: 'debit_amount',
       key: 'debit_amount',
-      render: (val: number) => (Number(val) > 0 ? `¥${Number(val).toLocaleString()}` : '-'),
+      render: (val: number) => (val > 0 ? formatAmount(val) : '-'),
     },
     {
       title: '贷方金额',
       dataIndex: 'credit_amount',
       key: 'credit_amount',
-      render: (val: number) => (Number(val) > 0 ? `¥${Number(val).toLocaleString()}` : '-'),
+      render: (val: number) => (val > 0 ? formatAmount(val) : '-'),
     },
     {
       title: '对方单位',

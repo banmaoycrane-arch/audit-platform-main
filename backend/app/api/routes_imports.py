@@ -1,3 +1,5 @@
+from typing import Any
+from decimal import Decimal
 import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
@@ -13,7 +15,7 @@ from app.models.team import Team
 from app.models.user_ledger_auth import UserLedgerAuth
 from app.db.session import SessionLocal, get_db
 from app.schemas.import_job import AuditScopeUpdate, DayBookReportRead, ImportJobCreate, ImportJobRead
-from app.services.import_service import (
+from app.services.doc_parsing.import_service import (
     attach_file,
     create_import_job,
     get_import_summary,
@@ -22,12 +24,12 @@ from app.services.import_service import (
     _process_ai_register_file,
     _is_source_file,
 )
-from app.services.project_service import get_or_create_unknown_project
-from app.services.audit_day_book_service import DayBookReport, process_day_book_import
-from app.services.entry_generation_service import _normalize_evidence_type
-from app.services.import_routing_service import get_import_output_path, is_day_book_source_type, AI_EVIDENCE_SOURCE_TYPES
-from app.services.period_detection_service import suggest_period_for_job
-from app.services.parser_engine.unified_parser_service import (
+from app.services.shared.project_service import get_or_create_unknown_project
+from app.services.audit.audit_day_book_service import DayBookReport, process_day_book_import
+from app.services.accounting.entry_generation_service import _normalize_evidence_type
+from app.services.doc_parsing.import_routing_service import get_import_output_path, is_day_book_source_type, AI_EVIDENCE_SOURCE_TYPES
+from app.services.accounting.period_detection_service import suggest_period_for_job
+from app.services.doc_parsing.parser_engine.unified_parser_service import (
     get_latest_source_file,
     mark_missing_source_file,
     mark_parser_engine_failure,
@@ -37,7 +39,7 @@ from app.services.parser_engine.unified_parser_service import (
 router = APIRouter(prefix="/api/import-jobs", tags=["import-jobs"])
 
 # 存储最近导入报告（生产环境应存储到数据库）
-_import_reports: dict[int, dict] = {}
+_import_reports: dict[int, dict[str, Any]] = {}
 
 # 存储序时簿检测报告（生产环境应存储到数据库）
 _day_book_reports: dict[int, DayBookReport] = {}
@@ -47,7 +49,10 @@ AUDIT_SOURCE_TYPES = {"audit_day_book"}
 
 
 def _requires_audit_project_context(source_type: str | None, audit_scope_type: str | None = None, project_id: int | None = None) -> bool:
-    return source_type in AUDIT_SOURCE_TYPES or bool(source_type and source_type.startswith("audit_")) or bool(audit_scope_type) or bool(project_id)
+    """是否需要审计项目上下文。"""
+    # 只有审计类 source_type 或已关联 project_id 时才需要审计项目上下文
+    is_audit_source = source_type in AUDIT_SOURCE_TYPES or bool(source_type and source_type.startswith("audit_"))
+    return is_audit_source or bool(project_id)
 
 
 def _is_enterprise_accountant_context(db: Session, *, user_id: int | None, ledger_id: int | None) -> bool:
@@ -246,7 +251,7 @@ def get_job(job_id: int, db: Session = Depends(get_db)) -> ImportJob:
     return job
 
 
-def _source_file_response(source_file: SourceFile) -> dict:
+def _source_file_response(source_file: SourceFile) -> dict[str, Any]:
     parse_feedback = None
     raw_text_preview = None
     if source_file.extracted_text:
@@ -285,7 +290,7 @@ def upload_file(
     file: UploadFile = File(...),
     document_type_hints: str | None = Form(None),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
@@ -300,7 +305,7 @@ def upload_file(
 
 
 @router.post("/{job_id}/files/{file_id}/parse")
-def parse_uploaded_file(job_id: int, file_id: int, db: Session = Depends(get_db)) -> dict:
+def parse_uploaded_file(job_id: int, file_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
@@ -383,7 +388,7 @@ def process_job(
 
 
 @router.post("/{job_id}/process/sync")
-def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict:
+def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     """同步处理导入任务：序时簿走专用导入逻辑，其余类型走统一解析引擎。"""
     job = db.get(ImportJob, job_id)
     if not job:
@@ -402,6 +407,8 @@ def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict:
         _import_reports[job.id] = summary
         if report.day_book_report is not None:
             _day_book_reports[job.id] = report.day_book_report
+        job.status = "completed"
+        db.commit()
         db.refresh(job)
         return {
             "job": ImportJobRead.model_validate(job).model_dump(mode="json"),
@@ -415,6 +422,8 @@ def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict:
             raise HTTPException(status_code=500, detail=f"原始资料登记失败: {str(exc)}") from exc
         summary = get_import_summary(report)
         _import_reports[job.id] = summary
+        job.status = "completed"
+        db.commit()
         db.refresh(job)
         return {
             "job": ImportJobRead.model_validate(job).model_dump(mode="json"),
@@ -426,6 +435,8 @@ def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict:
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"统一解析引擎解析失败: {str(exc)}") from exc
+    job.status = "completed"
+    db.commit()
     db.refresh(job)
     return {
         "job": ImportJobRead.model_validate(job).model_dump(mode="json"),
@@ -434,7 +445,7 @@ def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/{job_id}/draft")
-def get_job_draft(job_id: int, db: Session = Depends(get_db)) -> dict:
+def get_job_draft(job_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     """
     获取导入任务的草稿数据
 
@@ -476,7 +487,7 @@ def retry_job(
     job_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> dict[str, Any]:
     """
     重试导入任务
 
@@ -512,7 +523,7 @@ def retry_job(
 
 
 @router.get("/{job_id}/report")
-def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
+def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     """获取导入任务的质量报告和原始文件列表"""
     # 优先从内存获取
     if job_id in _import_reports:
@@ -539,7 +550,7 @@ def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
     ]
 
     # 获取所有分录并生成报告
-    from app.services.data_validator import generate_quality_report
+    from app.services.shared.data_validator import generate_quality_report
     from app.db.models import AccountingEntry
 
     entries = db.query(AccountingEntry).filter(AccountingEntry.import_job_id == job_id).all()
@@ -571,6 +582,12 @@ def get_job_report(job_id: int, db: Session = Depends(get_db)) -> dict:
                 "recommendations": quality_report.recommendations,
             },
         }
+        # 若内存缓存的完整报告包含统一字段 quality_score，同步回填到顶层
+        # 保持与 POST /process/sync 返回的 ImportReport 结构一致
+        if "quality_score" in report:
+            response["quality_score"] = report["quality_score"]
+        else:
+            response["quality_score"] = quality_report.overall_score
     else:
         response = {
             "job_id": job_id,
@@ -650,28 +667,30 @@ def get_day_book_report(job_id: int, db: Session = Depends(get_db)) -> DayBookRe
         voucher_groups[voucher_no].append(entry)
 
     # 逐凭证校验借贷平衡
-    unbalanced_vouchers: list[dict] = []
+    unbalanced_vouchers: list[dict[str, Any]] = []
     for voucher_no, voucher_entries in voucher_groups.items():
         if voucher_no.startswith("__no_voucher__"):
             continue
         total_debit = sum(
-            (entry.debit_amount or 0) for entry in voucher_entries
+            (Decimal(str(entry.debit_amount or 0)) for entry in voucher_entries),
+            Decimal("0.00")
         )
         total_credit = sum(
-            (entry.credit_amount or 0) for entry in voucher_entries
+            (Decimal(str(entry.credit_amount or 0)) for entry in voucher_entries),
+            Decimal("0.00")
         )
-        if round(total_debit, 2) != round(total_credit, 2):
+        if total_debit.quantize(Decimal("0.00")) != total_credit.quantize(Decimal("0.00")):
             unbalanced_vouchers.append({
                 "voucher_no": voucher_no,
-                "debit_total": str(round(total_debit, 2)),
-                "credit_total": str(round(total_credit, 2)),
-                "difference": str(round(abs(total_debit - total_credit), 2)),
+                "debit_total": str(total_debit.quantize(Decimal("0.00"))),
+                "credit_total": str(total_credit.quantize(Decimal("0.00"))),
+                "difference": str(abs(total_debit - total_credit).quantize(Decimal("0.00"))),
                 "entry_count": len(voucher_entries),
             })
 
     # 检测跳号
     all_voucher_nos = [v for v in voucher_groups.keys() if not v.startswith("__no_voucher__")]
-    from app.services.audit_day_book_service import _detect_voucher_number_skips
+    from app.services.audit.audit_day_book_service import _detect_voucher_number_skips
     missing_voucher_nos = _detect_voucher_number_skips(all_voucher_nos)
 
     total_vouchers = len(voucher_groups)
@@ -697,7 +716,7 @@ def get_day_book_report(job_id: int, db: Session = Depends(get_db)) -> DayBookRe
 
 
 @router.get("/{job_id}/period-suggestion")
-def get_period_suggestion(job_id: int, db: Session = Depends(get_db)) -> dict:
+def get_period_suggestion(job_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     """根据导入分录凭证日期推荐会计期间（主要用于序时簿导入）。"""
     job = db.get(ImportJob, job_id)
     if not job:
@@ -706,6 +725,6 @@ def get_period_suggestion(job_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/{job_id}/files")
-def list_files(job_id: int, db: Session = Depends(get_db)) -> list[dict]:
+def list_files(job_id: int, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     files = db.query(SourceFile).filter(SourceFile.import_job_id == job_id).all()
     return [_source_file_response(item) for item in files]

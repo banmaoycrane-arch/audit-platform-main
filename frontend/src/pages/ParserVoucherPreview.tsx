@@ -8,6 +8,7 @@ import {
   DatePicker,
   Descriptions,
   Empty,
+  Image,
   Input,
   InputNumber,
   Row,
@@ -17,6 +18,7 @@ import {
   Table,
   Tag,
   Result,
+  Tooltip,
   message,
 } from 'antd'
 import { InboxOutlined, CheckCircleOutlined, FileTextOutlined } from '@ant-design/icons'
@@ -25,6 +27,7 @@ import dayjs from 'dayjs'
 import { Upload } from 'antd'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import { Money, formatAmount } from '../money'
 
 const { Dragger } = Upload
 
@@ -44,7 +47,7 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
 
 // 候选分录行类型（_key 为前端生成的行唯一标识，仅用于 Table rowKey）
 type DraftLine = {
-  _key: string
+  _key?: string
   account_code: string
   account_name: string
   summary: string
@@ -65,6 +68,31 @@ type CandidateDraft = {
   raw_extracted_data: Record<string, unknown>
 }
 
+// 印章文字识别结果类型
+type SealTextItem = {
+  text: string
+  x: number
+  y: number
+  width: number
+  height: number
+  confidence: number
+}
+
+// 印章识别结果类型
+type SealInfo = {
+  detected: boolean
+  seal_count: number
+  seals: Array<{
+    bbox: { x1: number; y1: number; x2: number; y2: number }
+    seal_image_path?: string | null
+    recognized_text?: string | null
+    text_items?: SealTextItem[]
+    seal_type?: string | null
+    confidence: number
+    detection_method?: string | null
+  }>
+}
+
 // 解析响应类型
 type ParseResponse = {
   success: boolean
@@ -72,6 +100,7 @@ type ParseResponse = {
   confidence: number
   drafts: CandidateDraft[]
   error_message: string | null
+  seal_info?: SealInfo | null
 }
 
 // 确认响应类型
@@ -82,30 +111,11 @@ type ConfirmResponse = {
   error_message: string | null
 }
 
-// 金额计算辅助函数：将金额字符串转为数字（避免 NaN）
-const toAmountNumber = (value: string | number | null | undefined): number => {
-  if (value === null || value === undefined || value === '') return 0
-  const num = Number(value)
-  return Number.isFinite(num) ? num : 0
-}
+const sumDebit = (draft: CandidateDraft) => Money.sum(draft.lines.map(line => Money.cny(line.debit_amount)))
 
-// 金额格式化：保留 2 位小数
-const formatAmount = (value: number): string => value.toFixed(2)
+const sumCredit = (draft: CandidateDraft) => Money.sum(draft.lines.map(line => Money.cny(line.credit_amount)))
 
-// 计算借方合计
-const sumDebit = (draft: CandidateDraft): number =>
-  Math.round(draft.lines.reduce((sum, line) => sum + toAmountNumber(line.debit_amount) * 100, 0)) / 100
-
-// 计算贷方合计
-const sumCredit = (draft: CandidateDraft): number =>
-  Math.round(draft.lines.reduce((sum, line) => sum + toAmountNumber(line.credit_amount) * 100, 0)) / 100
-
-// 判断借贷是否平衡
-const isDraftBalanced = (draft: CandidateDraft): boolean => {
-  const debit = Math.round(sumDebit(draft) * 100)
-  const credit = Math.round(sumCredit(draft) * 100)
-  return debit === credit
-}
+const isDraftBalanced = (draft: CandidateDraft) => sumDebit(draft).eq(sumCredit(draft))
 
 export function ParserVoucherPreview() {
   const navigate = useNavigate()
@@ -120,6 +130,7 @@ export function ParserVoucherPreview() {
   const [drafts, setDrafts] = useState<CandidateDraft[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [successResult, setSuccessResult] = useState<ConfirmResponse | null>(null)
+  const [sealInfo, setSealInfo] = useState<SealInfo | null>(null)
 
   // 处理文件上传并调用解析接口
   const handleUpload = async (file: File): Promise<boolean> => {
@@ -136,6 +147,7 @@ export function ParserVoucherPreview() {
     setSuccessResult(null)
     setParseResult(null)
     setDrafts([])
+    setSealInfo(null)
     try {
       const result = await api.parseToVoucherDrafts(organizationId, file)
       setParseResult(result)
@@ -143,6 +155,10 @@ export function ParserVoucherPreview() {
         message.error(result.error_message || '解析失败，请检查文件格式后重试')
         setDrafts([])
         return false
+      }
+      // 保存印章识别结果
+      if (result.seal_info) {
+        setSealInfo(result.seal_info)
       }
       // 深拷贝草稿以便编辑（避免直接修改响应数据），并为每行生成 _key
       setDrafts(result.drafts.map((draft, draftIdx) => ({
@@ -306,7 +322,7 @@ export function ParserVoucherPreview() {
       width: 130,
       render: (value: string, _record: DraftLine, lineIndex: number) => (
         <InputNumber
-          value={toAmountNumber(value)}
+          value={Money.cny(value).toNumber()}
           onChange={(val) => handleLineFieldChange(draftIndex, lineIndex, 'debit_amount', String(val ?? 0))}
           precision={2}
           step={0.01}
@@ -323,7 +339,7 @@ export function ParserVoucherPreview() {
       width: 130,
       render: (value: string, _record: DraftLine, lineIndex: number) => (
         <InputNumber
-          value={toAmountNumber(value)}
+          value={Money.cny(value).toNumber()}
           onChange={(val) => handleLineFieldChange(draftIndex, lineIndex, 'credit_amount', String(val ?? 0))}
           precision={2}
           step={0.01}
@@ -435,7 +451,100 @@ export function ParserVoucherPreview() {
             <Descriptions.Item label="候选凭证数量">
               {parseResult.drafts.length} 张
             </Descriptions.Item>
+            {sealInfo && (
+              <>
+                <Descriptions.Item label="印章检测">
+                  {sealInfo.detected ? (
+                    <Tag color="green">检测到 {sealInfo.seal_count} 个印章</Tag>
+                  ) : (
+                    <Tag color="orange">未检测到印章</Tag>
+                  )}
+                </Descriptions.Item>
+              </>
+            )}
           </Descriptions>
+        </Card>
+      )}
+
+      {/* 印章识别结果展示 */}
+      {sealInfo && sealInfo.detected && sealInfo.seals.length > 0 && (
+        <Card style={{ marginTop: 16 }} title="印章识别结果">
+          <Alert
+            message="印章识别"
+            description="系统已自动检测并识别文档中的印章信息，识别结果供审计复核参考。"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+          <Row gutter={16}>
+            {sealInfo.seals.map((seal, index) => {
+              const sealTypeLabels: Record<string, string> = {
+                contract_seal: '合同专用章',
+                finance_seal: '财务专用章',
+                legal_person_seal: '法人章',
+                unknown: '未知类型',
+              }
+              return (
+                <Col span={12} key={index}>
+                  <Card
+                    size="small"
+                    title={`印章 ${index + 1}`}
+                    style={{ marginBottom: 16 }}
+                  >
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      {seal.seal_image_path && (
+                        <Image
+                          src={`/api/files/${seal.seal_image_path.split('/').pop()}`}
+                          alt={`印章 ${index + 1}`}
+                          width={150}
+                          height={150}
+                          style={{ objectFit: 'contain', border: '1px solid #eee', borderRadius: 8 }}
+                        />
+                      )}
+                      <Descriptions size="small" column={2}>
+                        <Descriptions.Item label="印章类型">
+                          <Tag color={seal.seal_type === 'contract_seal' ? 'green' : 'gray'}>
+                            {sealTypeLabels[seal.seal_type || 'unknown']}
+                          </Tag>
+                        </Descriptions.Item>
+                        <Descriptions.Item label="识别置信度">
+                          {(seal.confidence * 100).toFixed(1)}%
+                        </Descriptions.Item>
+                        <Descriptions.Item label="识别文字" span={2}>
+                          {seal.recognized_text || (
+                            <span style={{ color: '#999' }}>未识别到文字</span>
+                          )}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="检测方法">
+                          {seal.detection_method || '未知'}
+                        </Descriptions.Item>
+                      </Descriptions>
+                      {seal.text_items && seal.text_items.length > 0 && (
+                        <Collapse size="small" defaultActiveKey={['text_items']}>
+                          <Collapse.Panel header="文字位置详情" key="text_items">
+                            <Table
+                              dataSource={seal.text_items}
+                              rowKey={(item, idx) => String(idx)}
+                              pagination={false}
+                              size="small"
+                              columns={[
+                                { title: '文字', dataIndex: 'text', width: 120 },
+                                { title: 'X', dataIndex: 'x', width: 60 },
+                                { title: 'Y', dataIndex: 'y', width: 60 },
+                                { title: '宽度', dataIndex: 'width', width: 60 },
+                                { title: '高度', dataIndex: 'height', width: 60 },
+                                { title: '置信度', dataIndex: 'confidence', width: 80, render: (v: number) => `${(v * 100).toFixed(1)}%` },
+                              ]}
+                            />
+                          </Collapse.Panel>
+                        </Collapse>
+                      )}
+                    </Space>
+                  </Card>
+                </Col>
+              )
+            })}
+          </Row>
         </Card>
       )}
 
@@ -544,16 +653,16 @@ export function ParserVoucherPreview() {
                 <Row gutter={16} style={{ marginTop: 12, padding: '8px 16px', background: '#fafafa', borderRadius: 4 }}>
                   <Col span={8}>
                     <span style={{ color: '#666' }}>借方合计：</span>
-                    <strong style={{ fontSize: 16 }}>{formatAmount(debitTotal)}</strong>
+                    <strong style={{ fontSize: 16 }}>¥{debitTotal.toFixed(2)}</strong>
                   </Col>
                   <Col span={8}>
                     <span style={{ color: '#666' }}>贷方合计：</span>
-                    <strong style={{ fontSize: 16 }}>{formatAmount(creditTotal)}</strong>
+                    <strong style={{ fontSize: 16 }}>¥{creditTotal.toFixed(2)}</strong>
                   </Col>
                   <Col span={8}>
                     <span style={{ color: '#666' }}>差额：</span>
                     <strong style={{ fontSize: 16, color: balanced ? '#52c41a' : '#f5222d' }}>
-                      {formatAmount(Math.round((debitTotal - creditTotal) * 100) / 100)}
+                      ¥{debitTotal.sub(creditTotal).toFixed(2)}
                     </strong>
                     {balanced ? (
                       <Tag color="green" style={{ marginLeft: 8 }}>平衡</Tag>

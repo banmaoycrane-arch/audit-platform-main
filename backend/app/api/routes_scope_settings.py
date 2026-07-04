@@ -13,7 +13,8 @@ from app.models.ledger import Ledger
 from app.models.project import Project
 from app.models.user import User
 from app.models.user_ledger_auth import UserLedgerAuth
-from app.services import ledger_management_service, scope_settings_service
+import app.services.shared.ledger_management_service as ledger_management_service
+import app.services.shared.scope_settings_service as scope_settings_service
 
 router = APIRouter(prefix="/api/scope-settings", tags=["scope-settings"])
 

@@ -38,6 +38,10 @@ export type AccountingEntry = {
   entry_line_no: number
   review_status: string
   created_at: string
+  resolved_account_code: string | null
+  resolved_account_name: string | null
+  counterparty_id: number | null
+  requires_llm_resolution: boolean
 }
 
 export type ChronologicalEntryFilters = {
@@ -365,6 +369,112 @@ export type SourceFileRead = {
     confidence_note: string | null
   }
   created_at: string
+}
+
+export type DocumentTag = {
+  id: number
+  document_id: number
+  document_type: string
+  tag: string
+  tag_type: string
+  vector_id?: string | null
+  vector_stored: boolean
+  confidence: number
+  source: string
+  created_at: string
+}
+
+export type EntryTag = {
+  id: number
+  entry_id: number
+  ledger_id: number
+  category_id: number
+  category_code: string
+  category_name: string
+  tag_name: string
+  tag_type: string
+  tag_value: string
+  display_name: string
+  confidence: number
+  tag_source: string
+  reviewed_by_user: boolean
+  created_at: string
+}
+
+export type LlmTagSuggestion = {
+  id: number
+  entry_id: number
+  category_id?: number
+  category_code: string
+  category_name: string
+  tag_value: string
+  display_name: string
+  confidence: number
+  tag_source: string
+  created_at: string
+}
+
+export type LlmResolutionResult = {
+  task_id: string
+  total_entries: number
+  success_count: number
+  failed_count: number
+  processing_time_ms: number
+  error_messages: string[]
+  suggested_tags: LlmTagSuggestion[]
+}
+
+export type LlmResolutionStatistics = {
+  pending_llm_resolution: number
+  pending_review: number
+  reviewed: number
+}
+
+export type AccountTagConfig = {
+  version: string
+  mandatory_hierarchical_accounts: string[]
+  mandatory_hierarchical_keywords: string[]
+  account_code_tag_category: Record<string, string>
+  account_name_tag_category: Record<string, string>
+  auxiliary_keywords: Record<string, string[]>
+}
+
+export type SealTextItem = {
+  text: string
+  x: number
+  y: number
+  width: number
+  height: number
+  confidence: number
+}
+
+export type ContractSeal = {
+  id: number
+  contract_id: number
+  source_file_id?: number | null
+  page_no: number
+  bbox: { x1: number; y1: number; x2: number; y2: number }
+  seal_image_path?: string | null
+  recognized_text?: string | null
+  text_items?: SealTextItem[]
+  seal_type?: string | null
+  confidence: number
+  detection_method?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ContractSealListResponse = {
+  total: number
+  page: number
+  size: number
+  items: ContractSeal[]
+}
+
+export type ContractSealExtractResponse = {
+  contract_id: number
+  extracted_count: number
+  seals: ContractSeal[]
 }
 
 export type ModuleRegisterItem = {
@@ -1359,11 +1469,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
+  const body = options?.body
+  const isFormData = body instanceof FormData
   if (
-    options?.body
-    && typeof options.body === 'string'
+    body
+    && typeof body === 'string'
     && !headers['Content-Type']
-    && !(options.body instanceof FormData)
+    && !isFormData
   ) {
     headers['Content-Type'] = 'application/json'
   }
@@ -1428,7 +1540,7 @@ export const api = {
       body: JSON.stringify({ password })
     }),
   getSmsCode: (phone: string) =>
-    request<{ code?: string; sms_code?: string; message?: string }>('/api/auth/sms/code', {
+    request<{ code?: string; sms_code?: string; verify_code?: string; message?: string }>('/api/auth/sms/code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone })
@@ -2613,7 +2725,15 @@ export const api = {
     ),
 
   testAIConnection: (params: { ai_base_url: string; ai_model: string; ai_api_key?: string }) =>
-    request<{ success: boolean; message: string; model?: string; base_url?: string }>(
+    request<{ 
+      success: boolean; 
+      message: string; 
+      model?: string; 
+      base_url?: string;
+      response_content?: string;
+      response_time_ms?: number;
+      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+    }>(
       '/api/config/parser-engine/test-connection',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) }
     ),
@@ -2667,6 +2787,26 @@ export const api = {
         raw_extracted_data: Record<string, unknown>
       }>
       error_message: string | null
+      seal_info?: {
+        detected: boolean
+        seal_count: number
+        seals: Array<{
+          bbox: { x1: number; y1: number; x2: number; y2: number }
+          seal_image_path?: string | null
+          recognized_text?: string | null
+          text_items?: Array<{
+            text: string
+            x: number
+            y: number
+            width: number
+            height: number
+            confidence: number
+          }>
+          seal_type?: string | null
+          confidence: number
+          detection_method?: string | null
+        }>
+      } | null
     }>('/api/parser-voucher/parse-to-drafts', { method: 'POST', body: form })
   },
 
@@ -2696,5 +2836,305 @@ export const api = {
         organization_id: organizationId,
         drafts,
       }),
+    }),
+
+  // ==========================================================================
+  // DocumentTag API
+  // ==========================================================================
+  listDocumentTags: (filters?: {
+    document_id?: number
+    document_type?: string
+    tag_type?: string
+    source?: string
+    vector_stored?: boolean
+    created_from?: string
+    created_to?: string
+  }) => {
+    const params = new URLSearchParams()
+    if (filters?.document_id != null) params.set('document_id', String(filters.document_id))
+    if (filters?.document_type) params.set('document_type', filters.document_type)
+    if (filters?.tag_type) params.set('tag_type', filters.tag_type)
+    if (filters?.source) params.set('source', filters.source)
+    if (filters?.vector_stored != null) params.set('vector_stored', String(filters.vector_stored))
+    if (filters?.created_from) params.set('created_from', filters.created_from)
+    if (filters?.created_to) params.set('created_to', filters.created_to)
+    const query = params.toString()
+    return request<DocumentTag[]>(`/api/document-tags${query ? `?${query}` : ''}`)
+  },
+  getDocumentTag: (tagId: number) =>
+    request<DocumentTag>(`/api/document-tags/${tagId}`),
+  createDocumentTag: (payload: {
+    document_id: number
+    document_type: string
+    tag: string
+    tag_type: string
+    confidence?: number
+    source?: string
+  }) =>
+    request<DocumentTag>('/api/document-tags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  createDocumentTagsBatch: (payload: {
+    document_id: number
+    document_type: string
+    tags: Array<{ tag: string; tag_type: string; confidence?: number; source?: string }>
+  }) =>
+    request<DocumentTag[]>('/api/document-tags/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  updateDocumentTag: (tagId: number, payload: {
+    tag?: string
+    tag_type?: string
+    confidence?: number
+    source?: string
+  }) =>
+    request<DocumentTag>(`/api/document-tags/${tagId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  deleteDocumentTag: (tagId: number) =>
+    request<{ success: boolean }>(`/api/document-tags/${tagId}`, { method: 'DELETE' }),
+  deleteDocumentTagsByDocument: (documentId: number) =>
+    request<{ success: boolean; deleted_count: number }>(`/api/document-tags/document/${documentId}`, { method: 'DELETE' }),
+  generateDocumentTags: (payload: {
+    document_id: number
+    document_type: string
+    parsed_data: Record<string, unknown>
+    source?: string
+  }) =>
+    request<DocumentTag[]>('/api/document-tags/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  generateDocumentTagsAI: (payload: {
+    document_id: number
+    document_type: string
+    extracted_text: string
+    parsed_data?: Record<string, unknown>
+  }) =>
+    request<DocumentTag[]>('/api/document-tags/generate/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  generateDocumentTagsHybrid: (payload: {
+    document_id: number
+    document_type: string
+    extracted_text: string
+    parsed_data: Record<string, unknown>
+    ai_enabled?: boolean
+  }) =>
+    request<DocumentTag[]>('/api/document-tags/generate/hybrid', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  getDocumentTagStats: (document_type?: string) => {
+    const params = new URLSearchParams()
+    if (document_type) params.set('document_type', document_type)
+    const query = params.toString()
+    return request<{
+      total_tags: number
+      total_documents: number
+      by_tag_type: Array<{ tag_type: string; count: number; avg_confidence: number }>
+    }>(`/api/document-tags/stats${query ? `?${query}` : ''}`)
+  },
+  syncDocumentTagVectors: () =>
+    request<{ success: boolean; synced_count: number }>('/api/document-tags/sync-vectors', { method: 'POST' }),
+  searchDocumentTags: (params: {
+    query_text: string
+    document_type?: string
+    tag_type?: string
+    limit?: number
+  }) => {
+    const searchParams = new URLSearchParams()
+    searchParams.set('query_text', params.query_text)
+    if (params.document_type) searchParams.set('document_type', params.document_type)
+    if (params.tag_type) searchParams.set('tag_type', params.tag_type)
+    if (params.limit != null) searchParams.set('limit', String(params.limit))
+    return request<Array<{ score: number; metadata: DocumentTag }>>(`/api/document-tags/search?${searchParams.toString()}`)
+  },
+
+  batchUpdateDocumentTags: (payload: {
+    tag_ids: number[]
+    updates: { tag?: string; tag_type?: string; confidence?: number; source?: string }
+    operator?: string
+    reason?: string
+  }) =>
+    request<{ success: boolean; updated_count: number }>('/api/document-tags/batch', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  batchDeleteDocumentTags: (payload: { tag_ids: number[]; operator?: string; reason?: string }) =>
+    request<{ success: boolean; deleted_count: number }>('/api/document-tags/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  batchAssignDocumentTags: (payload: {
+    document_ids: number[]
+    document_type: string
+    tags: Array<{ tag: string; tag_type: string; confidence?: number; source?: string }>
+  }) =>
+    request<{ success: boolean; created_count: number }>('/api/document-tags/batch/assign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  listDocumentTagHistory: (params?: {
+    document_tag_id?: number
+    document_id?: number
+    action?: string
+    limit?: number
+  }) => {
+    const searchParams = new URLSearchParams()
+    if (params?.document_tag_id != null) searchParams.set('document_tag_id', String(params.document_tag_id))
+    if (params?.document_id != null) searchParams.set('document_id', String(params.document_id))
+    if (params?.action) searchParams.set('action', params.action)
+    if (params?.limit != null) searchParams.set('limit', String(params.limit))
+    const query = searchParams.toString()
+    return request<Array<{
+      id: number
+      document_tag_id: number
+      document_id: number
+      document_type: string
+      action: string
+      before_tag: string | null
+      before_tag_type: string | null
+      before_confidence: number | null
+      before_source: string | null
+      after_tag: string | null
+      after_tag_type: string | null
+      after_confidence: number | null
+      after_source: string | null
+      operator: string | null
+      reason: string | null
+      created_at: string
+    }>>(`/api/document-tags/history${query ? `?${query}` : ''}`)
+  },
+
+  extractContractSeals: (contractId: number) =>
+    request<ContractSealExtractResponse>(`/api/v1/contracts/${contractId}/seals/extract`, {
+      method: 'POST',
+    }),
+
+  listContractSeals: (contractId: number, page: number = 1, size: number = 20) =>
+    request<ContractSealListResponse>(
+      `/api/v1/contracts/${contractId}/seals?page=${page}&size=${size}`
+    ),
+
+  getSealDetail: (sealId: number) =>
+    request<ContractSeal>(`/api/v1/seals/${sealId}`),
+
+  // ==========================================================================
+  // EntryTag API
+  // ==========================================================================
+  listEntryTags: (entryId?: number, ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (entryId) params.set('entry_id', String(entryId))
+    if (ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<EntryTag[]>(`/api/entry-tags${query ? `?${query}` : ''}`)
+  },
+
+  batchListEntryTags: (payload: {
+    entry_ids: number[]
+    ledger_id?: number
+    category_code?: string
+  }) =>
+    request<EntryTag[]>('/api/entry-tags/tags/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  getCounterparty: (counterpartyId: number) =>
+    request<Counterparty>(`/api/counterparties/${counterpartyId}`),
+
+  batchGetCounterparties: (ids: number[]) =>
+    request<Counterparty[]>('/api/counterparties/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    }),
+
+  // ==========================================================================
+  // LLM Tag Resolution API
+  // ==========================================================================
+  llmBatchResolve: (payload: {
+    entry_ids?: number[]
+    ledger_id?: number
+    batch_size?: number
+    dry_run?: boolean
+  }) =>
+    request<LlmResolutionResult>('/api/llm-resolution/batch-resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  llmGetPendingSuggestions: (params?: {
+    ledger_id?: number
+    limit?: number
+    offset?: number
+  }) => {
+    const searchParams = new URLSearchParams()
+    if (params?.ledger_id != null) searchParams.set('ledger_id', String(params.ledger_id))
+    if (params?.limit != null) searchParams.set('limit', String(params.limit))
+    if (params?.offset != null) searchParams.set('offset', String(params.offset))
+    const query = searchParams.toString()
+    return request<{
+      success: boolean
+      items: LlmTagSuggestion[]
+      total: number
+      limit: number
+      offset: number
+    }>(`/api/llm-resolution/pending-suggestions${query ? `?${query}` : ''}`)
+  },
+
+  llmApproveSuggestions: (suggestionIds: number[]) =>
+    request<{ success: boolean; message: string; approved_count: number }>('/api/llm-resolution/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suggestion_ids: suggestionIds }),
+    }),
+
+  llmRejectSuggestions: (suggestionIds: number[]) =>
+    request<{ success: boolean; message: string; rejected_count: number }>('/api/llm-resolution/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suggestion_ids: suggestionIds }),
+    }),
+
+  llmGetStatistics: (ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (ledgerId != null) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<LlmResolutionStatistics>(`/api/llm-resolution/statistics${query ? `?${query}` : ''}`)
+  },
+
+  getAccountTagRules: () =>
+    request<{ success: boolean; config: AccountTagConfig; message?: string }>('/api/config/account-tag-rules'),
+
+  saveAccountTagRules: (config: AccountTagConfig) =>
+    request<{ success: boolean; message?: string }>('/api/config/account-tag-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    }),
+
+  resetAccountTagRules: () =>
+    request<{ success: boolean; message?: string }>('/api/config/account-tag-rules/reset', {
+      method: 'POST',
     }),
 }

@@ -1,4 +1,6 @@
 from datetime import date, datetime
+from decimal import Decimal
+
 from pydantic import BaseModel
 
 
@@ -11,8 +13,8 @@ class AccountingEntryRead(BaseModel):
     summary: str | None
     account_code: str | None
     account_name: str | None
-    debit_amount: float
-    credit_amount: float
+    debit_amount: Decimal
+    credit_amount: Decimal
     counterparty: str | None
     normalized_text: str
     entry_line_no: int

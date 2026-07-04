@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -9,13 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.db.models import BankStatement, Contract, InventoryDocument, Invoice
 from app.db.session import get_db
-from app.services.module_register_service import (
+from app.services.shared.module_register_service import (
     EXECUTION_STATUS_LABELS,
     VALID_MODULE_KEYS,
     get_module_register_summary,
     list_module_registers,
 )
-from app.services.register_ingestion_service import MODULE_DEFINITIONS
+from app.services.basic_data.register_ingestion_service import MODULE_DEFINITIONS
 
 router = APIRouter(prefix="/api/module-registers", tags=["module-registers"])
 
@@ -81,14 +81,14 @@ DECIMAL_FIELDS = {
 STATUS_ARCHIVED = "archived"
 
 
-def _get_register_model(module_key: str):
+def _get_register_model(module_key: str) -> type[Any]:
     model = REGISTER_MODEL_MAP.get(module_key)
     if model is None:
         raise HTTPException(status_code=400, detail="该模块台账暂不支持行级编辑操作")
     return model
 
 
-def _get_register_row(db: Session, module_key: str, row_id: int):
+def _get_register_row(db: Session, module_key: str, row_id: int) -> Any:
     model = _get_register_model(module_key)
     row = db.get(model, row_id)
     if row is None:
@@ -120,15 +120,15 @@ def _apply_register_fields(row: Any, module_key: str, fields: dict[str, Any]) ->
     for field_name, value in fields.items():
         setattr(row, field_name, _coerce_register_value(field_name, value))
     if hasattr(row, "updated_at"):
-        row.updated_at = datetime.utcnow()
+        row.updated_at = datetime.now(timezone.utc)
 
 
-def _serialize_register_row(db: Session, module_key: str, row: Any) -> dict[str, Any]:
+def _serialize_register_row(db: Session, module_key: str, row: Any) -> list[dict[str, Any]]:
     return list_module_registers(db, module_key, row.ledger_id or 0, limit=500)
 
 
 @router.get("/definitions")
-def list_module_definitions() -> list[dict]:
+def list_module_definitions() -> list[dict[str, Any]]:
     return [
         {
             "module_key": key,
@@ -144,12 +144,12 @@ def list_module_definitions() -> list[dict]:
 def module_register_summary(
     ledger_id: int = Query(..., description="账簿 ID"),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     return get_module_register_summary(db, ledger_id)
 
 
 @router.get("/execution-statuses")
-def list_execution_statuses() -> list[dict]:
+def list_execution_statuses() -> list[dict[str, Any]]:
     return [
         {"value": key, "label": label}
         for key, label in EXECUTION_STATUS_LABELS.items()
@@ -164,7 +164,7 @@ def get_module_registers(
     contract_type: str | None = Query(None, description="合同类型"),
     limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     if module_key not in VALID_MODULE_KEYS:
         raise HTTPException(status_code=404, detail=f"未知模块台账: {module_key}")
 
@@ -197,7 +197,7 @@ def update_module_register_row(
     row_id: int,
     payload: ModuleRegisterUpdateRequest,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     if module_key not in VALID_MODULE_KEYS:
         raise HTTPException(status_code=404, detail=f"未知模块台账: {module_key}")
     row = _get_register_row(db, module_key, row_id)
@@ -213,7 +213,7 @@ def correct_module_register_row(
     row_id: int,
     payload: ModuleRegisterUpdateRequest,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     if module_key not in VALID_MODULE_KEYS:
         raise HTTPException(status_code=404, detail=f"未知模块台账: {module_key}")
     if not payload.correction_reason:
@@ -225,7 +225,7 @@ def correct_module_register_row(
         corrections = list(risk_flags.get("corrections") or [])
         corrections.append({
             "reason": payload.correction_reason,
-            "corrected_at": datetime.utcnow().isoformat(),
+            "corrected_at": datetime.now(timezone.utc).isoformat(),
             "fields": sorted(payload.fields.keys()),
         })
         risk_flags["corrections"] = corrections
@@ -241,7 +241,7 @@ def archive_module_register_row(
     row_id: int,
     payload: ModuleRegisterArchiveRequest,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     if module_key not in VALID_MODULE_KEYS:
         raise HTTPException(status_code=404, detail=f"未知模块台账: {module_key}")
     row = _get_register_row(db, module_key, row_id)
@@ -255,7 +255,7 @@ def archive_module_register_row(
         archive_note = payload.archive_reason or "用户归档"
         row.remark = f"{row.remark or ''} [已归档：{archive_note}]".strip()
     if hasattr(row, "updated_at"):
-        row.updated_at = datetime.utcnow()
+        row.updated_at = datetime.now(timezone.utc)
     db.add(row)
     db.commit()
     return {"status": "success", "message": "台账行已归档", "row_id": row_id}
@@ -266,7 +266,7 @@ def delete_module_register_row(
     module_key: str,
     row_id: int,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     if module_key not in VALID_MODULE_KEYS:
         raise HTTPException(status_code=404, detail=f"未知模块台账: {module_key}")
     row = _get_register_row(db, module_key, row_id)

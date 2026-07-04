@@ -117,7 +117,7 @@ def test_update_entry_fields_before_review(client: TestClient):
     assert data["summary"] == "调整后摘要"
     assert data["account_code"] == "6602"
     assert data["account_name"] == "管理费用"
-    assert data["debit_amount"] == 88
+    assert data["debit_amount"] == "88.00"
     assert data["counterparty"] == "测试供应商"
 
 

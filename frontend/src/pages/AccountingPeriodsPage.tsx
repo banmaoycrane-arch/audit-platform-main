@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Card, Table, Tag, Button, Space, Modal, Form, Input, DatePicker, message, Popconfirm, Alert } from 'antd'
 import { api, type AccountingPeriod } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import { formatAmount } from '../money'
 
 export function AccountingPeriodsPage() {
   const { currentLedgerId } = useAuthStore()
@@ -46,7 +47,7 @@ export function AccountingPeriodsPage() {
   const handlePlTransfer = async (periodId: number) => {
     try {
       const result = await api.plTransfer(periodId)
-      message.success(`损益结转完成，凭证 ${result.voucher_no}，净利润 ¥${result.net_profit.toLocaleString()}`)
+      message.success(`损益结转完成，凭证 ${result.voucher_no}，净利润 ${formatAmount(result.net_profit)}`)
       await load()
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)

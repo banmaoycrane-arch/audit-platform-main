@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import type { ColumnsType } from 'antd/es/table'
 import { api, type EntryDraft } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { formatAmount } from '../../money'
 
 const ACCOUNTING_JUDGMENT_OPTIONS = [
   {
@@ -168,13 +169,13 @@ const detail = error instanceof Error ? error.message : String(error)
       title: '借方',
       dataIndex: 'debit_amount',
       key: 'debit_amount',
-      render: (val: number) => (val > 0 ? `¥${Number(val).toLocaleString()}` : '-')
+      render: (val: number) => (val > 0 ? formatAmount(val) : '-')
     },
     {
       title: '贷方',
       dataIndex: 'credit_amount',
       key: 'credit_amount',
-      render: (val: number) => (val > 0 ? `¥${Number(val).toLocaleString()}` : '-')
+      render: (val: number) => (val > 0 ? formatAmount(val) : '-')
     },
     { title: '对方单位', dataIndex: 'counterparty', key: 'counterparty', render: (v) => v || '-' },
     {

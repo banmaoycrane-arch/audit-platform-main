@@ -18,10 +18,12 @@ import {
   PrinterOutlined,
   SaveOutlined,
 } from '@ant-design/icons'
+import Decimal from 'decimal.js'
 import dayjs, { type Dayjs } from 'dayjs'
 import type { AccountingPeriod, ChartOfAccount, Counterparty } from '../../api/client'
 import { AmountDenominationGrid } from './AmountDenominationGrid'
-import { amountToChineseUpper, roundAmount } from './voucherAmountUtils'
+import { amountToChineseUpper } from './voucherAmountUtils'
+import { Money } from '../../money'
 import './TraditionalVoucherForm.css'
 
 const { Text } = Typography
@@ -46,10 +48,10 @@ export interface TraditionalVoucherFormProps {
   remark: string
   quickEntry: boolean
   rows: VoucherEntryLine[]
-  debitTotal: number
-  creditTotal: number
+  debitTotal: Money
+  creditTotal: Money
   isBalanced: boolean
-  balanceDiff: number
+  balanceDiff: Money
   submitting: boolean
   periodId: number | null
   periodCode: string
@@ -387,19 +389,19 @@ export function TraditionalVoucherForm({
               <td colSpan={3}>
                 <div className="voucher-total-label">合计</div>
                 <div className="voucher-total-chinese">
-                  {amountToChineseUpper(Math.max(debitTotal, creditTotal))}
+                  {amountToChineseUpper(debitTotal.gt(creditTotal) ? debitTotal.amount : creditTotal.amount)}
                 </div>
               </td>
               <td>
                 <AmountDenominationGrid
-                  value={debitTotal}
+                  value={debitTotal.amount}
                   readOnly
                   inputNamePrefix="debit-total"
                 />
               </td>
               <td>
                 <AmountDenominationGrid
-                  value={creditTotal}
+                  value={creditTotal.amount}
                   readOnly
                   inputNamePrefix="credit-total"
                 />
@@ -410,11 +412,11 @@ export function TraditionalVoucherForm({
         </table>
       </div>
 
-      {!isBalanced && (debitTotal > 0 || creditTotal > 0) && (
+      {!isBalanced && (debitTotal.isPositive() || creditTotal.isPositive()) && (
         <Alert
           className="voucher-balance-hint no-print"
           title="借贷未平衡"
-          description={`借方合计 ¥${debitTotal.toFixed(2)}，贷方合计 ¥${creditTotal.toFixed(2)}，差额 ¥${Math.abs(balanceDiff).toFixed(2)}`}
+          description={`借方合计 ¥${debitTotal.toFixed(2)}，贷方合计 ¥${creditTotal.toFixed(2)}，差额 ¥${balanceDiff.abs().toFixed(2)}`}
           type="warning"
           showIcon
         />
@@ -424,7 +426,7 @@ export function TraditionalVoucherForm({
         <div className="voucher-signatures">
           <span>制单人：{preparerName || '—'}</span>
           <span>审核人：—</span>
-          {isBalanced && debitTotal > 0 && (
+          {isBalanced && debitTotal.isPositive() && (
             <Tag color="green">借贷平衡</Tag>
           )}
         </div>

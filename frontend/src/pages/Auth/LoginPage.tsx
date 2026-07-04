@@ -187,7 +187,11 @@ export function LoginPage() {
             <Alert
               type="error"
               title={smsLoginError}
-              description="请检查验证码后重新输入，或重新获取验证码"
+              description={
+                /验证码|过期/.test(smsLoginError)
+                  ? '请检查验证码后重新输入，或重新获取验证码'
+                  : undefined
+              }
               showIcon
               style={{ marginBottom: 16 }}
               closable

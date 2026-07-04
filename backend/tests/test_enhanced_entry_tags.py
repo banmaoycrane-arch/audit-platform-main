@@ -18,7 +18,7 @@ from app.db.session import Base
 from app.models.ledger import Ledger
 from app.models.team import Team
 from app.models.user import User
-from app.services.entry_tag_service import (
+from app.services.accounting.entry_tag_service import (
     aggregate_tags_by_category,
     create_entry_tag,
     delete_entry_tag,
@@ -26,20 +26,20 @@ from app.services.entry_tag_service import (
     list_tag_history,
     update_entry_tag,
 )
-from app.services.ledger_management_service import create_ledger
-from app.services.legacy_tag_import_service import (
+from app.services.shared.ledger_management_service import create_ledger
+from app.services.doc_parsing.legacy_tag_import_service import (
     LegacyTagRecord,
     detect_legacy_tag_format,
     import_legacy_tags,
 )
-from app.services.tag_category_service import (
+from app.services.doc_parsing.tag_category_service import (
     build_category_tree,
     create_category,
     delete_category,
     get_category_by_code,
     update_category,
 )
-from app.services.tag_mapping_rule_service import apply_mapping_rules, create_mapping_rule
+from app.services.doc_parsing.tag_mapping_rule_service import apply_mapping_rules, create_mapping_rule
 
 
 @pytest.fixture

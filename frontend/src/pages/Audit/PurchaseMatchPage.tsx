@@ -16,6 +16,7 @@ import { AuditOutlined, ReloadOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { api, type PurchaseMatchResult } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
+import { formatAmount } from '../../money'
 
 const { Title, Paragraph } = Typography
 
@@ -62,17 +63,17 @@ export function PurchaseMatchPage() {
     {
       title: '合同金额',
       key: 'contract_amount',
-      render: (_: unknown, row: PurchaseMatchResult) => `¥ ${row.totals.contract_amount.toLocaleString()}`,
+      render: (_: unknown, row: PurchaseMatchResult) => formatAmount(row.totals.contract_amount),
     },
     {
       title: '发票合计',
       key: 'invoice_total',
-      render: (_: unknown, row: PurchaseMatchResult) => `¥ ${row.totals.invoice_total.toLocaleString()}`,
+      render: (_: unknown, row: PurchaseMatchResult) => formatAmount(row.totals.invoice_total),
     },
     {
       title: '入库合计',
       key: 'inventory_total',
-      render: (_: unknown, row: PurchaseMatchResult) => `¥ ${row.totals.inventory_total.toLocaleString()}`,
+      render: (_: unknown, row: PurchaseMatchResult) => formatAmount(row.totals.inventory_total),
     },
     {
       title: '匹配状态',
@@ -165,9 +166,9 @@ export function PurchaseMatchPage() {
             extra={<Button type="link" onClick={() => setSelected(null)}>关闭</Button>}
           >
             <Descriptions bordered size="small" column={{ xs: 1, sm: 2, md: 3 }}>
-              <Descriptions.Item label="合同金额">¥ {selected.totals.contract_amount.toLocaleString()}</Descriptions.Item>
-              <Descriptions.Item label="发票合计">¥ {selected.totals.invoice_total.toLocaleString()}</Descriptions.Item>
-              <Descriptions.Item label="入库合计">¥ {selected.totals.inventory_total.toLocaleString()}</Descriptions.Item>
+              <Descriptions.Item label="合同金额">{formatAmount(selected.totals.contract_amount)}</Descriptions.Item>
+              <Descriptions.Item label="发票合计">{formatAmount(selected.totals.invoice_total)}</Descriptions.Item>
+              <Descriptions.Item label="入库合计">{formatAmount(selected.totals.inventory_total)}</Descriptions.Item>
             </Descriptions>
 
             <Table
@@ -181,13 +182,13 @@ export function PurchaseMatchPage() {
                   title: '左侧金额',
                   dataIndex: 'left_amount',
                   key: 'left_amount',
-                  render: (value: number) => `¥ ${Number(value).toLocaleString()}`,
+                  render: (value: number) => formatAmount(value),
                 },
                 {
                   title: '右侧金额',
                   dataIndex: 'right_amount',
                   key: 'right_amount',
-                  render: (value: number) => `¥ ${Number(value).toLocaleString()}`,
+                  render: (value: number) => formatAmount(value),
                 },
                 {
                   title: '结果',

@@ -7,12 +7,12 @@ from app.core.config import Settings
 from app.db.models import AgentApproval, AgentDraftReview, ChartOfAccounts, Counterparty, ExecutionAuditLog
 from app.db.session import SessionLocal
 from app.main import app
-from app.services.agent_orchestration_service import build_due_diligence_orchestration_plan
-from app.services.agent_role_registry import get_agent_role
-from app.services.agent_tool_registry import get_agent_tool, list_allowed_tools_for_intent
-from app.services.audit_case_template_service import build_due_diligence_case_template
-from app.services.llm_client_service import LLMResult
-from app.services.model_config_service import get_model_config_status
+from app.services.agent.agent_orchestration_service import build_due_diligence_orchestration_plan
+from app.services.agent.agent_role_registry import get_agent_role
+from app.services.agent.agent_tool_registry import get_agent_tool, list_allowed_tools_for_intent
+from app.services.audit.audit_case_template_service import build_due_diligence_case_template
+from app.services.agent.llm_client_service import LLMResult
+from app.services.agent.model_config_service import get_model_config_status
 
 client = TestClient(app)
 
@@ -98,7 +98,7 @@ class FakeUnconfiguredLLMClient:
 
 @pytest.fixture(autouse=True)
 def force_rules_fallback(monkeypatch):
-    monkeypatch.setattr("app.services.agent_service.LightweightLLMClient", FakeUnconfiguredLLMClient)
+    monkeypatch.setattr("app.services.agent.agent_service.LightweightLLMClient", FakeUnconfiguredLLMClient)
 
 
 def test_agent_tool_registry_filters_by_intent_and_role():

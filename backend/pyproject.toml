@@ -19,7 +19,9 @@ dependencies = [
   "passlib[bcrypt]>=1.7.4",
   "bcrypt<4.1",
   "alembic>=1.13.0",
-  "pytest>=8.2.0"
+  "pytest>=8.2.0",
+  "opencv-python>=4.9.0",
+  "numpy>=1.26.0"
 ]
 
 [tool.setuptools.packages.find]
@@ -27,3 +29,57 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["backend"]
+testpaths = ["tests"]
+addopts = "--tb=short"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+show_error_codes = true
+show_error_context = true
+pretty = true
+warn_unused_configs = true
+
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = false
+disallow_untyped_decorators = false
+
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+
+ignore_missing_imports = true
+follow_imports = "silent"
+
+exclude = [
+    "tests/",
+    "migrations/",
+    "alembic/",
+]
+
+# 临时注释掉模块级别 strict=false，启用严格模式进行批量修复
+# [[tool.mypy.overrides]]
+# module = "app.*"
+# strict = false
+# 
+# [[tool.mypy.overrides]]
+# module = "app.core.*"
+# strict = false
+# 
+# [[tool.mypy.overrides]]
+# module = "app.api.*"
+# strict = false
+# 
+# [[tool.mypy.overrides]]
+# module = "app.services.*"
+# strict = false
+# 
+# [[tool.mypy.overrides]]
+# module = "app.models.*"
+# strict = false
+# 
+# [[tool.mypy.overrides]]
+# module = "app.db.*"
+# strict = false

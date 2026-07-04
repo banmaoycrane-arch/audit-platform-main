@@ -34,7 +34,7 @@ from app.db.session import Base, get_db
 from app.main import app
 from app.models.ledger import Ledger
 from app.models.team import Team
-from app.services.ledger_timeline_service import initialize_ledger_timeline
+from app.services.shared.ledger_timeline_service import initialize_ledger_timeline
 
 
 @pytest.fixture
@@ -534,7 +534,7 @@ def test_profit_account_balance_after_transfer(client):
     if pl_account:
         print(f"  本年利润期末余额: 借方{pl_account['closing_debit']}, 贷方{pl_account['closing_credit']}")
         # 净利润850应体现在贷方
-        assert pl_account["closing_credit"] == 850, f"本年利润贷方应为850, 实际{pl_account['closing_credit']}"
+        assert pl_account["closing_credit"] == "850.00", f"本年利润贷方应为850.00, 实际{pl_account['closing_credit']}"
         print("  ✓ 本年利润余额验证通过")
     else:
         print("  ⚠ 未找到本年利润科目")

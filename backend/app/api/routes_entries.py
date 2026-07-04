@@ -1,3 +1,4 @@
+from typing import Any
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -11,11 +12,11 @@ from app.db.models import AccountingEntry, EntryTag
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.accounting_entry import AccountingEntryRead, TagUpdate
-from app.services import ledger_management_service
-from app.services.entry_delete_service import VoucherDeleteKey, delete_vouchers_transactional
-from app.services.entry_query_service import load_voucher_lines, query_chronological_entries, query_vouchers
-from app.services.voucher_card_resolver import resolve_voucher_card_fields, resolve_voucher_card_fields_from_slim_rows
-from app.services.vector_store_service import safe_vector_store
+from app.services.shared import ledger_management_service
+from app.services.accounting.entry_delete_service import VoucherDeleteKey, delete_vouchers_transactional
+from app.services.accounting.entry_query_service import load_voucher_lines, query_chronological_entries, query_vouchers
+from app.services.accounting.voucher_card_resolver import resolve_voucher_card_fields, resolve_voucher_card_fields_from_slim_rows
+from app.services.doc_parsing.vector_store_service import safe_vector_store
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
@@ -143,7 +144,7 @@ def _validate_entry_amounts(debit_amount: Decimal | None, credit_amount: Decimal
         raise HTTPException(status_code=400, detail="分录至少需要填写借方或贷方金额")
 
 
-def _tag_to_dict(tag: EntryTag) -> dict:
+def _tag_to_dict(tag: EntryTag) -> dict[str, Any]:
     return {
         "id": tag.id,
         "entry_id": tag.entry_id,
@@ -219,7 +220,7 @@ def list_entries(
         .limit(limit)
         .all()
     )
-    return EntryListResponse(items=items, total=total, limit=limit, offset=offset)
+    return EntryListResponse(items=[AccountingEntryRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)
 
 
 @router.get("/chronological", response_model=ChronologicalEntryListResponse)
@@ -261,7 +262,7 @@ def list_chronological_entries(
         offset=offset,
     )
     return ChronologicalEntryListResponse(
-        items=items,
+        items=[AccountingEntryRead.model_validate(item) for item in items],
         total=total,
         limit=limit,
         offset=offset,
@@ -282,7 +283,7 @@ def _parse_voucher_word(voucher_no: str | None) -> str | None:
     return prefix or voucher_no
 
 
-def _voucher_card_from_group(group, *, include_lines: bool = False) -> VoucherCardRead:
+def _voucher_card_from_group(group: Any, *, include_lines: bool = False) -> VoucherCardRead:
     return VoucherCardRead(
         voucher_id=group.voucher_id,
         voucher_no=group.voucher_no,
@@ -378,7 +379,7 @@ def get_voucher_lines(
     )
     if not lines:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="凭证不存在")
-    return VoucherLinesResponse(items=lines)
+    return VoucherLinesResponse(items=[VoucherLineRead.model_validate(line) for line in lines])
 
 
 @router.post("/vouchers/batch-delete", response_model=VoucherBatchDeleteResponse)
@@ -456,7 +457,7 @@ def get_entry(entry_id: int, db: Session = Depends(get_db)) -> AccountingEntry:
 
 
 @router.patch("/{entry_id}/tags")
-def update_tags(entry_id: int, payload: TagUpdate, db: Session = Depends(get_db)) -> dict:
+def update_tags(entry_id: int, payload: TagUpdate, db: Session = Depends(get_db)) -> dict[str, Any]:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -478,7 +479,7 @@ def update_tags(entry_id: int, payload: TagUpdate, db: Session = Depends(get_db)
 
 
 @router.post("/{entry_id}/similar-search")
-def similar_search(entry_id: int, db: Session = Depends(get_db)) -> dict:
+def similar_search(entry_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -492,7 +493,7 @@ def similar_search(entry_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/{entry_id}/tags")
-def list_tags(entry_id: int, db: Session = Depends(get_db)) -> list[dict]:
+def list_tags(entry_id: int, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -501,7 +502,7 @@ def list_tags(entry_id: int, db: Session = Depends(get_db)) -> list[dict]:
 
 
 @router.post("/{entry_id}/tags")
-def create_tag(entry_id: int, payload: EntryTagCreate, db: Session = Depends(get_db)) -> dict:
+def create_tag(entry_id: int, payload: EntryTagCreate, db: Session = Depends(get_db)) -> dict[str, Any]:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -525,7 +526,7 @@ def create_tag(entry_id: int, payload: EntryTagCreate, db: Session = Depends(get
 
 
 @router.delete("/{entry_id}/tags/{tag_id}")
-def delete_tag(entry_id: int, tag_id: int, db: Session = Depends(get_db)) -> dict:
+def delete_tag(entry_id: int, tag_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -555,7 +556,7 @@ def update_entry_review(
 
 
 @router.post("/batch-review")
-def batch_update_entry_review(payload: EntryBatchReviewUpdate, db: Session = Depends(get_db)) -> dict:
+def batch_update_entry_review(payload: EntryBatchReviewUpdate, db: Session = Depends(get_db)) -> dict[str, Any]:
     if payload.review_status not in VALID_ENTRY_REVIEW_STATUSES:
         raise HTTPException(status_code=400, detail="无效的复核状态")
     if not payload.entry_ids:
@@ -574,7 +575,7 @@ def review_all_entries_for_job(
     job_id: int,
     payload: EntryJobReviewUpdate,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     if payload.review_status not in VALID_ENTRY_REVIEW_STATUSES:
         raise HTTPException(status_code=400, detail="无效的复核状态")
     updated = (

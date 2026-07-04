@@ -9,6 +9,7 @@
 更新记录：
     2026-06-18  初始创建生命周期日志路由
 """
+from typing import Any
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
-from app.services import lifecycle_service
+from app.services.shared import lifecycle_service
 
 router = APIRouter(prefix="/api/lifecycle-logs", tags=["lifecycle-logs"])
 
@@ -30,7 +31,7 @@ class LifecycleLogResponse(BaseModel):
     previous_status: str | None
     new_status: str | None
     reason: str | None
-    log_metadata: dict
+    log_metadata: dict[str, Any]
     operator_id: int | None
     created_at: str | None
 

@@ -15,6 +15,7 @@ import { MailOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { api, type CounterpartyConfirmation } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
+import { formatAmount } from '../../money'
 
 const { Title, Paragraph } = Typography
 
@@ -109,19 +110,19 @@ export function ConfirmationsPage() {
       title: '账面余额',
       dataIndex: 'book_balance',
       key: 'book_balance',
-      render: (value: number) => `¥ ${Number(value).toLocaleString()}`,
+      render: (value: number) => formatAmount(value),
     },
     {
       title: '发函金额',
       dataIndex: 'confirmation_amount',
       key: 'confirmation_amount',
-      render: (value: number) => `¥ ${Number(value).toLocaleString()}`,
+      render: (value: number) => formatAmount(value),
     },
     {
       title: '回函金额',
       dataIndex: 'reply_amount',
       key: 'reply_amount',
-      render: (value: number | null) => (value == null ? '-' : `¥ ${Number(value).toLocaleString()}`),
+      render: (value: number | null) => (value == null ? '-' : formatAmount(value)),
     },
     {
       title: '差异',
@@ -132,7 +133,7 @@ export function ConfirmationsPage() {
           '-'
         ) : (
           <Tag color={Math.abs(value) < 0.01 ? 'success' : 'error'}>
-            ¥ {Number(value).toLocaleString()}
+            {formatAmount(value)}
           </Tag>
         ),
     },
@@ -221,7 +222,7 @@ export function ConfirmationsPage() {
       >
         <Form form={replyForm} layout="vertical">
           <Form.Item label="发函金额">
-            <Typography.Text>¥ {Number(activeRow?.confirmation_amount || 0).toLocaleString()}</Typography.Text>
+            <Typography.Text>{formatAmount(activeRow?.confirmation_amount || 0)}</Typography.Text>
           </Form.Item>
           <Form.Item
             name="reply_amount"

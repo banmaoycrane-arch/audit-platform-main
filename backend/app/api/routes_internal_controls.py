@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import ControlAlert, ControlTest, InternalControl
 from app.db.session import get_db
-from app.services.internal_control_service import InternalControlService
+from app.services.audit.internal_control_service import InternalControlService
 
 router = APIRouter(prefix="/api/internal-controls", tags=["internal-controls"])
 

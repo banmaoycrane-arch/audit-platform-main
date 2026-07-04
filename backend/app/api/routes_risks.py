@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -29,7 +31,7 @@ def list_risks(
 
 
 @router.get("/{risk_id}", response_model=RiskDetailRead)
-def get_risk(risk_id: int, db: Session = Depends(get_db)) -> dict:
+def get_risk(risk_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     risk = db.get(AuditRisk, risk_id)
     if not risk:
         raise HTTPException(status_code=404, detail="风险不存在")

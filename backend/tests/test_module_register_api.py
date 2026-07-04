@@ -16,8 +16,8 @@ from app.db.session import Base, get_db
 from app.main import app
 from app.models.ledger import Ledger
 from app.models.team import Team
-from app.services.ledger_service import ledger_service
-from app.services.source_document_service import SourceDocumentResult
+from app.services.shared.ledger_service import ledger_service
+from app.services.basic_data.source_document_service import SourceDocumentResult
 
 
 from tests.conftest import register_auth_headers
@@ -98,7 +98,7 @@ def test_module_register_summary_and_contract_query(client):
     assert items[0]["execution_status"] == "pending"
 
 
-@patch("app.services.register_ingestion_service.classify_document")
+@patch("app.services.basic_data.register_ingestion_service.classify_document")
 def test_ai_import_persists_ledger_id_on_contract(mock_classify, client):
     mock_classify.return_value = SourceDocumentResult(
         document_type="contract",
@@ -188,4 +188,4 @@ def test_counterparty_balance_view_from_invoices(client):
     items = response.json()["items"]
     assert len(items) == 1
     assert items[0]["balance_type"] == "receivable"
-    assert items[0]["total_amount"] == 50000.0
+    assert items[0]["total_amount"] == "50000.00"

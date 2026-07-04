@@ -33,6 +33,7 @@ import {
   type VoucherQueryFilters,
 } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import { formatMoney } from '../money'
 
 type VoucherQueryFilterState = Omit<VoucherQueryFilters, 'ledger_id'>
 
@@ -67,9 +68,7 @@ const VOUCHER_WORD_OPTIONS = [
   { value: '转', label: '转' },
 ]
 
-function formatMoney(value: number) {
-  return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+
 
 function voucherSelectionKey(voucher: Pick<VoucherCard, 'voucher_no' | 'voucher_date'>) {
   return `${voucher.voucher_no ?? ''}||${voucher.voucher_date ?? ''}`

@@ -7,6 +7,8 @@ import { api, type AccountingPeriod, type ChartOfAccount, type Counterparty, typ
 import { FlowNav } from '../../components/FlowNav'
 import { TraditionalVoucherForm, type VoucherEntryLine } from '../../components/voucher/TraditionalVoucherForm'
 import { useAuthStore } from '../../stores/authStore'
+import { Money, parseDecimal } from '../../money'
+import { DocumentParserService } from '../../services/DocumentParserService'
 
 const { Dragger } = Upload
 const { Title, Text } = Typography
@@ -108,8 +110,6 @@ const createManualLine = (lineNo: number): ManualEntryLine => ({
   counterparty: '',
   account_source: 'manual',
 })
-
-const roundAmount = (amount: number) => Math.round(amount * 100) / 100
 
 const getNextNaturalMonthPeriod = (closedPeriods: AccountingPeriod[]) => {
   if (closedPeriods.length === 0) return null
@@ -263,19 +263,36 @@ export function Step2AccountingImportSource() {
   const [parseGuidance, setParseGuidance] = useState<ParseDiagnostics | null>(null)
   const [structuredPreviewCount, setStructuredPreviewCount] = useState(0)
 
+  const documentParserService = useMemo(
+    () => new DocumentParserService({
+      messageKey: 'step2-parser',
+      navigateToDraftOnError: true,
+      navigate,
+      onSuccess: (result) => {
+        setCurrentJobId(result.jobId)
+        setOutputPath(result.outputPath)
+        setEntryCount(0)
+        setStructuredPreviewCount(0)
+        setParseGuidance(null)
+        syncQueryToUrl({ jobId: result.jobId })
+      },
+    }),
+    [navigate],
+  )
+
   const manualVoucherNo = `${manualVoucherType}-${manualVoucherNumber}`
   const activeManualRows = useMemo(() => manualRows.filter(row =>
     row.summary.trim()
     || row.account_code.trim()
     || row.account_name.trim()
-    || Number(row.debit_amount || 0) > 0
-    || Number(row.credit_amount || 0) > 0
+    || parseDecimal(row.debit_amount || 0).gt(0)
+    || parseDecimal(row.credit_amount || 0).gt(0)
     || row.counterparty.trim()
   ), [manualRows])
-  const debitTotal = roundAmount(activeManualRows.reduce((sum, row) => sum + Number(row.debit_amount || 0), 0))
-  const creditTotal = roundAmount(activeManualRows.reduce((sum, row) => sum + Number(row.credit_amount || 0), 0))
-  const balanceDiff = roundAmount(debitTotal - creditTotal)
-  const isBalanced = debitTotal > 0 && creditTotal > 0 && balanceDiff === 0
+  const debitTotal = Money.sum(activeManualRows.map(row => Money.cny(row.debit_amount)))
+  const creditTotal = Money.sum(activeManualRows.map(row => Money.cny(row.credit_amount)))
+  const balanceDiff = debitTotal.sub(creditTotal)
+  const isBalanced = debitTotal.isPositive() && creditTotal.isPositive() && balanceDiff.isZero()
   const activeChartOfAccounts = useMemo(
     () => chartOfAccounts.filter(account => account.status === 'active'),
     [chartOfAccounts]
@@ -486,98 +503,41 @@ export function Step2AccountingImportSource() {
   }
 
   const handleUpload = async (file: File) => {
-    try {
-      // 确保有导入任务 ID
-      let jobId = currentJobId
-      if (!jobId) {
-        // 创建导入任务
-        const job = await api.createImportJob('账簿导入', 'ai_generated', currentLedgerId, {
-          audit_scope_type: 'all',
-          audit_period_id: null,
-          audit_account_codes: null,
-          project_id: currentProjectId,
-        })
-        jobId = job.id
-        setCurrentJobId(jobId)
-        setCurrentOrgId(job.organization_id)
-        syncQueryToUrl({ jobId })
-      }
+    // 使用文档解析闭环微服务统一处理上传、解析、错误和结果交付。
+    // 财务含义：原始凭证文件先经过统一解析引擎生成“解析草稿”，不直接写入会计分录，
+    // 后续需人工复核确认，符合 AI 不绕过人工复核的原则。
+    const result = await documentParserService.parseDocument(file, {
+      jobId: currentJobId,
+      ledgerId: currentLedgerId,
+      projectId: currentProjectId,
+      sourceType: 'ai_generated',
+      documentTypeHints: selectedTypes,
+    })
 
-      // 调用 API 上传文件
-      const result = await api.uploadFile(jobId, file, selectedTypes)
+    if (result.jobId) {
+      setCurrentJobId(result.jobId)
+      setCurrentOrgId(null)
+      syncQueryToUrl({ jobId: result.jobId })
+    }
 
+    // 将解析结果合并到已上传文件列表中展示
+    for (const summary of result.parsedFiles) {
       const fileInfo: UploadedFile = {
-        name: file.name,
+        name: summary.fileName,
         size: file.size,
         fileType: file.type || 'unknown',
-        jobId: jobId,
-        fileId: result.id,
+        jobId: result.jobId,
+        fileId: summary.fileId,
+        registerSummary: summary.registerSummary || undefined,
+        semanticTags: summary.semanticTags,
+        riskHints: summary.riskHints,
+        archivePath: summary.archivePath || undefined,
+        archiveCategory: summary.archiveCategory || undefined,
+        projectName: summary.projectName || undefined,
       }
       setUploadedFiles(prev => [...prev, fileInfo])
-
-      // 上传后统一调用解析引擎管理页面同源的通用解析接口。
-      // 财务含义：上传的合同、发票、回单等支持性文件只做“证据解析草稿”，正式凭证仍需人工复核确认。
-      message.loading({ content: '正在调用统一解析引擎解析上传文件，请稍候...', key: 'parsing' })
-      try {
-        const parseResult = await api.parseSourceFileWithEngine(jobId, result.id) as {
-          parser_engine_result?: {
-            document_type?: string
-            confidence?: number
-            engine_type?: string
-            data?: Record<string, unknown>
-            error_message?: string | null
-          }
-          job_status?: string
-        }
-        const parserResult = parseResult.parser_engine_result
-        const hasError = Boolean(parserResult?.error_message)
-
-        setStructuredPreviewCount(0)
-        setParseGuidance(null)
-        setOutputPath('parser_engine_draft')
-        setEntryCount(0)
-        setUploadedFiles(prev => prev.map((item) => {
-          if (item.name !== file.name) return item
-          return {
-            ...item,
-            registerSummary: parserResult?.document_type
-              ? `统一解析引擎识别：${parserResult.document_type}`
-              : '统一解析引擎已处理',
-            semanticTags: [
-              'parser_engine',
-              parserResult?.engine_type ? `engine:${parserResult.engine_type}` : 'engine:unknown',
-            ],
-          }
-        }))
-
-        if (hasError) {
-          message.warning({
-            content: `${file.name} 已进入统一解析草稿，但存在解析提示：${parserResult?.error_message}`,
-            key: 'parsing',
-          })
-        } else {
-          message.success({
-            content: `${file.name} 已由统一解析引擎完成解析，结果已保存到凭证草稿页`,
-            key: 'parsing',
-          })
-        }
-      } catch (err) {
-        // 统一解析失败时跳转草稿页，草稿页展示 parser-engine 的错误详情。
-        const errorMessage = err instanceof Error ? err.message : String(err)
-        message.warning({
-          content: `${file.name} 上传成功，但统一解析引擎解析失败：${errorMessage}。正在跳转到草稿页面...`,
-          key: 'parsing',
-          duration: 3,
-        })
-        setTimeout(() => {
-          navigate(`/ledger/vouchers/draft/${jobId}`)
-        }, 1500)
-      }
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      message.error(`${file.name} 上传失败：${detail}`)
-      console.error('Upload error:', detail, error)
     }
+
     return false // 阻止默认上传行为
   }
 
@@ -856,11 +816,11 @@ export function Step2AccountingImportSource() {
         message.warning(`第 ${row.entry_line_no} 行请填写摘要，并从会计科目表选择科目`)
         return false
       }
-      if (Number(row.debit_amount || 0) > 0 && Number(row.credit_amount || 0) > 0) {
+      if (parseDecimal(row.debit_amount || 0).gt(0) && parseDecimal(row.credit_amount || 0).gt(0)) {
         message.warning(`第 ${row.entry_line_no} 行不能同时填写借方和贷方金额，请按会计分录方向只填一边`)
         return false
       }
-      if (Number(row.debit_amount || 0) === 0 && Number(row.credit_amount || 0) === 0) {
+      if (parseDecimal(row.debit_amount || 0).isZero() && parseDecimal(row.credit_amount || 0).isZero()) {
         message.warning(`第 ${row.entry_line_no} 行借方或贷方至少填写一个金额，金额不能为 0`)
         return false
       }
@@ -882,8 +842,8 @@ export function Step2AccountingImportSource() {
     account_code: row.account_code.trim(),
     account_name: row.account_name.trim(),
     summary: row.summary.trim(),
-    debit_amount: roundAmount(Number(row.debit_amount || 0)),
-    credit_amount: roundAmount(Number(row.credit_amount || 0)),
+    debit_amount: parseDecimal(row.debit_amount || 0).toNumber(),
+    credit_amount: parseDecimal(row.credit_amount || 0).toNumber(),
     counterparty: row.counterparty.trim() || null,
     entry_line_no: row.entry_line_no,
     metadata: {

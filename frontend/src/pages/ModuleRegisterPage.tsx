@@ -5,6 +5,9 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ModuleRegisterItem, ModuleRegisterListResponse } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import { formatMoney } from '../money'
+
+const renderMoney = (value: unknown) => formatMoney(value as number)
 
 const { Title, Paragraph, Text } = Typography
 
@@ -96,9 +99,7 @@ function getEditableFields(moduleKey: string) {
   return EDITABLE_FIELDS[moduleKey] || []
 }
 
-function formatMoney(value: number) {
-  return value?.toLocaleString('zh-CN', { minimumFractionDigits: 2 })
-}
+
 
 function pickInitialValues(moduleKey: string, row: ModuleRegisterItem) {
   const values: Record<string, unknown> = {}
@@ -262,7 +263,7 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
           title: '合计金额',
           dataIndex: 'total_amount',
           key: 'total_amount',
-          render: formatMoney,
+          render: renderMoney,
         },
         { title: '单据数', dataIndex: 'document_count', key: 'document_count', width: 90 },
       ]
@@ -273,7 +274,7 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
         { title: '交易日期', dataIndex: 'transaction_date', key: 'transaction_date', width: 120 },
         { title: '对方', dataIndex: 'counterparty_name', key: 'counterparty_name' },
         { title: '摘要', dataIndex: 'summary', key: 'summary', ellipsis: true },
-        { title: '金额', dataIndex: 'amount', key: 'amount', render: formatMoney },
+        { title: '金额', dataIndex: 'amount', key: 'amount', render: renderMoney },
         { title: '类型', dataIndex: 'transaction_type', key: 'transaction_type', width: 100 },
       ]
     }
@@ -284,7 +285,7 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
         { title: '开票日期', dataIndex: 'invoice_date', key: 'invoice_date', width: 120 },
         { title: '购方', dataIndex: 'buyer_name', key: 'buyer_name', ellipsis: true },
         { title: '销方', dataIndex: 'seller_name', key: 'seller_name', ellipsis: true },
-        { title: '价税合计', dataIndex: 'total_amount', key: 'total_amount', render: formatMoney },
+        { title: '价税合计', dataIndex: 'total_amount', key: 'total_amount', render: renderMoney },
       ]
     }
 
@@ -294,7 +295,7 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
         { title: '单据类型', dataIndex: 'document_type', key: 'document_type', width: 120 },
         { title: '单据日期', dataIndex: 'document_date', key: 'document_date', width: 120 },
         { title: '往来方', dataIndex: 'counterparty_name', key: 'counterparty_name', ellipsis: true },
-        { title: '总金额', dataIndex: 'total_amount', key: 'total_amount', render: formatMoney },
+        { title: '总金额', dataIndex: 'total_amount', key: 'total_amount', render: renderMoney },
       ]
     }
 
@@ -313,7 +314,7 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
           </Tag>
         ),
       },
-      { title: '合同金额', dataIndex: 'contract_amount', key: 'contract_amount', render: formatMoney },
+      { title: '合同金额', dataIndex: 'contract_amount', key: 'contract_amount', render: renderMoney },
       { title: '签约日期', dataIndex: 'sign_date', key: 'sign_date', width: 120 },
     ]
   }, [moduleKey])

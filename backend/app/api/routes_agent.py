@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -6,24 +8,24 @@ from app.core.dependencies import get_current_ledger, get_current_user
 from app.db.models import AgentApproval
 from app.db.session import get_db
 from app.models.user import User
-from app.services.agent_approval_service import (
+from app.services.agent.agent_approval_service import (
     confirm_agent_tool_approval,
     request_agent_tool_approval,
     serialize_agent_approval,
 )
-from app.services.agent_controlled_execution_service import execute_confirmed_agent_draft
-from app.services.agent_draft_review_service import (
+from app.services.agent.agent_controlled_execution_service import execute_confirmed_agent_draft
+from app.services.agent.agent_draft_review_service import (
     create_pending_draft_review,
     serialize_draft_review,
     submit_draft_review,
 )
-from app.services.agent_orchestration_service import build_due_diligence_orchestration_plan
-from app.services.agent_service import plan_agent_task
-from app.services.agent_tool_execution_service import run_low_risk_agent_tool
-from app.services.agent_tool_registry import get_agent_tool
-from app.services.audit_case_template_service import build_due_diligence_case_template
-from app.services.execution_audit_service import create_execution_audit_log
-from app.services.model_config_service import get_model_config_status
+from app.services.agent.agent_orchestration_service import build_due_diligence_orchestration_plan
+from app.services.agent.agent_service import plan_agent_task
+from app.services.agent.agent_tool_execution_service import run_low_risk_agent_tool
+from app.services.agent.agent_tool_registry import get_agent_tool
+from app.services.audit.audit_case_template_service import build_due_diligence_case_template
+from app.services.doc_parsing.execution_audit_service import create_execution_audit_log
+from app.services.agent.model_config_service import get_model_config_status
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -35,7 +37,7 @@ class AgentChatRequest(BaseModel):
 class AgentToolRunRequest(BaseModel):
     tool_name: str
     agent_role: str
-    args: dict | None = None
+    args: dict[str, Any] | None = None
 
 
 class AgentApprovalConfirmRequest(BaseModel):
@@ -60,9 +62,9 @@ def _write_agent_audit_log(
     message: str,
     tool_name: str,
     status: str,
-    result: dict | None = None,
+    result: dict[str, Any] | None = None,
     error_message: str | None = None,
-):
+) -> None:
     task_plan = (result or {}).get("task_plan") or {}
     create_execution_audit_log(
         db=db,
@@ -88,7 +90,7 @@ def _write_agent_tool_audit_log(
     payload: AgentToolRunRequest,
     status: str,
     error_message: str | None = None,
-):
+) -> None:
     tool = get_agent_tool(payload.tool_name) or {}
     create_execution_audit_log(
         db=db,
@@ -116,7 +118,7 @@ def _write_agent_approval_audit_log(
     status: str,
     approval_id: int | None = None,
     error_message: str | None = None,
-):
+) -> None:
     tool = get_agent_tool(tool_name) or {}
     create_execution_audit_log(
         db=db,
@@ -146,7 +148,7 @@ def _write_agent_controlled_execution_audit_log(
     agent_role: str,
     status: str,
     error_message: str | None = None,
-):
+) -> None:
     tool = get_agent_tool(tool_name) or {}
     create_execution_audit_log(
         db=db,
@@ -172,11 +174,11 @@ def _write_agent_draft_review_audit_log(
     db: Session,
     current_user: User,
     ledger_id: int | None,
-    review: dict | None,
+    review: dict[str, Any] | None,
     status: str,
     action: str,
     error_message: str | None = None,
-):
+) -> None:
     create_execution_audit_log(
         db=db,
         execution_source="agent_assisted",
@@ -209,9 +211,9 @@ def _write_agent_orchestration_audit_log(
     ledger_id: int | None,
     message: str,
     status: str,
-    plan: dict | None = None,
+    plan: dict[str, Any] | None = None,
     error_message: str | None = None,
-):
+) -> None:
     create_execution_audit_log(
         db=db,
         execution_source="agent_assisted",
@@ -236,7 +238,7 @@ def _write_agent_orchestration_audit_log(
 @router.get("/model/config")
 def get_agent_model_config(
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> dict[str, Any]:
     return get_model_config_status()
 
 
@@ -246,7 +248,7 @@ def agent_chat(
     current_user: User = Depends(get_current_user),
     ledger_id: int | None = Depends(get_current_ledger),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     message = payload.message.strip()
     if not message:
         _write_agent_audit_log(
@@ -265,7 +267,7 @@ def agent_task_plan(
     current_user: User = Depends(get_current_user),
     ledger_id: int | None = Depends(get_current_ledger),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     message = payload.message.strip()
     if not message:
         _write_agent_audit_log(
@@ -284,7 +286,7 @@ def get_due_diligence_case_template(
     current_user: User = Depends(get_current_user),
     ledger_id: int | None = Depends(get_current_ledger),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     template = build_due_diligence_case_template(payload.scenario)
     create_execution_audit_log(
         db=db,
@@ -309,7 +311,7 @@ def plan_agent_orchestration(
     current_user: User = Depends(get_current_user),
     ledger_id: int | None = Depends(get_current_ledger),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     message = payload.message.strip()
     if not message:
         _write_agent_orchestration_audit_log(
@@ -328,7 +330,7 @@ def run_agent_tool(
     current_user: User = Depends(get_current_user),
     ledger_id: int | None = Depends(get_current_ledger),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     try:
         result = run_low_risk_agent_tool(
             db=db,
@@ -353,7 +355,7 @@ def request_agent_approval(
     current_user: User = Depends(get_current_user),
     ledger_id: int | None = Depends(get_current_ledger),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     try:
         approval = request_agent_tool_approval(
             db=db,
@@ -387,7 +389,7 @@ def confirm_agent_approval(
     current_user: User = Depends(get_current_user),
     ledger_id: int | None = Depends(get_current_ledger),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     try:
         approval = confirm_agent_tool_approval(db, approval_id, current_user, payload.comment)
     except LookupError as exc:
@@ -413,7 +415,7 @@ def execute_agent_approval_draft(
     current_user: User = Depends(get_current_user),
     ledger_id: int | None = Depends(get_current_ledger),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     approval = db.get(AgentApproval, approval_id)
     tool_name = approval.tool_name if approval else "unknown_agent_tool"
     agent_role = approval.agent_role if approval else "unknown_agent_role"
@@ -450,7 +452,7 @@ def create_agent_draft_review(
     current_user: User = Depends(get_current_user),
     ledger_id: int | None = Depends(get_current_ledger),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     try:
         review = create_pending_draft_review(db, approval_id, current_user, ledger_id)
     except LookupError as exc:
@@ -473,7 +475,7 @@ def submit_agent_draft_review(
     current_user: User = Depends(get_current_user),
     ledger_id: int | None = Depends(get_current_ledger),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     try:
         review = submit_draft_review(
             db=db,

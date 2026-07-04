@@ -12,6 +12,7 @@ import {
 } from '../../api/client'
 import { PeriodSelector } from '../../components/PeriodSelector'
 import { useAuthStore } from '../../stores/authStore'
+import { formatAmount } from '../../money'
 
 const { Title, Paragraph } = Typography
 
@@ -19,8 +20,6 @@ type PeriodFilter = {
   organizationId: number | null
   periodId: number | null
 }
-
-const money = (value: number | null | undefined) => Number(value || 0).toLocaleString()
 
 export function LedgerBooksPage() {
   const { currentLedgerId } = useAuthStore()
@@ -95,8 +94,8 @@ export function LedgerBooksPage() {
             { title: '凭证号', dataIndex: 'voucher_no', key: 'voucher_no', width: 150 },
             { title: '摘要', dataIndex: 'summary', key: 'summary' },
             { title: '分录行数', dataIndex: 'line_count', key: 'line_count', width: 90 },
-            { title: '借方合计', dataIndex: 'debit_total', key: 'debit_total', width: 120, render: money },
-            { title: '贷方合计', dataIndex: 'credit_total', key: 'credit_total', width: 120, render: money },
+            { title: '借方合计', dataIndex: 'debit_total', key: 'debit_total', width: 120, render: (v: number) => formatAmount(v) },
+            { title: '贷方合计', dataIndex: 'credit_total', key: 'credit_total', width: 120, render: (v: number) => formatAmount(v) },
           ]}
         />
         <div style={{ marginTop: 16, textAlign: 'right' }}>
@@ -146,12 +145,12 @@ export function GeneralLedgerPage() {
           columns={[
             { title: '科目编码', dataIndex: 'account_code', key: 'account_code', width: 100 },
             { title: '科目名称', dataIndex: 'account_name', key: 'account_name' },
-            { title: '期初借方', dataIndex: 'opening_debit', key: 'opening_debit', render: money },
-            { title: '期初贷方', dataIndex: 'opening_credit', key: 'opening_credit', render: money },
-            { title: '本期借方', dataIndex: 'period_debit', key: 'period_debit', render: money },
-            { title: '本期贷方', dataIndex: 'period_credit', key: 'period_credit', render: money },
-            { title: '期末借方', dataIndex: 'closing_debit', key: 'closing_debit', render: money },
-            { title: '期末贷方', dataIndex: 'closing_credit', key: 'closing_credit', render: money },
+            { title: '期初借方', dataIndex: 'opening_debit', key: 'opening_debit', render: (v: number) => formatAmount(v) },
+            { title: '期初贷方', dataIndex: 'opening_credit', key: 'opening_credit', render: (v: number) => formatAmount(v) },
+            { title: '本期借方', dataIndex: 'period_debit', key: 'period_debit', render: (v: number) => formatAmount(v) },
+            { title: '本期贷方', dataIndex: 'period_credit', key: 'period_credit', render: (v: number) => formatAmount(v) },
+            { title: '期末借方', dataIndex: 'closing_debit', key: 'closing_debit', render: (v: number) => formatAmount(v) },
+            { title: '期末贷方', dataIndex: 'closing_credit', key: 'closing_credit', render: (v: number) => formatAmount(v) },
           ]}
         />
       </Card>
@@ -211,8 +210,8 @@ export function SubsidiaryLedgerPage() {
     { title: '摘要', dataIndex: 'summary', key: 'summary' },
     { title: '科目编码', dataIndex: 'account_code', key: 'account_code', width: 100 },
     { title: '科目名称', dataIndex: 'account_name', key: 'account_name', width: 140 },
-    { title: '借方金额', dataIndex: 'debit_amount', key: 'debit_amount', width: 120, render: money },
-    { title: '贷方金额', dataIndex: 'credit_amount', key: 'credit_amount', width: 120, render: money },
+    { title: '借方金额', dataIndex: 'debit_amount', key: 'debit_amount', width: 120, render: (v: number) => formatAmount(v) },
+    { title: '贷方金额', dataIndex: 'credit_amount', key: 'credit_amount', width: 120, render: (v: number) => formatAmount(v) },
     { title: '往来单位', dataIndex: 'counterparty', key: 'counterparty', width: 140, render: (v) => v || '-' },
   ]
 

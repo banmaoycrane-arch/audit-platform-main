@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.db.models import Entity
-from app.services.entity_management_service import EntityManagementService
+from app.services.basic_data.entity_management_service import EntityManagementService
 
 router = APIRouter(prefix="/api/entities", tags=["entities"])
 
@@ -69,7 +69,7 @@ class ConfusionPayload(BaseModel):
     invoice_entity_name: str
 
 
-def _entity_to_dict(entity) -> dict[str, Any]:
+def _entity_to_dict(entity: Any) -> dict[str, Any]:
     return {
         "id": entity.id,
         "entity_name": entity.entity_name,
@@ -92,7 +92,7 @@ def _entity_to_dict(entity) -> dict[str, Any]:
 
 
 @router.post("")
-def create_entity(payload: EntityCreatePayload, db: Session = Depends(get_db)) -> dict:
+def create_entity(payload: EntityCreatePayload, db: Session = Depends(get_db)) -> dict[str, Any]:
     service = EntityManagementService(db)
     entity = service.create_entity(payload.model_dump())
     return _entity_to_dict(entity)
@@ -105,7 +105,7 @@ def list_entities(
     tax_entity: bool | None = None,
     legal_entity: bool | None = None,
     db: Session = Depends(get_db),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     service = EntityManagementService(db)
     items = service.get_entities_by_type(
         entity_type=entity_type,
@@ -117,14 +117,14 @@ def list_entities(
 
 
 @router.get("/search")
-def search_entity(name: str, db: Session = Depends(get_db)) -> list[dict]:
+def search_entity(name: str, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     service = EntityManagementService(db)
     items = service.find_entity_by_name(name)
     return [_entity_to_dict(e) for e in items]
 
 
 @router.post("/{entity_id}/tags")
-def add_tag(entity_id: int, payload: TagPayload, db: Session = Depends(get_db)) -> dict:
+def add_tag(entity_id: int, payload: TagPayload, db: Session = Depends(get_db)) -> dict[str, Any]:
     service = EntityManagementService(db)
     if not db.get(Entity, entity_id):
         raise HTTPException(status_code=404, detail="主体不存在")
@@ -133,7 +133,7 @@ def add_tag(entity_id: int, payload: TagPayload, db: Session = Depends(get_db)) 
 
 
 @router.get("/{entity_id}/hierarchy")
-def get_hierarchy(entity_id: int, db: Session = Depends(get_db)) -> list[dict]:
+def get_hierarchy(entity_id: int, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     service = EntityManagementService(db)
     items = service.get_entity_hierarchy(entity_id)
     if not items:
@@ -142,7 +142,7 @@ def get_hierarchy(entity_id: int, db: Session = Depends(get_db)) -> list[dict]:
 
 
 @router.post("/virtual-sets")
-def create_virtual_set(payload: VirtualSetCreatePayload, db: Session = Depends(get_db)) -> dict:
+def create_virtual_set(payload: VirtualSetCreatePayload, db: Session = Depends(get_db)) -> dict[str, Any]:
     service = EntityManagementService(db)
     vs = service.create_virtual_set(payload.set_name, payload.set_type, payload.description)
     return {"id": vs.id, "set_name": vs.set_name, "set_type": vs.set_type}
@@ -154,21 +154,21 @@ def add_virtual_set_member(
     entity_id: int,
     member_role: str | None = None,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     service = EntityManagementService(db)
     service.add_entity_to_virtual_set(set_id, entity_id, member_role)
     return {"set_id": set_id, "entity_id": entity_id}
 
 
 @router.get("/virtual-sets/{set_id}/members")
-def list_virtual_set_members(set_id: int, db: Session = Depends(get_db)) -> list[dict]:
+def list_virtual_set_members(set_id: int, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     service = EntityManagementService(db)
     items = service.get_virtual_set_members(set_id)
     return [_entity_to_dict(e) for e in items]
 
 
 @router.post("/scopes")
-def create_scope(payload: ScopeCreatePayload, db: Session = Depends(get_db)) -> dict:
+def create_scope(payload: ScopeCreatePayload, db: Session = Depends(get_db)) -> dict[str, Any]:
     service = EntityManagementService(db)
     scope = service.create_scope(
         payload.scope_name, payload.period_start, payload.period_end, payload.scope_type
@@ -183,7 +183,7 @@ def create_scope(payload: ScopeCreatePayload, db: Session = Depends(get_db)) -> 
 
 
 @router.post("/scopes/{scope_id}/members")
-def add_scope_member(scope_id: int, payload: ScopeMemberPayload, db: Session = Depends(get_db)) -> dict:
+def add_scope_member(scope_id: int, payload: ScopeMemberPayload, db: Session = Depends(get_db)) -> dict[str, Any]:
     service = EntityManagementService(db)
     service.add_entity_to_scope(
         scope_id, payload.entity_id, payload.member_type, payload.ownership_percentage
@@ -192,14 +192,14 @@ def add_scope_member(scope_id: int, payload: ScopeMemberPayload, db: Session = D
 
 
 @router.get("/scopes/{scope_id}/members")
-def list_scope_members(scope_id: int, db: Session = Depends(get_db)) -> list[dict]:
+def list_scope_members(scope_id: int, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     service = EntityManagementService(db)
     items = service.get_scope_entities(scope_id)
     return [_entity_to_dict(e) for e in items]
 
 
 @router.post("/detect-confusion")
-def detect_confusion(payload: ConfusionPayload, db: Session = Depends(get_db)) -> dict:
+def detect_confusion(payload: ConfusionPayload, db: Session = Depends(get_db)) -> dict[str, Any]:
     service = EntityManagementService(db)
     return service.detect_entity_confusion(
         payload.contract_entity_name, payload.invoice_entity_name

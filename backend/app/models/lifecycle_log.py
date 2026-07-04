@@ -10,6 +10,8 @@
     2026-06-18  初始创建 LifecycleLog 模型
 """
 from datetime import datetime
+from typing import Any
+
 from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,7 +43,7 @@ class LifecycleLog(Base):
     reason: Mapped[str | None] = mapped_column(
         String(500), nullable=True
     )
-    log_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    log_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     operator_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True
     )

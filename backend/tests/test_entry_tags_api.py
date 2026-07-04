@@ -187,7 +187,7 @@ def test_sync_vector_unavailable_returns_200_and_keeps_pending(client, monkeypat
         f"/api/entries/{entry_id}/tags",
         json={"tag_type": "counterparty", "tag_value": "供应商A"},
     ).json()["id"]
-    monkeypatch.setattr("app.services.entry_tag_vector_service.safe_vector_store", lambda: None)
+    monkeypatch.setattr("app.services.accounting.entry_tag_vector_service.safe_vector_store", lambda: None)
 
     resp = test_client.post("/api/entry-tags/sync-vector", params={"limit": 100})
 

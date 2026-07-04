@@ -26,6 +26,7 @@ import {
   type ChronologicalEntryFilters,
 } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import { formatMoney } from '../money'
 
 type ChronologicalFilterState = Omit<ChronologicalEntryFilters, 'ledger_id'>
 
@@ -161,14 +162,14 @@ function DayBookTab() {
         dataIndex: 'debit_amount',
         width: 120,
         align: 'right',
-        render: (val: number) => (val > 0 ? val.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '-'),
+        render: (val: number) => (val > 0 ? formatMoney(val) : '-'),
       },
       {
         title: '贷方金额',
         dataIndex: 'credit_amount',
         width: 120,
         align: 'right',
-        render: (val: number) => (val > 0 ? val.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '-'),
+        render: (val: number) => (val > 0 ? formatMoney(val) : '-'),
       },
       { title: '对方单位', dataIndex: 'counterparty', ellipsis: true, render: (v) => v || '-' },
     ],

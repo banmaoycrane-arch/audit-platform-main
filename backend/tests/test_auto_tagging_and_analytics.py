@@ -11,21 +11,21 @@ from sqlalchemy.orm import sessionmaker
 from app.db.session import Base
 from app.models.team import Team
 from app.models.user import User
-from app.services.analytics_service import (
+from app.services.shared.analytics_service import (
     analyze_counterparty,
     analyze_project_cost,
     drill_down_counterparty,
 )
-from app.services.entry_tag_rules_engine import (
+from app.services.accounting.entry_tag_rules_engine import (
     TagSuggestion,
     apply_auto_tags_to_voucher_lines,
     suggest_tags_for_entry,
 )
 from app.db.models import AccountingEntry
-from app.services.entry_tag_vector_service import EntryTagVectorService
-from app.services.ledger_management_service import create_ledger
-from app.services.tag_category_service import clear_category_cache
-from app.services.voucher_service import VoucherEntryLine, create_voucher
+from app.services.accounting.entry_tag_vector_service import EntryTagVectorService
+from app.services.shared.ledger_management_service import create_ledger
+from app.services.doc_parsing.tag_category_service import clear_category_cache
+from app.services.accounting.voucher_service import VoucherEntryLine, create_voucher
 
 
 @pytest.fixture

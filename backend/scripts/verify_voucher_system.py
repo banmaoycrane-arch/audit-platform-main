@@ -31,7 +31,7 @@ from app.services.voucher_service import (
 )
 
 
-def setup():
+def setup() -> tuple[Session, Team, User, Ledger, AccountingPeriod]:
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -69,7 +69,7 @@ def setup():
     return db, team, user, ledger, period
 
 
-def test_balance_voucher_ok():
+def test_balance_voucher_ok() -> None:
     db, team, user, ledger, period = setup()
     lines = [
         VoucherEntryLine(
@@ -102,7 +102,7 @@ def test_balance_voucher_ok():
     print("✅ 测试通过：借贷平衡凭证可正常创建")
 
 
-def test_unbalanced_voucher_fails():
+def test_unbalanced_voucher_fails() -> None:
     db, team, user, ledger, period = setup()
     lines = [
         VoucherEntryLine(

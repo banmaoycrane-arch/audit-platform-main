@@ -9,6 +9,7 @@
 更新记录：
     2026-06-20  初始创建绑定申请路由
 """
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -17,7 +18,7 @@ from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.binding_request import BindingRequest
 from app.models.user import User
-from app.services import binding_request_service
+from app.services.shared import binding_request_service
 
 router = APIRouter(prefix="/api/binding-requests", tags=["binding-requests"])
 
@@ -102,9 +103,9 @@ def attach_display_names(db: Session, request: BindingRequest) -> BindingRequest
     team = db.query(Team).filter(Team.id == request.team_id).first()
     ledger = db.query(Ledger).filter(Ledger.id == request.ledger_id).first() if request.ledger_id else None
     project = db.query(Project).filter(Project.id == request.project_id).first() if request.project_id else None
-    request.team_name = team.name if team else None
-    request.ledger_name = ledger.name if ledger else None
-    request.project_name = project.name if project else None
+    request.__dict__["team_name"] = team.name if team else None
+    request.__dict__["ledger_name"] = ledger.name if ledger else None
+    request.__dict__["project_name"] = project.name if project else None
     return request
 
 
@@ -115,9 +116,9 @@ def get_binding_options(
     current_user: User = Depends(get_current_user),
 ) -> BindingOptionsResponse:
     """返回提交绑定申请所需的团队、账簿、项目下拉选项。"""
-    teams = binding_request_service.get_visible_teams(db)
-    ledgers = binding_request_service.get_visible_ledgers(db, team_id) if team_id else []
-    projects = binding_request_service.get_visible_projects(db, team_id) if team_id else []
+    teams: list[Any] = binding_request_service.get_visible_teams(db)
+    ledgers: list[Any] = binding_request_service.get_visible_ledgers(db, team_id) if team_id else []
+    projects: list[Any] = binding_request_service.get_visible_projects(db, team_id) if team_id else []
     return BindingOptionsResponse(
         teams=[BindingOptionResponse(id=team.id, name=team.name) for team in teams],
         ledgers=[BindingOptionResponse(id=ledger.id, name=ledger.name) for ledger in ledgers],

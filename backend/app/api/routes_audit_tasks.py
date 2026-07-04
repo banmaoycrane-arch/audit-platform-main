@@ -18,7 +18,7 @@ from app.schemas.audit_workflow import (
     AuditTaskStatusUpdate,
     AuditTaskUpdate,
 )
-from app.services import audit_task_service
+import app.services.audit.audit_task_service as audit_task_service
 
 router = APIRouter(prefix="/api/audit/tasks", tags=["audit-tasks"])
 

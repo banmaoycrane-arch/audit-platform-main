@@ -224,6 +224,7 @@ Acceptance Level:
 | project-progress-status-plan.md | planning | 项目状态 | 计划类文档 |
 | project-review-plan.md | planning | 项目评审 | 计划类文档 |
 | frontend-api-fix-plan.md | planning | 前端 API 修复计划 | 计划类文档 |
+| api-boundary-governance-plan.md | planning | API 边界治理 | 后端 368 端点盘点、重叠识别与收敛路线 |
 | environment-recognition-plan.md | planning | 环境识别计划 | 计划类文档 |
 
 边界规则：计划/复盘/路线图不得直接当作业务完成依据。业务完成度必须回到对应 active-main 或 active-increment 规格核验。
@@ -269,6 +270,17 @@ Acceptance Level:
 风险：一处要求默认一级科目，一处要求默认跨级科目，一处要求空白建账。
 
 治理规则：空白建账优先，行业模板可选导入，不静默覆盖。
+
+### 5. API 导入 / 解析 / 凭证
+
+- 治理计划：`api-boundary-governance-plan.md`
+- 主路径（建议）：`import-jobs` → `parser-engine` → `parser-voucher`；凭证以 `/api/vouchers` 为准
+- 不再追加：`/api/unified-import`、`/api/parse/{type}` 的新业务能力
+- 依赖：`module-refactoring-plan.md`（服务层重构须遵循 API 主路径）
+
+风险：5 套导入/解析入口、entries/vouchers 双轨、entry-tags/document-tags 同构重复。
+
+治理规则：新增 API 前先查 `api-boundary-governance-plan.md` 第三节主路径表。
 
 ## 新规格模板
 

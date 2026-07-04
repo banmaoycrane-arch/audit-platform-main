@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.services import coa_service
+from app.services.basic_data import coa_service
 
 router = APIRouter(prefix="/api/coa", tags=["chart-of-accounts"])
 
@@ -37,7 +37,7 @@ class CoAUpdate(BaseModel):
     is_terminal: bool | None = None
 
 
-def _to_dict(account) -> dict[str, Any]:
+def _to_dict(account: Any) -> dict[str, Any]:
     return {
         "code": account.code,
         "name": account.name,
@@ -56,7 +56,7 @@ def _to_dict(account) -> dict[str, Any]:
 
 
 @router.get("")
-def list_accounts(db: Session = Depends(get_db)) -> list[dict]:
+def list_accounts(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     try:
         return [_to_dict(a) for a in coa_service.list_accounts(db)]
     except SQLAlchemyError as exc:
@@ -64,12 +64,12 @@ def list_accounts(db: Session = Depends(get_db)) -> list[dict]:
 
 
 @router.get("/industry-templates")
-def list_industry_templates() -> list[dict]:
+def list_industry_templates() -> list[dict[str, Any]]:
     return coa_service.list_industry_templates()
 
 
 @router.get("/industry-templates/{template_code}")
-def preview_industry_template(template_code: str, db: Session = Depends(get_db)) -> dict:
+def preview_industry_template(template_code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         return coa_service.preview_industry_template(db, template_code)
     except LookupError:
@@ -77,7 +77,7 @@ def preview_industry_template(template_code: str, db: Session = Depends(get_db))
 
 
 @router.post("/industry-templates/{template_code}/import")
-def import_industry_template(template_code: str, db: Session = Depends(get_db)) -> dict:
+def import_industry_template(template_code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         return coa_service.import_industry_template(db, template_code)
     except LookupError:
@@ -85,7 +85,7 @@ def import_industry_template(template_code: str, db: Session = Depends(get_db)) 
 
 
 @router.post("")
-def create_account(payload: CoACreate, db: Session = Depends(get_db)) -> dict:
+def create_account(payload: CoACreate, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         account = coa_service.create_account(db, payload.model_dump())
     except ValueError as exc:
@@ -94,7 +94,7 @@ def create_account(payload: CoACreate, db: Session = Depends(get_db)) -> dict:
 
 
 @router.put("/{code}")
-def update_account(code: str, payload: CoAUpdate, db: Session = Depends(get_db)) -> dict:
+def update_account(code: str, payload: CoAUpdate, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         account = coa_service.update_account(
             db, code, {k: v for k, v in payload.model_dump().items() if v is not None}
@@ -107,7 +107,7 @@ def update_account(code: str, payload: CoAUpdate, db: Session = Depends(get_db))
 
 
 @router.post("/{code}/disable")
-def disable_account(code: str, db: Session = Depends(get_db)) -> dict:
+def disable_account(code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         account = coa_service.set_status(db, code, "disabled")
     except LookupError:
@@ -116,7 +116,7 @@ def disable_account(code: str, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/{code}/archive")
-def archive_account(code: str, db: Session = Depends(get_db)) -> dict:
+def archive_account(code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         account = coa_service.set_status(db, code, "archived")
     except LookupError:
@@ -125,7 +125,7 @@ def archive_account(code: str, db: Session = Depends(get_db)) -> dict:
 
 
 @router.delete("/{code}")
-def delete_account(code: str, db: Session = Depends(get_db)) -> dict:
+def delete_account(code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         coa_service.delete_account(db, code)
     except LookupError:

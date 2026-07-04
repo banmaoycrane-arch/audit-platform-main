@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from typing import Any
 """
 模块功能：账簿管理 API 路由
 业务场景：前端调用创建账簿、切换账簿、授权用户、查询账簿列表
@@ -19,7 +20,7 @@ from app.core.dependencies import get_current_user, get_current_ledger
 from app.models.user_ledger_auth import UserLedgerAuth
 from app.models.user import User
 from app.models.ledger import Ledger
-from app.services import ledger_management_service
+from app.services.shared import ledger_management_service
 
 router = APIRouter(prefix="/api/ledgers", tags=["ledgers"])
 
@@ -99,7 +100,7 @@ def create_ledger(
     payload: CreateLedgerRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> Ledger:
+) -> LedgerResponse:
     """
     创建账簿。
 
@@ -146,7 +147,7 @@ def switch_ledger(
     ledger_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> dict[str, Any]:
     """
     切换账簿。
 
@@ -171,7 +172,7 @@ def authorize_user(
     payload: AuthUserRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> dict[str, Any]:
     """
     授权用户访问账簿。
 
@@ -374,7 +375,7 @@ def revoke_ledger_auth(
     auth_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> dict[str, Any]:
     """
     撤销账簿授权。
 

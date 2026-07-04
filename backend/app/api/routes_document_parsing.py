@@ -13,7 +13,7 @@ from app.schemas.document_parsing import (
     InvoiceParseRequest,
     ParsedDocumentResponse,
 )
-from app.services.document_parsing_service import DocumentParsingService
+from app.services.doc_parsing.document_parsing_service import DocumentParsingService
 
 router = APIRouter(prefix="/api/parse", tags=["document-parsing"])
 

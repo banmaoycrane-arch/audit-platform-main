@@ -15,6 +15,7 @@ from app.api.routes_coa import router as coa_router
 from app.api.routes_counterparties import router as counterparties_router
 from app.api.routes_dashboard import router as dashboard_router
 from app.api.routes_document_parsing import router as document_parsing_router
+from app.api.routes_document_tags import router as document_tags_router
 from app.api.routes_entities import router as entities_router
 from app.api.routes_entries import router as entries_router
 from app.api.routes_entry_generation import router as entry_generation_router
@@ -51,9 +52,12 @@ from app.api.routes_lifecycle import router as lifecycle_router
 from app.api.routes_team import router as team_router
 from app.api.routes_scope_settings import router as scope_settings_router
 from app.api.routes_parser_engine import router as parser_engine_router
+from app.api.routes_parse_correction import router as parse_correction_router
 from app.api.routes_parser_voucher import router as parser_voucher_router
 from app.api.routes_config import router as config_router
+from app.api.routes_llm_resolution import router as llm_resolution_router
 from app.api.routes_super_admin import router as super_admin_router
+from app.api.routes_seals import router as seals_router
 from app.db import models
 import app.models  # noqa: F401 — register app.models tables for create_all
 from app.db.session import Base, engine
@@ -82,7 +86,10 @@ def _ensure_local_sqlite_schema() -> None:
             """))
 
         if "source_files" in table_names:
-            source_file_columns = {column["name"] for column in inspector.get_columns("source_files")}
+            try:
+                source_file_columns = {column["name"] for column in inspector.get_columns("source_files")}
+            except Exception:
+                source_file_columns = set()
             missing_columns = {
                 "text_extract_status": "ALTER TABLE source_files ADD COLUMN text_extract_status VARCHAR(40) DEFAULT 'pending' NOT NULL",
                 "extracted_text": "ALTER TABLE source_files ADD COLUMN extracted_text TEXT",
@@ -214,6 +221,9 @@ def _ensure_local_sqlite_schema() -> None:
                 "post_status": "ALTER TABLE accounting_entries ADD COLUMN post_status VARCHAR(20) DEFAULT 'draft' NOT NULL",
                 "posted_at": "ALTER TABLE accounting_entries ADD COLUMN posted_at DATETIME",
                 "posted_by": "ALTER TABLE accounting_entries ADD COLUMN posted_by INTEGER",
+                "resolved_account_code": "ALTER TABLE accounting_entries ADD COLUMN resolved_account_code VARCHAR(100)",
+                "resolved_account_name": "ALTER TABLE accounting_entries ADD COLUMN resolved_account_name VARCHAR(200)",
+                "requires_llm_resolution": "ALTER TABLE accounting_entries ADD COLUMN requires_llm_resolution BOOLEAN DEFAULT 0 NOT NULL",
             }
             for column_name, ddl in entry_missing_columns.items():
                 if column_name not in entry_columns:
@@ -335,81 +345,89 @@ _ensure_local_sqlite_schema()
 
 from fastapi.responses import JSONResponse
 
-app = FastAPI(
+application: FastAPI = FastAPI(
     title="财务向量审计风险识别系统",
     version="0.1.0",
     default_response_class=JSONResponse,
 )
-configure_gateway(app)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+configure_gateway(application)
+application.add_middleware(GZipMiddleware, minimum_size=1000)
 _cors_origins = [
     origin.strip()
     for origin in get_settings().cors_allow_origins.split(",")
     if origin.strip()
 ]
-app.add_middleware(
+application.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins or ["http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(auth_router)
-app.include_router(imports_router)
-app.include_router(unified_import_router)
-app.include_router(entries_router)
-app.include_router(export_router)
-app.include_router(files_router)
-app.include_router(risks_router)
-app.include_router(accounting_periods_router)
-app.include_router(accounting_units_router)
-app.include_router(agent_router)
-app.include_router(audit_tests_router)
-app.include_router(audit_export_router)
-app.include_router(document_parsing_router)
-app.include_router(entities_router)
-app.include_router(coa_router)
-app.include_router(counterparties_router)
-app.include_router(opening_balances_router)
-app.include_router(reports_router)
-app.include_router(entry_generation_router)
-app.include_router(entry_tags_router)
-app.include_router(analytics_router)
-app.include_router(business_cycles_router)
-app.include_router(internal_controls_router)
-app.include_router(ledger_router)
-app.include_router(dashboard_router)
-app.include_router(transactions_router)
-app.include_router(materials_router)
-app.include_router(module_registers_router)
-app.include_router(project_router)
-app.include_router(lifecycle_router)
-app.include_router(team_router)
-app.include_router(scope_settings_router)
-app.include_router(parser_engine_router)
-app.include_router(parser_voucher_router)
-app.include_router(config_router)
-app.include_router(super_admin_router)
-app.include_router(binding_requests_router)
-app.include_router(bank_router)
-app.include_router(confirmations_router)
-app.include_router(purchase_match_router)
-app.include_router(vouchers_router)
-app.include_router(workpapers_router)
-app.include_router(audit_workflow_router)
-app.include_router(audit_branches_router)
-app.include_router(audit_tasks_router)
-app.include_router(audit_review_router)
-app.include_router(audit_comments_router)
-app.include_router(audit_notifications_router)
-app.include_router(audit_dashboard_router)
+application.include_router(auth_router)
+application.include_router(imports_router)
+application.include_router(unified_import_router)
+application.include_router(entries_router)
+application.include_router(export_router)
+application.include_router(files_router)
+application.include_router(risks_router)
+application.include_router(accounting_periods_router)
+application.include_router(accounting_units_router)
+application.include_router(agent_router)
+application.include_router(audit_tests_router)
+application.include_router(audit_export_router)
+application.include_router(document_parsing_router)
+application.include_router(document_tags_router)
+application.include_router(entities_router)
+application.include_router(coa_router)
+application.include_router(counterparties_router)
+application.include_router(opening_balances_router)
+application.include_router(reports_router)
+application.include_router(entry_generation_router)
+application.include_router(entry_tags_router)
+application.include_router(analytics_router)
+application.include_router(business_cycles_router)
+application.include_router(internal_controls_router)
+application.include_router(ledger_router)
+application.include_router(dashboard_router)
+application.include_router(transactions_router)
+application.include_router(materials_router)
+application.include_router(module_registers_router)
+application.include_router(project_router)
+application.include_router(lifecycle_router)
+application.include_router(team_router)
+application.include_router(scope_settings_router)
+application.include_router(parser_engine_router)
+application.include_router(parse_correction_router)
+application.include_router(parser_voucher_router)
+application.include_router(config_router)
+application.include_router(llm_resolution_router)
+application.include_router(super_admin_router)
+application.include_router(binding_requests_router)
+application.include_router(bank_router)
+application.include_router(confirmations_router)
+application.include_router(purchase_match_router)
+application.include_router(vouchers_router)
+application.include_router(workpapers_router)
+application.include_router(audit_workflow_router)
+application.include_router(audit_branches_router)
+application.include_router(audit_tasks_router)
+application.include_router(audit_review_router)
+application.include_router(audit_comments_router)
+application.include_router(audit_notifications_router)
+application.include_router(audit_dashboard_router)
+application.include_router(seals_router)
 
 
-@app.get("/")
+@application.get("/")
 def root() -> dict[str, str]:
     return {"status": "ok", "service": "finance-vector-audit-backend"}
 
 
-@app.get("/health")
+@application.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# 导出给 uvicorn 使用的变量名
+app: FastAPI = application  # type: ignore[no-redef]

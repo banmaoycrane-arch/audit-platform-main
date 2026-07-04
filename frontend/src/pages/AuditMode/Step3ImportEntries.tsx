@@ -1,12 +1,15 @@
-import { Card, Upload, Button, Steps, Typography, message, Table, Space, Tag, Alert, Tabs, Statistic, List } from 'antd'
+import { Card, Upload, Button, Steps, Typography, message, Table, Space, Tag, Alert, Tabs, Statistic, List, Row, Col } from 'antd'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { InboxOutlined } from '@ant-design/icons'
+import { InboxOutlined, EyeOutlined, ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { api, type AccountingEntry, type DayBookReport } from '../../api/client'
+import { api, type AccountingEntry, type DayBookReport, type EntryTag, type Counterparty, type LlmResolutionStatistics } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
 import { withJobQuery } from '../../utils/navigation'
 import { useAuthStore } from '../../stores/authStore'
+import { formatAmount } from '../../money'
+import { TagList, TagCategoryLegend } from '../../components/import/TagList'
+import { ImportResultDetail } from '../../components/import/ImportResultDetail'
 
 const { Dragger } = Upload
 const { Title } = Typography
@@ -29,6 +32,78 @@ export function Step3ImportEntries() {
   const [jobId, setJobId] = useState<number>(urlJobId)
   const [jobSourceType, setJobSourceType] = useState<string | null>(null)
   const [jobProjectId, setJobProjectId] = useState<number | null>(null)
+
+  const [entryTags, setEntryTags] = useState<Map<number, EntryTag[]>>(new Map())
+  const [counterparties, setCounterparties] = useState<Map<number, Counterparty>>(new Map())
+  const [selectedEntry, setSelectedEntry] = useState<AccountingEntry | null>(null)
+  const [llmStats, setLlmStats] = useState<LlmResolutionStatistics | null>(null)
+  const [llmProcessing, setLlmProcessing] = useState(false)
+
+  const fetchEntryTags = async () => {
+    if (!entries.length) return
+    try {
+      const entryIds = entries.map((entry) => entry.id)
+      const tags = await api.batchListEntryTags({
+        entry_ids: entryIds,
+        ledger_id: currentLedgerId ?? undefined,
+      })
+      const tagsMap = new Map<number, EntryTag[]>()
+      tags.forEach((tag) => {
+        const existing = tagsMap.get(tag.entry_id) || []
+        existing.push(tag)
+        tagsMap.set(tag.entry_id, existing)
+      })
+      setEntryTags(tagsMap)
+    } catch (error) {
+      console.error('批量获取标签失败', error)
+    }
+  }
+
+  const fetchCounterparties = async () => {
+    const uniqueIds = entries
+      .filter((e) => e.counterparty_id)
+      .map((e) => e.counterparty_id as number)
+    if (uniqueIds.length === 0) {
+      setCounterparties(new Map())
+      return
+    }
+    try {
+      const items = await api.batchGetCounterparties(uniqueIds)
+      const cpMap = new Map<number, Counterparty>()
+      items.forEach((cp) => cpMap.set(cp.id, cp))
+      setCounterparties(cpMap)
+    } catch (error) {
+      console.error('批量获取往来单位失败', error)
+    }
+  }
+
+  const fetchLlmStats = async () => {
+    try {
+      const stats = await api.llmGetStatistics(currentLedgerId ?? undefined)
+      setLlmStats(stats)
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleBatchLlmResolve = async () => {
+    setLlmProcessing(true)
+    try {
+      const result = await api.llmBatchResolve({
+        ledger_id: currentLedgerId ?? undefined,
+        batch_size: 50,
+      })
+      message.success(`LLM解析完成：成功 ${result.success_count} 条，失败 ${result.failed_count} 条`)
+      await refreshEntries()
+      await fetchEntryTags()
+      await fetchLlmStats()
+    } catch (error) {
+      console.error('LLM批量解析失败', error)
+      message.error('LLM批量解析失败')
+    } finally {
+      setLlmProcessing(false)
+    }
+  }
 
   const refreshEntries = async () => {
     if (!jobId) return
@@ -85,6 +160,14 @@ export function Step3ImportEntries() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId])
 
+  useEffect(() => {
+    if (entries.length > 0) {
+      fetchEntryTags()
+      fetchCounterparties()
+      fetchLlmStats()
+    }
+  }, [entries])
+
   const handleUpload = async (file: File, kind: ImportKind) => {
     let currentJobId = jobId
     if (kind === 'audit_day_book' && jobSourceType !== 'audit_day_book') {
@@ -107,6 +190,7 @@ export function Step3ImportEntries() {
           setJobSourceType(job.source_type)
           setEntries([])
           setDayBookReport(null)
+          setEntryTags(new Map())
         } catch (error) {
           console.error('创建导入任务失败', error)
           message.error('创建导入任务失败')
@@ -141,50 +225,155 @@ export function Step3ImportEntries() {
       title: '凭证号',
       dataIndex: 'voucher_no',
       key: 'voucher_no',
-      render: (val: string | null) => val || '-'
+      render: (val: string | null) => val || '-',
+      responsive: ['lg'],
     },
     {
       title: '行号',
       dataIndex: 'entry_line_no',
-      key: 'entry_line_no'
+      key: 'entry_line_no',
+      responsive: ['lg'],
     },
     {
       title: '日期',
       dataIndex: 'voucher_date',
       key: 'voucher_date',
-      render: (val: string | null) => val || '-'
+      render: (val: string | null) => val || '-',
+      responsive: ['lg'],
     },
     {
-      title: '科目代码',
-      dataIndex: 'account_code',
-      key: 'account_code',
-      render: (val: string | null) => val || '-'
+      title: '原始科目',
+      key: 'original_account',
+      render: (_: unknown, record: AccountingEntry) => {
+        const code = record.account_code || '-'
+        const name = record.account_name || '-'
+        return (
+          <div>
+            <div style={{ fontWeight: 500 }}>{code}</div>
+            <div style={{ fontSize: 12, color: '#999' }}>{name}</div>
+          </div>
+        )
+      },
     },
     {
-      title: '科目名称',
-      dataIndex: 'account_name',
-      key: 'account_name',
-      render: (val: string | null) => val || '-'
+      title: '解析后科目',
+      key: 'resolved_account',
+      render: (_: unknown, record: AccountingEntry) => {
+        const code = record.resolved_account_code || '-'
+        const name = record.resolved_account_name || '-'
+        const hasChanged = (record.account_code !== record.resolved_account_code) || (record.account_name !== record.resolved_account_name)
+        return (
+          <div>
+            <div style={{ fontWeight: 500, color: hasChanged ? '#1890ff' : undefined }}>{code}</div>
+            <div style={{ fontSize: 12, color: hasChanged ? '#1890ff' : '#999' }}>{name}</div>
+            {hasChanged && <Tag color="orange">已解析</Tag>}
+          </div>
+        )
+      },
     },
     {
       title: '摘要',
       dataIndex: 'summary',
       key: 'summary',
-      render: (val: string | null) => val || '-'
+      render: (val: string | null) => val || '-',
+      responsive: ['lg'],
+    },
+    {
+      title: '辅助核算',
+      key: 'tags',
+      render: (_: unknown, record: AccountingEntry) => {
+        const tags = entryTags.get(record.id) || []
+        if (tags.length === 0) {
+          return <span style={{ color: '#999' }}>-</span>
+        }
+        return (
+          <Space wrap size="small">
+            {tags.slice(0, 3).map((tag) => (
+              <Tag key={tag.id} color={getTagColor(tag.category_code)}>
+                {tag.display_name}
+              </Tag>
+            ))}
+            {tags.length > 3 && <Tag color="default">+{tags.length - 3}</Tag>}
+          </Space>
+        )
+      },
+    },
+    {
+      title: '往来单位',
+      dataIndex: 'counterparty',
+      key: 'counterparty',
+      render: (val: string | null, record: AccountingEntry) => {
+        const cp = record.counterparty_id ? counterparties.get(record.counterparty_id) : null
+        if (cp) {
+          return (
+            <span>
+              <Tag color="green">{cp.name}</Tag>
+              <span style={{ marginLeft: 4, fontSize: 12, color: '#999' }}>已关联</span>
+            </span>
+          )
+        }
+        return val || '-'
+      },
+      responsive: ['lg'],
     },
     {
       title: '借方金额',
       dataIndex: 'debit_amount',
       key: 'debit_amount',
-      render: (val: number) => (val > 0 ? `¥${Number(val).toLocaleString()}` : '-')
+      render: (val: number) => (val > 0 ? formatAmount(val) : '-'),
+      responsive: ['md'],
     },
     {
       title: '贷方金额',
       dataIndex: 'credit_amount',
       key: 'credit_amount',
-      render: (val: number) => (val > 0 ? `¥${Number(val).toLocaleString()}` : '-')
-    }
+      render: (val: number) => (val > 0 ? formatAmount(val) : '-'),
+      responsive: ['md'],
+    },
+    {
+      title: '状态',
+      key: 'status',
+      render: (_: unknown, record: AccountingEntry) => (
+        <Space size="small">
+          {record.requires_llm_resolution && (
+            <Tag color="orange">待LLM解析</Tag>
+          )}
+          {record.review_status !== 'draft' && (
+            <Tag color={record.review_status === 'verified' ? 'green' : 'blue'}>
+              {record.review_status}
+            </Tag>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_: unknown, record: AccountingEntry) => (
+        <Button
+          size="small"
+          icon={<EyeOutlined />}
+          onClick={() => setSelectedEntry(record)}
+        >
+          详情
+        </Button>
+      ),
+    },
   ]
+
+  const getTagColor = (categoryCode: string) => {
+    const colors: Record<string, string> = {
+      customer: 'blue',
+      supplier: 'green',
+      product: 'purple',
+      department: 'orange',
+      project: 'pink',
+      region: 'cyan',
+      expense_type: 'gold',
+      cost_element: 'geekblue',
+    }
+    return colors[categoryCode] || 'default'
+  }
 
   const renderDragger = (kind: ImportKind) => {
     const isDayBook = kind === 'audit_day_book'
@@ -280,8 +469,49 @@ export function Step3ImportEntries() {
     )
   }
 
+  const renderLlmStats = () => {
+    if (!llmStats) return null
+    return (
+      <Card
+        title="LLM辅助解析统计"
+        style={{ marginTop: '24px' }}
+      >
+        <Space size="large" wrap>
+          <Statistic
+            title="待LLM解析"
+            value={llmStats.pending_llm_resolution}
+            prefix={<ReloadOutlined style={{ color: '#faad14' }} />}
+            valueStyle={{ color: '#faad14' }}
+          />
+          <Statistic
+            title="待审批标签"
+            value={llmStats.pending_review}
+            valueStyle={{ color: '#fa8c16' }}
+          />
+          <Statistic
+            title="已审批标签"
+            value={llmStats.reviewed}
+            prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+            valueStyle={{ color: '#52c41a' }}
+          />
+        </Space>
+
+        {llmStats.pending_llm_resolution > 0 && (
+          <Button
+            type="primary"
+            loading={llmProcessing}
+            onClick={handleBatchLlmResolve}
+            style={{ marginTop: '16px' }}
+          >
+            批量调用LLM解析辅助核算维度
+          </Button>
+        )}
+      </Card>
+    )
+  }
+
   return (
-    <div style={{ padding: '24px', maxWidth: '1000px', margin: '0 auto' }}>
+    <div style={{ padding: '24px', maxWidth: '100%', margin: '0 auto' }}>
       <Steps
         current={currentStep}
         items={[
@@ -346,18 +576,27 @@ export function Step3ImportEntries() {
         />
       </Card>
 
-      <Card title="已导入的分录" loading={loading}>
-        <Table
-          columns={columns}
-          dataSource={entries}
-          rowKey="id"
-          pagination={{ pageSize: 10 }}
-          size="small"
-          locale={{ emptyText: jobId ? '暂无分录，请上传被审计单位凭证或序时簿' : '请先上传或选择审计资料' }}
-        />
-      </Card>
+      <Row gutter={16}>
+        <Col xs={24} lg={16}>
+          <Card title="已导入的分录" loading={loading}>
+            <Table
+              columns={columns}
+              dataSource={entries}
+              rowKey="id"
+              pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
+              size="small"
+              locale={{ emptyText: jobId ? '暂无分录，请上传被审计单位凭证或序时簿' : '请先上传或选择审计资料' }}
+            />
+          </Card>
 
-      {activeKind === 'audit_day_book' && dayBookReport && renderDayBookReport()}
+          {activeKind === 'audit_day_book' && dayBookReport && renderDayBookReport()}
+        </Col>
+
+        <Col xs={24} lg={8}>
+          <TagCategoryLegend />
+          {renderLlmStats()}
+        </Col>
+      </Row>
 
       <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
         <Button onClick={() => navigate(jobId ? `/audit/step/2?jobId=${jobId}` : '/audit/step/2')}>
@@ -371,6 +610,15 @@ export function Step3ImportEntries() {
           下一步执行测试
         </Button>
       </div>
+
+      {selectedEntry && (
+        <ImportResultDetail
+          entry={selectedEntry}
+          tags={entryTags.get(selectedEntry.id) || []}
+          counterparty={selectedEntry.counterparty_id ? counterparties.get(selectedEntry.counterparty_id) : undefined}
+          onClose={() => setSelectedEntry(null)}
+        />
+      )}
     </div>
   )
 }

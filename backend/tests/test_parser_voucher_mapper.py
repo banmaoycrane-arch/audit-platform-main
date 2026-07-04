@@ -8,12 +8,12 @@ import pytest
 from decimal import Decimal
 from datetime import datetime
 
-from app.services.parser_engine.parse_result import (
+from app.services.doc_parsing.parser_engine.parse_result import (
     ParseResult,
     DocumentType,
     EngineType,
 )
-from app.services.parser_voucher_mapper import (
+from app.services.doc_parsing.parser_voucher_mapper import (
     parse_result_to_voucher_drafts,
     CandidateVoucherDraft,
 )

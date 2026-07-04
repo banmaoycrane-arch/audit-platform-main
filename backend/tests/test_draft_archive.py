@@ -15,7 +15,7 @@ from app.models.ledger import Ledger
 from app.models.project import Project
 from app.models.project_ledger import ProjectLedger
 from app.models.team import Team
-from app.services.draft_archive_service import (
+from app.services.doc_parsing.draft_archive_service import (
     auto_archive_draft,
     build_archive_context,
     build_archive_path,

@@ -47,7 +47,7 @@ def main():
         print(f"总会计分录：{total}")
         print(f"无 voucher_id 的旧分录：{legacy}")
 
-        if legacy > 0:
+        if legacy is not None and legacy > 0:
             conn.execute(text("DELETE FROM accounting_entries WHERE voucher_id IS NULL"))
             conn.commit()
             remaining = conn.execute(text("SELECT COUNT(*) FROM accounting_entries")).scalar()

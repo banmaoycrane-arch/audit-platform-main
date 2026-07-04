@@ -19,9 +19,9 @@ from app.db.models import AccountingEntry, EntryTag, TagCategory, Voucher
 from app.db.session import Base
 from app.models.team import Team
 from app.models.user import User
-from app.services.ledger_management_service import create_ledger
-from app.services.tag_category_service import clear_category_cache
-from app.services.voucher_service import (
+from app.services.shared.ledger_management_service import create_ledger
+from app.services.doc_parsing.tag_category_service import clear_category_cache
+from app.services.accounting.voucher_service import (
     VoucherBalanceError,
     VoucherEntryLine,
     create_voucher,
@@ -370,7 +370,7 @@ def test_posted_voucher_cannot_be_deleted(db, ledger):
         status="posted",
     )
 
-    from app.services.voucher_service import VoucherStateError
+    from app.services.accounting.voucher_service import VoucherStateError
 
     with pytest.raises(VoucherStateError):
         delete_voucher(db, voucher_id=voucher.id)

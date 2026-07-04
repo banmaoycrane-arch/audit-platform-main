@@ -2,12 +2,12 @@
 
 from datetime import date
 
-from app.services.import_routing_service import (
+from app.services.doc_parsing.import_routing_service import (
     get_import_output_path,
     is_day_book_source_type,
     should_persist_structured_entries,
 )
-from app.services.period_detection_service import (
+from app.services.accounting.period_detection_service import (
     build_month_period_suggestion,
     detect_dominant_month,
 )

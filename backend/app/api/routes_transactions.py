@@ -1,16 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Any, Optional
 
 from app.db.models import Transaction, TransactionOperation
 from app.db.session import get_db
-from app.services.transaction_manager import TransactionManager
+from app.services.shared.transaction_manager import TransactionManager
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 
-def _serialize_transaction(tx: Transaction) -> dict:
+def _serialize_transaction(tx: Transaction) -> dict[str, Any]:
     return {
         "id": tx.id,
         "transaction_id": tx.transaction_id,
@@ -28,7 +28,7 @@ def _serialize_transaction(tx: Transaction) -> dict:
     }
 
 
-def _serialize_operation(op: TransactionOperation) -> dict:
+def _serialize_operation(op: TransactionOperation) -> dict[str, Any]:
     return {
         "id": op.id,
         "operation_order": op.operation_order,
@@ -46,7 +46,7 @@ def get_transactions_summary(
     context_type: Optional[str] = Query(None),
     context_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """按状态统计事务数量。"""
     query = db.query(Transaction.status, func.count(Transaction.id))
     if context_type is not None:
@@ -71,7 +71,7 @@ def list_transactions(
     status: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """列出事务。"""
     query = db.query(Transaction)
     if context_type is not None:
@@ -90,7 +90,7 @@ def list_transactions(
 def get_transaction_detail(
     transaction_id: int,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """事务详情，含 operations 摘要。"""
     tx = db.get(Transaction, transaction_id)
     if not tx:
@@ -108,7 +108,7 @@ def get_transaction_detail(
 def get_transaction_operations(
     transaction_id: int,
     db: Session = Depends(get_db),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """事务操作列表。"""
     tx = db.get(Transaction, transaction_id)
     if not tx:
@@ -122,7 +122,7 @@ def get_transaction_operations(
 def rollback_transaction(
     transaction_id: int,
     db: Session = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """手动回滚 pending 事务。"""
     tx = db.get(Transaction, transaction_id)
     if not tx:

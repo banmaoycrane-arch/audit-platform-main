@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_ledger, get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.services import confirmation_service
+import app.services.audit.confirmation_service as confirmation_service
 
 router = APIRouter(prefix="/api/confirmations", tags=["confirmations"])
 

@@ -37,7 +37,7 @@ from app.services.period_close_service import auto_pl_transfer, reverse_pl_trans
 from app.services.financial_statements_service import compute_account_balances
 
 
-def setup():
+def setup() -> tuple[Session, Ledger, Organization]:
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -71,7 +71,7 @@ def setup():
     return db, team, user, ledger, org, period
 
 
-def _ensure_coa(db, ledger_id):
+def _ensure_coa(db: Session, ledger_id: int) -> None:
     """创建测试用科目表。"""
     accounts = [
         ("1002", "银行存款", "asset", "debit"),
@@ -106,7 +106,7 @@ def _ensure_coa(db, ledger_id):
     db.flush()
 
 
-def test_full_closure():
+def test_full_closure() -> None:
     db, team, user, ledger, org, period = setup()
     _ensure_coa(db, ledger.id)
 

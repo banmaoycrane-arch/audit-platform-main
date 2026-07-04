@@ -1,16 +1,16 @@
 from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.security import decode_token
-from app.services.auth_service import get_user_by_id
+from app.services.auth.auth_service import get_user_by_id
 from app.db.session import get_db
 from sqlalchemy.orm import Session
 from app.models.user import User
-from app.services import ledger_management_service
+from app.services.shared import ledger_management_service
 
 security = HTTPBearer(auto_error=False)
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(security), db: Session = Depends(get_db)):
+def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(security), db: Session = Depends(get_db)) -> User:
     """
     获取当前用户。
 

@@ -1,9 +1,10 @@
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.security import create_access_token
-from app.services import auth_service
+from app.services.auth import auth_service
 from app.core.dependencies import get_current_user
 from app.models.user import User
 
@@ -62,10 +63,10 @@ class UserResponse(BaseModel):
 
 
 class AuthContextResponse(BaseModel):
-    user: dict
-    teams: list[dict]
-    ledgers: list[dict]
-    projects: list[dict]
+    user: dict[str, Any]
+    teams: list[dict[str, Any]]
+    ledgers: list[dict[str, Any]]
+    projects: list[dict[str, Any]]
     current_ledger_id: int | None
     current_ledger_role: str | None = None
     current_team_type: str | None = None
@@ -76,12 +77,12 @@ class AuthContextResponse(BaseModel):
     requires_onboarding: bool
     next_action: str
     temporary_status: str
-    historical_candidates: list[dict]
-    mock_boundaries: dict
+    historical_candidates: list[dict[str, Any]]
+    mock_boundaries: dict[str, Any]
 
 
 @router.post("/register", response_model=TokenResponse)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
     if not payload.agreed_terms or not payload.agreed_privacy:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Must agree to terms and privacy policy")
     if not payload.username and not payload.phone:
@@ -108,7 +109,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login/password", response_model=TokenResponse)
-def login_password(payload: LoginPasswordRequest, db: Session = Depends(get_db)):
+def login_password(payload: LoginPasswordRequest, db: Session = Depends(get_db)) -> TokenResponse:
     login_user = auth_service.get_password_login_user(db, payload.username)
     if not login_user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号不存在，请先注册或使用验证码登录")
@@ -122,7 +123,7 @@ def login_password(payload: LoginPasswordRequest, db: Session = Depends(get_db))
 
 
 @router.post("/login/sms", response_model=TokenResponse)
-def login_sms(payload: LoginSmsRequest, db: Session = Depends(get_db)):
+def login_sms(payload: LoginSmsRequest, db: Session = Depends(get_db)) -> TokenResponse:
     user = auth_service.authenticate_user_by_sms(db, payload.phone, payload.code)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="验证码错误，请重新输入或重新获取")
@@ -131,7 +132,7 @@ def login_sms(payload: LoginSmsRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/sms/code")
-def sms_code(payload: SmsCodeRequest, db: Session = Depends(get_db)):
+def sms_code(payload: SmsCodeRequest, db: Session = Depends(get_db)) -> SmsCodeResponse:
     from app.core.config import get_settings
 
     code = auth_service.get_sms_code(db, payload.phone)
@@ -142,7 +143,7 @@ def sms_code(payload: SmsCodeRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/me", response_model=UserResponse)
-def me(current_user: User = Depends(get_current_user)):
+def me(current_user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse(
         id=current_user.id,
         username=current_user.username,
@@ -153,11 +154,7 @@ def me(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/password")
-def set_password(
-    payload: SetPasswordRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def set_password(payload: SetPasswordRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     if len(payload.password) < 6:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="密码至少需要 6 位")
     auth_service.set_user_password(db, current_user, payload.password)
@@ -165,11 +162,7 @@ def set_password(
 
 
 @router.patch("/me", response_model=UserResponse)
-def update_me(
-    payload: UpdateProfileRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def update_me(payload: UpdateProfileRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> UserResponse:
     """更新当前用户的基本资料（用户名、手机号、邮箱）。"""
     updated = auth_service.update_user_profile(
         db,
@@ -188,8 +181,5 @@ def update_me(
 
 
 @router.get("/context", response_model=AuthContextResponse)
-def context(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+def context(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     return auth_service.get_auth_context(db, current_user)

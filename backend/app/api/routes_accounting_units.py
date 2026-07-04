@@ -11,7 +11,7 @@ from app.db.models import (
     AccountingUnitType,
 )
 from app.db.session import get_db
-from app.services.accounting_unit_service import AccountingUnitService
+from app.services.basic_data.accounting_unit_service import AccountingUnitService
 
 router = APIRouter(prefix="/api/accounting-units", tags=["accounting-units"])
 
@@ -66,7 +66,7 @@ def _unit_to_dict(unit: AccountingUnit) -> dict[str, Any]:
     }
 
 
-def _combination_to_dict(combination, db: Session) -> dict[str, Any]:
+def _combination_to_dict(combination: Any, db: Session) -> dict[str, Any]:
     members = db.query(AccountingUnitCombinationMember).filter(
         AccountingUnitCombinationMember.combination_id == combination.id
     ).order_by(AccountingUnitCombinationMember.priority).all()
@@ -91,7 +91,7 @@ def _combination_to_dict(combination, db: Session) -> dict[str, Any]:
     }
 
 
-def _version_to_dict(version) -> dict[str, Any]:
+def _version_to_dict(version: Any) -> dict[str, Any]:
     return {
         "id": version.id,
         "unit_id": version.unit_id,

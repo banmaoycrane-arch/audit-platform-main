@@ -1,11 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from typing import Any
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_ledger, get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.services import audit_workflow_service
+from app.services.audit.audit_workflow_service import (
+    get_workflow_config,
+    upsert_workflow_config,
+    list_procedure_runs,
+    get_procedure_run,
+    advance_procedure_run,
+    create_runs_from_recommendations,
+    recommend_procedures_from_decomposition,
+    sync_bank_reconciliation_procedure,
+    sync_confirmation_procedure,
+    sync_purchase_match_procedure,
+)
 
 router = APIRouter(prefix="/api/audit/workflow", tags=["audit-workflow"])
 
@@ -59,29 +71,29 @@ class AdvanceProcedureRequest(BaseModel):
 
 
 class CreateRunsFromRecommendationsRequest(BaseModel):
-    recommendations: list[dict]
+    recommendations: list[dict[str, Any]]
     project_id: int | None = None
     source_file_id: int | None = None
 
 
 @router.get("/config", response_model=WorkflowConfigResponse)
-def get_workflow_config(
+def api_get_workflow_config(
     project_id: int = Query(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> WorkflowConfigResponse:
-    row = audit_workflow_service.get_workflow_config(db, project_id)
+    row = get_workflow_config(db, project_id)
     return WorkflowConfigResponse.model_validate(row)
 
 
 @router.put("/config", response_model=WorkflowConfigResponse)
-def update_workflow_config(
+def api_update_workflow_config(
     project_id: int = Query(...),
-    payload: UpdateWorkflowConfigRequest = ...,
+    payload: UpdateWorkflowConfigRequest = Body(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> WorkflowConfigResponse:
-    row = audit_workflow_service.upsert_workflow_config(
+    row = upsert_workflow_config(
         db,
         project_id,
         granularity=payload.granularity,
@@ -92,14 +104,14 @@ def update_workflow_config(
 
 
 @router.get("/runs", response_model=list[ProcedureRunResponse])
-def list_procedure_runs(
+def api_list_procedure_runs(
     project_id: int | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     ledger_id: int = Depends(require_ledger),
 ) -> list[ProcedureRunResponse]:
-    rows = audit_workflow_service.list_procedure_runs(
+    rows = list_procedure_runs(
         db,
         ledger_id,
         project_id=project_id,
@@ -109,20 +121,20 @@ def list_procedure_runs(
 
 
 @router.get("/runs/{run_id}", response_model=ProcedureRunResponse)
-def get_procedure_run(
+def api_get_procedure_run(
     run_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     ledger_id: int = Depends(require_ledger),
 ) -> ProcedureRunResponse:
-    row = audit_workflow_service.get_procedure_run(db, run_id, ledger_id)
+    row = get_procedure_run(db, run_id, ledger_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="审计程序不存在")
     return ProcedureRunResponse.model_validate(row)
 
 
 @router.post("/runs/{run_id}/advance", response_model=ProcedureRunResponse)
-def advance_procedure_run(
+def api_advance_procedure_run(
     run_id: int,
     payload: AdvanceProcedureRequest,
     db: Session = Depends(get_db),
@@ -130,7 +142,7 @@ def advance_procedure_run(
     ledger_id: int = Depends(require_ledger),
 ) -> ProcedureRunResponse:
     try:
-        row = audit_workflow_service.advance_procedure_run(
+        row = advance_procedure_run(
             db,
             run_id,
             ledger_id,
@@ -144,13 +156,13 @@ def advance_procedure_run(
 
 
 @router.post("/runs/from-recommendations", response_model=list[ProcedureRunResponse])
-def create_runs_from_recommendations(
+def api_create_runs_from_recommendations(
     payload: CreateRunsFromRecommendationsRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     ledger_id: int = Depends(require_ledger),
 ) -> list[ProcedureRunResponse]:
-    rows = audit_workflow_service.create_runs_from_recommendations(
+    rows = create_runs_from_recommendations(
         db,
         ledger_id,
         payload.recommendations,
