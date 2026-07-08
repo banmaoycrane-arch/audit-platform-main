@@ -8,8 +8,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
 from app.db.models import AgentApproval, AgentDraftReview, ChartOfAccounts, Counterparty, ExecutionAuditLog
-from app.db.session import Base, SessionLocal, get_db
-from app.main import app
+from app.db.session import Base, get_db
+import app.db.session as db_session_module
+from app.main import app as fastapi_app
 from app.services.agent.agent_orchestration_service import build_due_diligence_orchestration_plan
 from app.services.agent.agent_role_registry import get_agent_role
 from app.services.agent.agent_tool_registry import get_agent_tool, list_allowed_tools_for_intent
@@ -17,12 +18,15 @@ from app.services.audit.audit_case_template_service import build_due_diligence_c
 from app.services.agent.llm_client_service import LLMResult
 from app.services.agent.model_config_service import get_model_config_status
 
-client = TestClient(app)
+client = TestClient(fastapi_app)
 
 
 @pytest.fixture(autouse=True)
 def _agent_api_test_db():
     """为本模块 API 测试提供独立内存数据库。"""
+    import app.db.models as _db_models  # noqa: F401
+    import app.models as _app_models  # noqa: F401
+
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -42,12 +46,14 @@ def _agent_api_test_db():
 
     original_session_local = session_module.SessionLocal
     session_module.SessionLocal = testing_session_local
-    app.dependency_overrides[get_db] = override_get_db
+    db_session_module.SessionLocal = testing_session_local
+    fastapi_app.dependency_overrides[get_db] = override_get_db
     try:
         yield testing_session_local
     finally:
         session_module.SessionLocal = original_session_local
-        app.dependency_overrides.clear()
+        db_session_module.SessionLocal = original_session_local
+        fastapi_app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)
 
 
@@ -67,7 +73,7 @@ def auth_headers(username: str, phone: str) -> dict[str, str]:
 
 
 def latest_audit_log(tool_name: str) -> ExecutionAuditLog | None:
-    db = SessionLocal()
+    db = db_session_module.SessionLocal()
     try:
         return (
             db.query(ExecutionAuditLog)
@@ -80,7 +86,7 @@ def latest_audit_log(tool_name: str) -> ExecutionAuditLog | None:
 
 
 def latest_agent_approval(tool_name: str) -> AgentApproval | None:
-    db = SessionLocal()
+    db = db_session_module.SessionLocal()
     try:
         return (
             db.query(AgentApproval)
@@ -93,7 +99,7 @@ def latest_agent_approval(tool_name: str) -> AgentApproval | None:
 
 
 def latest_draft_review(approval_id: int) -> AgentDraftReview | None:
-    db = SessionLocal()
+    db = db_session_module.SessionLocal()
     try:
         return (
             db.query(AgentDraftReview)
@@ -106,7 +112,7 @@ def latest_draft_review(approval_id: int) -> AgentDraftReview | None:
 
 
 def seed_agent_tool_basic_data(account_code: str, counterparty_name: str) -> None:
-    db = SessionLocal()
+    db = db_session_module.SessionLocal()
     try:
         db.add(
             ChartOfAccounts(

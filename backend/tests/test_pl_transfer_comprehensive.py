@@ -226,6 +226,7 @@ def _seed_multiple_profit_accounts(TestingSessionLocal):
 
         for code, name, category, direction in [
             ("1002", "银行存款", "asset", "debit"),
+            ("1122", "应收账款", "asset", "debit"),
             ("4001", "实收资本", "equity", "credit"),
             ("4103", "本年利润", "equity", "credit"),
             ("6001", "主营业务收入", "profit", "credit"),
@@ -258,15 +259,19 @@ def _seed_multiple_profit_accounts(TestingSessionLocal):
             debit_balance=Decimal("0"), credit_balance=Decimal("1000"),
         ))
 
-        # 本期：主营业务收入500+其他业务收入300=800
-        # 销售费用200+管理费用100+所得税50=350
+        # 本期：主营业务收入500+其他业务收入300=800（借应收账款）
+        # 销售费用200+管理费用100+所得税50=350（贷银行存款）
         # 净利润 = 800-350=450
         for code, debit, credit in [
-            ("6001", Decimal("0"), Decimal("500")),   # 主营收入500
-            ("6051", Decimal("0"), Decimal("300")),   # 其他业务收入300
-            ("6601", Decimal("200"), Decimal("0")),   # 销售费用200
-            ("6602", Decimal("100"), Decimal("0")),   # 管理费用100
-            ("6801", Decimal("50"), Decimal("0")),    # 所得税50
+            ("1122", Decimal("800"), Decimal("0")),
+            ("6001", Decimal("0"), Decimal("500")),
+            ("6051", Decimal("0"), Decimal("300")),
+            ("6601", Decimal("200"), Decimal("0")),
+            ("1002", Decimal("0"), Decimal("200")),
+            ("6602", Decimal("100"), Decimal("0")),
+            ("1002", Decimal("0"), Decimal("100")),
+            ("6801", Decimal("50"), Decimal("0")),
+            ("1002", Decimal("0"), Decimal("50")),
         ]:
             db.add(AccountingEntry(
                 organization_id=organization.id,

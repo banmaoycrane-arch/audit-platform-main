@@ -251,7 +251,7 @@ def test_close_period_closes_period_and_creates_log(db_session, mock_balanced_ba
 
     log = db_session.query(PeriodCloseLog).filter(PeriodCloseLog.period_id == period.id).one()
     assert log.action_type == "close"
-    assert log.old_status == "open"
+    assert log.old_status == "pl_transferred"
     assert log.new_status == "closed"
     assert log.snapshot_version == 1
     assert log.operator == "tester"
@@ -321,6 +321,7 @@ def test_close_period_after_reopen_creates_new_valid_snapshot_version(db_session
     service = AccountingPeriodService(db_session)
     service.close_period(period.id)
     service.reopen_period(period.id)
+    prepare_period_for_close(db_session, period)
 
     reclosed_period = service.close_period(period.id, operator="tester", reason="重新月结")
 
@@ -342,7 +343,7 @@ def test_close_period_after_reopen_creates_new_valid_snapshot_version(db_session
         .order_by(PeriodCloseLog.id.desc())
         .first()
     )
-    assert reclose_log.old_status == "reopened"
+    assert reclose_log.old_status == "pl_transferred"
     assert reclose_log.new_status == "closed"
     assert reclose_log.snapshot_version == 2
 
@@ -374,7 +375,7 @@ def test_close_period_rolls_back_when_snapshot_generation_fails(db_session, monk
 
     db_session.expire_all()
     unchanged_period = db_session.get(AccountingPeriod, period.id)
-    assert unchanged_period.status == "open"
+    assert unchanged_period.status == "pl_transferred"
     assert unchanged_period.closed_at is None
     assert db_session.query(PeriodSnapshot).filter(PeriodSnapshot.period_id == period.id).count() == 0
     assert db_session.query(PeriodCloseLog).filter(PeriodCloseLog.period_id == period.id).count() == 0
@@ -410,7 +411,7 @@ def test_close_period_rolls_back_partial_snapshot_when_transaction_fails(db_sess
 
     db_session.expire_all()
     unchanged_period = db_session.get(AccountingPeriod, period.id)
-    assert unchanged_period.status == "open"
+    assert unchanged_period.status == "pl_transferred"
     assert unchanged_period.closed_at is None
     assert db_session.query(PeriodSnapshot).filter(PeriodSnapshot.period_id == period.id).count() == 0
     assert db_session.query(PeriodCloseLog).filter(PeriodCloseLog.period_id == period.id).count() == 0
