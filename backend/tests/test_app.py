@@ -1,7 +1,10 @@
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import app.main as app_main
+from app.db.session import Base, get_db
 from app.main import app
 
 
@@ -67,34 +70,63 @@ def test_ensure_local_sqlite_schema_adds_missing_user_columns(monkeypatch, tmp_p
 from tests.conftest import register_auth_headers
 
 
-def test_create_import_job() -> None:
-    client = TestClient(app)
-    headers = register_auth_headers(client, username="import_job_user", phone="13800138001")
-    response = client.post(
-        "/api/import-jobs",
-        json={"organization_name": "测试企业", "fiscal_year": 2026},
-        headers=headers,
+def _memory_test_client():
+    """创建带内存数据库的测试客户端。"""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
-    assert response.status_code == 200
-    assert response.json()["status"] == "created"
-    assert response.json()["source_type"] == "voucher_import"
+    Base.metadata.create_all(bind=engine)
+    testing_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def override_get_db():
+        db = testing_session_local()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    return TestClient(app), engine
+
+
+def test_create_import_job() -> None:
+    client, engine = _memory_test_client()
+    try:
+        headers = register_auth_headers(client, username="import_job_user", phone="13800138001")
+        response = client.post(
+            "/api/import-jobs",
+            json={"organization_name": "测试企业", "fiscal_year": 2026},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "created"
+        assert response.json()["source_type"] == "voucher_import"
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
 
 
 def test_upload_pdf_source_file() -> None:
-    client = TestClient(app)
-    headers = register_auth_headers(client, username="upload_pdf_user", phone="13800138002")
-    job_response = client.post(
-        "/api/import-jobs",
-        json={"organization_name": "测试企业", "fiscal_year": 2026, "source_type": "ai_generated"},
-        headers=headers,
-    )
-    job_id = job_response.json()["id"]
+    client, engine = _memory_test_client()
+    try:
+        headers = register_auth_headers(client, username="upload_pdf_user", phone="13800138002")
+        job_response = client.post(
+            "/api/import-jobs",
+            json={"organization_name": "测试企业", "fiscal_year": 2026, "source_type": "ai_generated"},
+            headers=headers,
+        )
+        job_id = job_response.json()["id"]
 
-    response = client.post(
-        f"/api/import-jobs/{job_id}/files",
-        files={"file": ("山西春刚商贸有限公司_可搜索.pdf", b"%PDF-1.4\n%%EOF", "application/pdf")},
-    )
+        response = client.post(
+            f"/api/import-jobs/{job_id}/files",
+            files={"file": ("山西春刚商贸有限公司_可搜索.pdf", b"%PDF-1.4\n%%EOF", "application/pdf")},
+        )
 
-    assert response.status_code == 200
-    assert response.json()["filename"] == "山西春刚商贸有限公司_可搜索.pdf"
-    assert response.json()["file_type"] == "pdf"
+        assert response.status_code == 200
+        assert response.json()["filename"] == "山西春刚商贸有限公司_可搜索.pdf"
+        assert response.json()["file_type"] == "pdf"
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)

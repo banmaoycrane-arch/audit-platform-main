@@ -146,6 +146,7 @@ def _seed_basic(TestingSessionLocal):
                 account_code=code, account_name=code,
                 debit_amount=debit, credit_amount=credit,
                 entry_line_no=1,
+                post_status="posted",
             ))
         db.commit()
         return ledger.id, period.id
@@ -206,6 +207,7 @@ def _seed_zero_balance_profit(TestingSessionLocal):
                 account_code=code, account_name=code,
                 debit_amount=debit, credit_amount=credit,
                 entry_line_no=1,
+                post_status="posted",
             ))
         db.commit()
         return ledger.id, period.id
@@ -274,6 +276,7 @@ def _seed_multiple_profit_accounts(TestingSessionLocal):
                 account_code=code, account_name=code,
                 debit_amount=debit, credit_amount=credit,
                 entry_line_no=1,
+                post_status="posted",
             ))
         db.commit()
         return ledger.id, period.id

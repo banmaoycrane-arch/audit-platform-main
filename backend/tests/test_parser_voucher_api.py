@@ -41,7 +41,7 @@ def client(monkeypatch, tmp_path):
 
     monkeypatch.setattr("app.storage.local_storage.get_settings", lambda: SimpleNamespace(upload_dir=str(tmp_path)))
     monkeypatch.setattr("app.services.doc_parsing.import_service.safe_vector_store", lambda: None)
-    monkeypatch.setattr("app.services.risk_case_library.safe_vector_store", lambda: None)
+    monkeypatch.setattr("app.services.audit.risk_case_library.safe_vector_store", lambda: None)
     monkeypatch.setattr("app.services.audit.risk_rule_service.safe_vector_store", lambda: None)
     app.dependency_overrides[get_db] = override_get_db
     try:

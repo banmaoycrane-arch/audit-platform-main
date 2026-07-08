@@ -87,9 +87,19 @@ def test_accounting_period_list_returns_business_error_when_schema_is_incomplete
     assert "会计期间加载失败" in response.json()["detail"]
 
 
-def test_accounting_period_api_create_close_reopen_and_summary_source(client):
+def test_accounting_period_api_create_close_reopen_and_summary_source(client, monkeypatch):
     test_client, TestingSessionLocal = client
     organization_id = seed_organization_with_entries(TestingSessionLocal)
+
+    monkeypatch.setattr(
+        "app.services.accounting.financial_statements_service.balance_sheet",
+        lambda db, ledger_id, period_id: {
+            "is_balanced": True,
+            "assets_total": "0",
+            "liabilities_total": "0",
+            "equity_total": "0",
+        },
+    )
 
     create_response = test_client.post(
         "/api/accounting-periods",
@@ -116,6 +126,16 @@ def test_accounting_period_api_create_close_reopen_and_summary_source(client):
     assert live_summary["period_status"] == "open"
     assert live_summary["snapshot_status"] is None
     assert live_summary["snapshot_version"] == 0
+
+    db = TestingSessionLocal()
+    try:
+        from app.db.models import AccountingPeriod
+
+        period_row = db.get(AccountingPeriod, period_id)
+        period_row.status = "pl_transferred"
+        db.commit()
+    finally:
+        db.close()
 
     close_response = test_client.post(
         f"/api/accounting-periods/{period_id}/close",

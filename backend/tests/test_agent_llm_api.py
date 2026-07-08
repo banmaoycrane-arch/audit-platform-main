@@ -1,5 +1,13 @@
 from uuid import uuid4
 
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.db.session import Base, get_db
+from app.main import app
 from app.services.agent.agent_service import chat_with_agent
 from app.services.agent.llm_client_service import LLMResult
 
@@ -69,26 +77,42 @@ def test_agent_chat_llm_failure_falls_back_to_rules():
 
 
 def test_agent_chat_empty_message_returns_400():
-    from fastapi.testclient import TestClient
-
-    from app.main import app
-
-    client = TestClient(app)
-    suffix = uuid4().hex[:8]
-    phone_suffix = str(uuid4().int % 100).zfill(2)
-    register_response = client.post("/api/auth/register", json={
-        "username": f"agent_llm_empty_user_{suffix}",
-        "phone": f"13800139008{phone_suffix}",
-        "password": "password123",
-        "agreed_terms": True,
-        "agreed_privacy": True,
-    })
-    assert register_response.status_code == 200
-    token = register_response.json()["access_token"]
-    response = client.post(
-        "/api/agent/chat",
-        json={"message": "   "},
-        headers={"Authorization": f"Bearer {token}"},
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
+    Base.metadata.create_all(bind=engine)
+    testing_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
-    assert response.status_code == 400
+    def override_get_db():
+        db = testing_session_local()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        suffix = uuid4().hex[:8]
+        phone_suffix = str(uuid4().int % 100).zfill(2)
+        register_response = client.post("/api/auth/register", json={
+            "username": f"agent_llm_empty_user_{suffix}",
+            "phone": f"13800139008{phone_suffix}",
+            "password": "password123",
+            "agreed_terms": True,
+            "agreed_privacy": True,
+        })
+        assert register_response.status_code == 200
+        token = register_response.json()["access_token"]
+        response = client.post(
+            "/api/agent/chat",
+            json={"message": "   "},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 400
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)

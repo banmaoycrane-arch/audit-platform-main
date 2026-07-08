@@ -2,10 +2,13 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
 from app.db.models import AgentApproval, AgentDraftReview, ChartOfAccounts, Counterparty, ExecutionAuditLog
-from app.db.session import SessionLocal
+from app.db.session import Base, SessionLocal, get_db
 from app.main import app
 from app.services.agent.agent_orchestration_service import build_due_diligence_orchestration_plan
 from app.services.agent.agent_role_registry import get_agent_role
@@ -15,6 +18,37 @@ from app.services.agent.llm_client_service import LLMResult
 from app.services.agent.model_config_service import get_model_config_status
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _agent_api_test_db():
+    """为本模块 API 测试提供独立内存数据库。"""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    testing_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def override_get_db():
+        db = testing_session_local()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    import app.db.session as session_module
+
+    original_session_local = session_module.SessionLocal
+    session_module.SessionLocal = testing_session_local
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        yield testing_session_local
+    finally:
+        session_module.SessionLocal = original_session_local
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
 
 
 def auth_headers(username: str, phone: str) -> dict[str, str]:

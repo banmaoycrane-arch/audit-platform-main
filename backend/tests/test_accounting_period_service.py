@@ -98,6 +98,28 @@ def seed_period_entries(db_session):
     return period
 
 
+def prepare_period_for_close(db_session, period):
+    """将期间设为已结转损益，满足结账前置条件。"""
+    period.status = "pl_transferred"
+    db_session.commit()
+    db_session.refresh(period)
+    return period
+
+
+@pytest.fixture
+def mock_balanced_balance_sheet(monkeypatch):
+    """模拟资产负债表已平衡，供结账单元测试使用。"""
+    monkeypatch.setattr(
+        "app.services.accounting.financial_statements_service.balance_sheet",
+        lambda db, ledger_id, period_id: {
+            "is_balanced": True,
+            "assets_total": "0",
+            "liabilities_total": "0",
+            "equity_total": "0",
+        },
+    )
+
+
 def test_generate_period_snapshots_creates_valid_cny_snapshots(db_session):
     period = seed_period_entries(db_session)
     service = AccountingPeriodService(db_session)
@@ -216,8 +238,9 @@ def test_regenerate_period_snapshots_increments_version_and_invalidates_old_snap
     assert all(snapshot.currency == "CNY" for snapshot in all_snapshots)
 
 
-def test_close_period_closes_period_and_creates_log(db_session):
+def test_close_period_closes_period_and_creates_log(db_session, mock_balanced_balance_sheet):
     period = seed_period_entries(db_session)
+    prepare_period_for_close(db_session, period)
     service = AccountingPeriodService(db_session)
 
     closed_period = service.close_period(period.id, operator="tester", reason="月结")
@@ -236,8 +259,9 @@ def test_close_period_closes_period_and_creates_log(db_session):
     assert log.transaction_id is not None
 
 
-def test_close_period_fails_when_period_already_closed(db_session):
+def test_close_period_fails_when_period_already_closed(db_session, mock_balanced_balance_sheet):
     period = seed_period_entries(db_session)
+    prepare_period_for_close(db_session, period)
     service = AccountingPeriodService(db_session)
     service.close_period(period.id)
 
@@ -248,8 +272,9 @@ def test_close_period_fails_when_period_already_closed(db_session):
     assert len(logs) == 1
 
 
-def test_reopen_period_reopens_period_invalidates_snapshot_and_creates_log(db_session):
+def test_reopen_period_reopens_period_invalidates_snapshot_and_creates_log(db_session, mock_balanced_balance_sheet):
     period = seed_period_entries(db_session)
+    prepare_period_for_close(db_session, period)
     service = AccountingPeriodService(db_session)
     service.close_period(period.id)
 
@@ -290,8 +315,9 @@ def test_reopen_period_fails_when_period_is_not_closed(db_session):
     assert db_session.query(PeriodCloseLog).filter(PeriodCloseLog.period_id == period.id).count() == 0
 
 
-def test_close_period_after_reopen_creates_new_valid_snapshot_version(db_session):
+def test_close_period_after_reopen_creates_new_valid_snapshot_version(db_session, mock_balanced_balance_sheet):
     period = seed_period_entries(db_session)
+    prepare_period_for_close(db_session, period)
     service = AccountingPeriodService(db_session)
     service.close_period(period.id)
     service.reopen_period(period.id)
@@ -321,8 +347,9 @@ def test_close_period_after_reopen_creates_new_valid_snapshot_version(db_session
     assert reclose_log.snapshot_version == 2
 
 
-def test_ensure_period_open_for_date_raises_for_closed_period_date(db_session):
+def test_ensure_period_open_for_date_raises_for_closed_period_date(db_session, mock_balanced_balance_sheet):
     period = seed_period_entries(db_session)
+    prepare_period_for_close(db_session, period)
     service = AccountingPeriodService(db_session)
     service.close_period(period.id)
 
@@ -332,8 +359,9 @@ def test_ensure_period_open_for_date_raises_for_closed_period_date(db_session):
     service.ensure_period_open_for_date(period.organization_id, date(2026, 2, 1))
 
 
-def test_close_period_rolls_back_when_snapshot_generation_fails(db_session, monkeypatch):
+def test_close_period_rolls_back_when_snapshot_generation_fails(db_session, monkeypatch, mock_balanced_balance_sheet):
     period = seed_period_entries(db_session)
+    prepare_period_for_close(db_session, period)
     service = AccountingPeriodService(db_session)
 
     def fail_generate_period_snapshots(period_id, dimensions=None, commit=True):
@@ -352,8 +380,9 @@ def test_close_period_rolls_back_when_snapshot_generation_fails(db_session, monk
     assert db_session.query(PeriodCloseLog).filter(PeriodCloseLog.period_id == period.id).count() == 0
 
 
-def test_close_period_rolls_back_partial_snapshot_when_transaction_fails(db_session, monkeypatch):
+def test_close_period_rolls_back_partial_snapshot_when_transaction_fails(db_session, monkeypatch, mock_balanced_balance_sheet):
     period = seed_period_entries(db_session)
+    prepare_period_for_close(db_session, period)
     service = AccountingPeriodService(db_session)
 
     def fail_after_partial_snapshot(period_id, dimensions=None, commit=True):

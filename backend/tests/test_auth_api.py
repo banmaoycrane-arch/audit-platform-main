@@ -49,7 +49,11 @@ def client():
 
 
 def test_create_access_token_fails_without_secret_key(monkeypatch) -> None:
-    monkeypatch.setattr(security, "get_settings", lambda: SimpleNamespace(secret_key=None))
+    monkeypatch.setattr(
+        security,
+        "get_settings",
+        lambda: SimpleNamespace(secret_key=None, database_url="postgresql://localhost/test"),
+    )
 
     with pytest.raises(RuntimeError, match="JWT 密钥未配置"):
         create_access_token({"sub": "1"}, expires_delta=timedelta(minutes=5))

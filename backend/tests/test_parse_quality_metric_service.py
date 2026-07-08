@@ -7,8 +7,11 @@
 from datetime import date
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from app.db.session import SessionLocal
+from app.db.session import Base
 from app.models.parse_quality_metric import ParseQualityMetric, ParseQualitySummary
 from app.services.doc_parsing.parser_engine.parse_quality_metric_service import (
     get_quality_dashboard,
@@ -18,13 +21,21 @@ from app.services.doc_parsing.parser_engine.parse_quality_metric_service import 
 
 @pytest.fixture
 def db():
-    """提供测试数据库会话，并在测试结束后回滚。"""
-    session = SessionLocal()
+    """提供独立内存数据库会话，避免依赖全局 SessionLocal 表结构。"""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    session = TestingSessionLocal()
     try:
         yield session
     finally:
         session.rollback()
         session.close()
+        Base.metadata.drop_all(bind=engine)
 
 
 def _clear_metrics(db_session):
