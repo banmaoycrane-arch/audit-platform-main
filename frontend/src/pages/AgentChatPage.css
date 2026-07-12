@@ -1,0 +1,93 @@
+.agent-console-page {
+  min-height: calc(100vh - 120px);
+}
+
+.agent-console-header {
+  margin-bottom: 16px;
+}
+
+.agent-chat-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 640px;
+}
+
+.agent-chat-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-chat-card .ant-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  min-height: 0;
+}
+
+.agent-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  min-height: 420px;
+  max-height: calc(100vh - 280px);
+  background: #fafafa;
+}
+
+.agent-chat-message {
+  margin-bottom: 12px;
+}
+
+.agent-chat-message.user .agent-chat-bubble {
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+}
+
+.agent-chat-message.assistant .agent-chat-bubble {
+  background: #fff;
+  border: 1px solid #f0f0f0;
+}
+
+.agent-chat-bubble {
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.agent-chat-bubble-role {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+  margin-bottom: 6px;
+}
+
+.agent-chat-input-bar {
+  border-top: 1px solid #f0f0f0;
+  padding: 12px 16px 16px;
+  background: #fff;
+}
+
+.agent-side-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-side-card .ant-card-body {
+  padding: 12px;
+}
+
+.agent-side-compact-list .ant-list-item {
+  padding: 6px 0;
+}
+
+.agent-reminder-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  margin-bottom: 8px;
+}
+
+.agent-deliverable-tag {
+  margin-bottom: 4px;
+}

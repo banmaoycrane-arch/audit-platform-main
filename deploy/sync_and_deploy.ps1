@@ -8,7 +8,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$KEY = "C:/Users/banmao/Desktop/xlsx/工作空间部署方案/id_banmao.pem"
+$KeyItem = Get-ChildItem -Path (Join-Path $env:USERPROFILE "Desktop\xlsx\*\id_banmao.pem") -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if (-not $KeyItem) {
+    throw "SSH key not found under Desktop\xlsx\*\id_banmao.pem"
+}
+# scp/ssh on Windows mangle non-ASCII paths; copy key to ASCII-only temp path first.
+$KEY = Join-Path $env:TEMP "id_banmao.pem"
+Copy-Item -LiteralPath $KeyItem.FullName -Destination $KEY -Force
+Write-Host "Using SSH key: $($KeyItem.FullName)" -ForegroundColor DarkGray
 $SshHost = "root@47.122.117.76"
 $REMOTE = "/root/audit-platform-main"
 $ROOT = Split-Path -Parent $PSScriptRoot

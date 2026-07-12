@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Alert, Button, Card, List, Select, Space, Tag, Typography, Input, message } from 'antd'
-import { SendOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Col, Collapse, List, Row, Select, Space, Tag, Typography, Input, message } from 'antd'
+import { ReloadOutlined, SendOutlined } from '@ant-design/icons'
 import { api, type AgentAssistResponse } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import './AgentChatPage.css'
 
 const { Title, Paragraph, Text } = Typography
 const { TextArea } = Input
@@ -349,132 +350,265 @@ export function AgentChatPage() {
     }
   }
 
-  return (
-    <div>
-      <Title level={3}>Agent 助手</Title>
-      <Paragraph type="secondary">
-        通过对话直接调用已鉴权的后端 API 完成查询与准备工作，无需跳转页面。低风险工具自动执行；中高风险仅通知待确认。
-        {currentLedgerId ? ` 当前账簿 ID：${currentLedgerId}。` : ' 请先在顶部选择账簿，以便查询账簿相关业务数据。'}
-      </Paragraph>
+  const lastAssistantResult = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const item = messages[index]
+      if (item.role === 'assistant' && item.result) {
+        return item.result
+      }
+    }
+    return null
+  }, [messages])
 
-      <Card
-        title="Agent 控制台"
-        extra={<Button loading={controlLoading} onClick={() => void loadAgentControls()}>刷新状态</Button>}
-        style={{ marginBottom: 16 }}
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <Space wrap>
-            <Text strong>案例场景：</Text>
-            <Select
-              style={{ width: 160 }}
-              value={caseScenario}
-              options={caseScenarioOptions}
-              onChange={(value) => {
-                setCaseScenario(value)
-                void loadAgentControls(value, orchestrationTask)
-              }}
-            />
-            <Text strong>协同任务样例：</Text>
-            <Select
-              style={{ width: 260 }}
-              value={orchestrationTask}
-              options={orchestrationTaskOptions}
-              onChange={(value) => {
-                setOrchestrationTask(value)
-                void loadAgentControls(caseScenario, value)
-              }}
-            />
-          </Space>
-
-          {modelConfig && (
-            <Card size="small" title="模型配置状态">
-              <Space wrap>
-                <Tag color={modelConfig.remote_model_configured ? 'green' : 'orange'}>
-                  {modelConfig.active_mode}
-                </Tag>
-                {modelConfig.agent_mode === 'conversational_assist' && <Tag color="blue">对话式助手</Tag>}
-                <Text>供应商：{modelConfig.provider}</Text>
-                <Text>模型：{modelConfig.model_name || '未配置'}</Text>
-                {modelConfig.config_source && <Tag>{modelConfig.config_source === 'parser_engine_db' ? '解析引擎 DB 配置' : '环境变量'}</Tag>}
-                {modelConfig.is_ollama && <Tag color="cyan">Ollama 本地</Tag>}
-                <Tag color={modelConfig.api_key_configured ? 'green' : 'red'}>
-                  API Key {modelConfig.api_key_configured ? '已配置' : '未配置'}
-                </Tag>
-                {modelConfig.local_lightweight_model_enabled && <Tag color="blue">本地轻量识别启用</Tag>}
-                {modelConfig.fallback_to_rules_enabled && <Tag color="orange">不可用时回退规则识别</Tag>}
-                <Link to="/parser-engine/config">前往解析引擎配置</Link>
-              </Space>
-            </Card>
+  const renderMessageMeta = (result: AgentAssistResponse) => (
+    <Space direction="vertical" style={{ width: '100%', marginTop: 8 }} size="small">
+      {result.intent && (
+        <Space wrap size={[4, 4]}>
+          <Tag color="blue">{intentLabels[result.intent] || result.intent}</Tag>
+          {typeof result.confidence === 'number' && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              匹配 {Math.round(result.confidence * 100)}%
+            </Text>
           )}
-
-          {caseTemplate && (
-            <Card size="small" title={`${caseTemplate.template_name}：${caseTemplate.deliverable_rule.display_name}`}>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Space wrap>
-                  {caseTemplate.allowed_agent_roles.map((role) => <Tag key={role}>{role}</Tag>)}
-                  {caseTemplate.audit_trace_required && <Tag color="blue">全流程留痕</Tag>}
-                  {caseTemplate.immutable_trace_required && <Tag color="red">不可篡改要求</Tag>}
-                </Space>
-                <Alert type="info" showIcon title={caseTemplate.workpaper_policy} />
-                <Alert type="warning" showIcon title={caseTemplate.audit_draft_policy} />
-                <Text type="secondary">{caseTemplate.api_tool_policy}</Text>
-                <List
-                  size="small"
-                  header={<Text strong>场景交付物</Text>}
-                  dataSource={caseTemplate.deliverable_rule.allowed_deliverables}
-                  renderItem={(item) => <List.Item>{item}</List.Item>}
-                />
-                <List
-                  size="small"
-                  header={<Text strong>案例执行步骤</Text>}
-                  dataSource={caseTemplate.execution_steps}
-                  renderItem={(step) => (
-                    <List.Item>
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        <Space wrap>
-                          <Text strong>{step.step_no}. {step.name}</Text>
-                          <Tag>{step.agent_role}</Tag>
-                          <Tag color={step.can_execute ? 'green' : 'default'}>{step.can_execute ? '允许执行' : '只规划'}</Tag>
-                          <Tag color="blue">{step.output_status}</Tag>
-                          {step.approval_required && <Tag color="red">人工确认</Tag>}
-                        </Space>
-                        <Text type="secondary">工具：{step.allowed_tools.join('、') || '无'}</Text>
+          {result.source === 'llm' && <Tag color="green">智能</Tag>}
+          {result.source === 'rules' && <Tag color="orange">规则</Tag>}
+        </Space>
+      )}
+      {result.suggested_path && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ padding: '6px 10px' }}
+          message={
+            <Space size="small" wrap>
+              <span>建议：{result.suggested_path}</span>
+              <Link to={result.suggested_path}>前往</Link>
+            </Space>
+          }
+        />
+      )}
+      {result.tool_executions && result.tool_executions.length > 0 && (
+        <Collapse
+          size="small"
+          items={[{
+            key: 'tools',
+            label: `已执行工具（${result.tool_executions.length}）`,
+            children: (
+              <List
+                size="small"
+                dataSource={result.tool_executions}
+                renderItem={(execution) => (
+                  <List.Item style={{ padding: '4px 0' }}>
+                    <Space direction="vertical" style={{ width: '100%' }} size={2}>
+                      <Space wrap size={4}>
+                        <Tag color={execution.status === 'success' ? 'green' : 'red'}>{execution.tool_name}</Tag>
                       </Space>
-                    </List.Item>
-                  )}
-                />
-              </Space>
-            </Card>
-          )}
+                      {execution.error && <Text type="danger" style={{ fontSize: 12 }}>{execution.error}</Text>}
+                    </Space>
+                  </List.Item>
+                )}
+              />
+            ),
+          }]}
+        />
+      )}
+    </Space>
+  )
 
-          {orchestrationPlan && (
-            <Card size="small" title="多 Agent 协同计划">
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Space wrap>
-                  <Text strong>主 Agent：</Text><Tag color="purple">{orchestrationPlan.primary_agent_role}</Tag>
-                  <Text strong>文件策略：</Text><Tag>{orchestrationPlan.file_access_policy}</Tag>
-                  {orchestrationPlan.audit_trace_required && <Tag color="blue">所有步骤留痕</Tag>}
+  return (
+    <div className="agent-console-page">
+      <div className="agent-console-header">
+        <Title level={3} style={{ marginBottom: 4 }}>Agent 助手</Title>
+        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+          中间对话直接调用后端 API；右侧查看场景、交付物与待办提醒。
+          {currentLedgerId ? ` 当前账簿：${currentLedgerId}` : ' 请先选择账簿。'}
+        </Paragraph>
+      </div>
+
+      <Row gutter={16} align="stretch">
+        <Col xs={24} lg={16} xl={17} className="agent-chat-column">
+          <Card
+            className="agent-chat-card"
+            title="对话"
+            extra={
+              <Button size="small" loading={loading} disabled={!input.trim()} type="primary" icon={<SendOutlined />} onClick={() => void send()}>
+                发送
+              </Button>
+            }
+          >
+            <div className="agent-chat-messages">
+              {messages.map((item, index) => (
+                <div key={`${item.role}-${index}`} className={`agent-chat-message ${item.role}`}>
+                  <div className="agent-chat-bubble">
+                    <div className="agent-chat-bubble-role">{item.role === 'user' ? '你' : '助手'}</div>
+                    <Paragraph style={{ marginBottom: 0 }}>{item.content}</Paragraph>
+                    {item.result && renderMessageMeta(item.result)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="agent-chat-input-bar">
+              <TextArea
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onPressEnter={(event) => {
+                  if (!event.shiftKey) {
+                    event.preventDefault()
+                    void send()
+                  }
+                }}
+                rows={3}
+                placeholder="例如：列出科目表 / 查看证据收件箱 / 我还没有团队怎么开始"
+              />
+            </div>
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={8} xl={7} className="agent-side-column">
+          <Card
+            size="small"
+            className="agent-side-card"
+            title="运行状态"
+            extra={
+              <Button type="link" size="small" icon={<ReloadOutlined />} loading={controlLoading} onClick={() => void loadAgentControls()}>
+                刷新
+              </Button>
+            }
+          >
+            {modelConfig ? (
+              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                <Space wrap size={[4, 4]}>
+                  <Tag color={modelConfig.remote_model_configured ? 'green' : 'orange'}>{modelConfig.active_mode}</Tag>
+                  {modelConfig.agent_mode === 'conversational_assist' && <Tag color="blue">对话式</Tag>}
+                  {modelConfig.is_ollama && <Tag color="cyan">Ollama</Tag>}
                 </Space>
-                <Text type="secondary">
-                  必须人工确认：{orchestrationPlan.human_confirmation_required_for.join('、')}
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {modelConfig.model_name || '未配置模型'} · {modelConfig.config_source === 'parser_engine_db' ? 'DB' : 'ENV'}
                 </Text>
-                <List
-                  size="small"
-                  dataSource={orchestrationPlan.coordination_steps}
-                  renderItem={(step) => (
-                    <List.Item>
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        <Space wrap>
-                          <Text strong>{step.step_no}. {step.agent_role}</Text>
-                          <Tag color={step.can_execute ? 'green' : 'default'}>{step.can_execute ? '可执行' : '不可执行'}</Tag>
-                          {step.approval_required && <Tag color="red">需确认</Tag>}
-                          {step.audit_trace_required && <Tag color="blue">留痕</Tag>}
-                        </Space>
-                        <Text>{step.task}</Text>
-                        <Text type="secondary">白名单工具：{step.allowed_tools.join('、') || '无'}</Text>
-                        {step.approval_required && (
-                          <Space wrap>
-                            {step.allowed_tools.length > 0 ? (
+                <Link to="/parser-engine/config" style={{ fontSize: 12 }}>解析引擎配置</Link>
+              </Space>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 12 }}>加载中…</Text>
+            )}
+          </Card>
+
+          <Card size="small" className="agent-side-card" title="场景与交付物">
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <Select
+                size="small"
+                style={{ width: '100%' }}
+                value={caseScenario}
+                options={caseScenarioOptions}
+                onChange={(value) => {
+                  setCaseScenario(value)
+                  void loadAgentControls(value, orchestrationTask)
+                }}
+              />
+              <Select
+                size="small"
+                style={{ width: '100%' }}
+                value={orchestrationTask}
+                options={orchestrationTaskOptions}
+                onChange={(value) => {
+                  setOrchestrationTask(value)
+                  void loadAgentControls(caseScenario, value)
+                }}
+              />
+              {caseTemplate && (
+                <>
+                  <Text strong style={{ fontSize: 12 }}>{caseTemplate.deliverable_rule.display_name}</Text>
+                  <div>
+                    {caseTemplate.deliverable_rule.allowed_deliverables.map((item) => (
+                      <Tag key={item} className="agent-deliverable-tag">{item}</Tag>
+                    ))}
+                  </div>
+                </>
+              )}
+            </Space>
+          </Card>
+
+          <Card size="small" className="agent-side-card" title="提醒与待确认">
+            {lastAssistantResult?.pending_actions && lastAssistantResult.pending_actions.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                {lastAssistantResult.pending_actions.map((action, index) => (
+                  <div key={`pending-${index}`} className="agent-reminder-item">
+                    <Tag color={riskColors[action.risk_level || 'medium'] || 'orange'} style={{ marginBottom: 4 }}>
+                      {action.tool_name}
+                    </Tag>
+                    <div style={{ fontSize: 12 }}>{action.reason}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {lastAssistantResult?.suggested_path && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 10, padding: '6px 10px' }}
+                message={<Link to={lastAssistantResult.suggested_path}>前往 {lastAssistantResult.suggested_path}</Link>}
+              />
+            )}
+            {approvalRecords.length === 0 ? (
+              <Text type="secondary" style={{ fontSize: 12 }}>暂无人工确认记录</Text>
+            ) : (
+              <List
+                className="agent-side-compact-list"
+                size="small"
+                dataSource={approvalRecords.slice(0, 5)}
+                renderItem={(approval) => (
+                  <List.Item>
+                    <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                      <Space wrap size={4}>
+                        <Text strong style={{ fontSize: 12 }}>#{approval.id}</Text>
+                        <Tag color={approval.status === 'confirmed' ? 'green' : 'orange'}>{approval.status}</Tag>
+                      </Space>
+                      <Text type="secondary" style={{ fontSize: 11 }}>{approval.tool_name}</Text>
+                      {approval.status === 'pending' && (
+                        <Button
+                          size="small"
+                          type="link"
+                          style={{ padding: 0, height: 'auto' }}
+                          loading={approvalLoadingKey === `confirm-${approval.id}`}
+                          onClick={() => void confirmApproval(approval)}
+                        >
+                          确认
+                        </Button>
+                      )}
+                      {approval.status === 'confirmed' && draftExecutableTools.has(approval.tool_name) && !draftResults[approval.id] && (
+                        <Button
+                          size="small"
+                          type="link"
+                          style={{ padding: 0, height: 'auto' }}
+                          loading={approvalLoadingKey === `execute-${approval.id}`}
+                          onClick={() => void executeDraft(approval)}
+                        >
+                          生成草稿
+                        </Button>
+                      )}
+                    </Space>
+                  </List.Item>
+                )}
+              />
+            )}
+          </Card>
+
+          {(orchestrationPlan || caseTemplate) && (
+            <Collapse
+              size="small"
+              items={[
+                orchestrationPlan ? {
+                  key: 'orchestration',
+                  label: `协同步骤（${orchestrationPlan.coordination_steps.length}）`,
+                  children: (
+                    <List
+                      className="agent-side-compact-list"
+                      size="small"
+                      dataSource={orchestrationPlan.coordination_steps}
+                      renderItem={(step) => (
+                        <List.Item>
+                          <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                            <Text style={{ fontSize: 12 }}>{step.step_no}. {step.task}</Text>
+                            {step.approval_required && step.allowed_tools.length > 0 && (
                               <Button
                                 size="small"
                                 danger
@@ -483,264 +617,78 @@ export function AgentChatPage() {
                               >
                                 申请确认
                               </Button>
-                            ) : (
-                              <Tag color="red">需人工线下确认</Tag>
                             )}
-                            <Text type="secondary">仅生成确认记录，不执行高风险动作。</Text>
                           </Space>
-                        )}
-                      </Space>
-                    </List.Item>
-                  )}
-                />
-              </Space>
-            </Card>
+                        </List.Item>
+                      )}
+                    />
+                  ),
+                } : null,
+                caseTemplate ? {
+                  key: 'policy',
+                  label: '场景策略说明',
+                  children: (
+                    <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                      <Text style={{ fontSize: 12 }}>{caseTemplate.workpaper_policy}</Text>
+                      <Text type="secondary" style={{ fontSize: 11 }}>{caseTemplate.api_tool_policy}</Text>
+                    </Space>
+                  ),
+                } : null,
+              ].filter(Boolean) as { key: string; label: string; children: ReactNode }[]}
+            />
           )}
 
-          <Card size="small" title="人工确认记录">
-            {approvalRecords.length === 0 ? (
-              <Text type="secondary">暂无确认记录。点击需确认步骤中的“申请确认”后，会在这里展示待确认记录。</Text>
-            ) : (
-              <List
-                size="small"
-                dataSource={approvalRecords}
-                renderItem={(approval) => (
-                  <List.Item>
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                      <Space wrap>
-                        <Text strong>#{approval.id}</Text>
-                        <Tag>{approval.agent_role}</Tag>
-                        <Tag>{approval.tool_name}</Tag>
-                        <Tag color={riskColors[approval.risk_level] || 'default'}>
-                          {riskLabels[approval.risk_level] || approval.risk_level}
-                        </Tag>
-                        <Tag color={approval.status === 'confirmed' ? 'green' : 'orange'}>{approval.status}</Tag>
-                      </Space>
-                      <Text type="secondary">{approval.approval_reason}</Text>
-                      <Text type="secondary">申请时间：{approval.created_at || '-'}</Text>
-                      {approval.confirmed_at && <Text type="secondary">确认时间：{approval.confirmed_at}</Text>}
-                      {approval.confirmation_comment && <Text type="secondary">确认意见：{approval.confirmation_comment}</Text>}
-                      {approval.status === 'pending' && (
-                        <Button
-                          size="small"
-                          type="primary"
-                          loading={approvalLoadingKey === `confirm-${approval.id}`}
-                          onClick={() => void confirmApproval(approval)}
-                        >
-                          人工确认
-                        </Button>
-                      )}
-                      {approval.status === 'confirmed' && draftExecutableTools.has(approval.tool_name) && !draftResults[approval.id] && (
-                        <Button
-                          size="small"
-                          type="primary"
-                          loading={approvalLoadingKey === `execute-${approval.id}`}
-                          onClick={() => void executeDraft(approval)}
-                        >
-                          生成草稿
-                        </Button>
-                      )}
-                      {approval.status === 'confirmed' && !draftExecutableTools.has(approval.tool_name) && (
-                        <Text type="secondary">该工具不属于草稿受控执行范围，仅保留确认记录。</Text>
-                      )}
-                      {draftResults[approval.id] && (
-                        <Alert
-                          type="success"
-                          showIcon
-                          title={`${draftResults[approval.id].result.title}（${draftResults[approval.id].output_type}）`}
-                          description={
-                            <Space direction="vertical">
-                              <Text>{draftResults[approval.id].result.notice}</Text>
-                              <Text type="secondary">
-                                人工复核：{draftResults[approval.id].result.review_required ? '需要' : '不需要'}；正式交付：{draftResults[approval.id].result.formal_delivery_allowed ? '允许' : '不允许'}
-                              </Text>
-                            </Space>
-                          }
-                        />
-                      )}
-                      {draftResults[approval.id] && !draftReviews[approval.id] && (
-                        <Button
-                          size="small"
-                          loading={approvalLoadingKey === `review-create-${approval.id}`}
-                          onClick={() => void createDraftReview(approval.id)}
-                        >
-                          创建复核记录
-                        </Button>
-                      )}
-                      {draftReviews[approval.id] && (
-                        <Card size="small" title="草稿人工复核记录">
-                          <Space direction="vertical" style={{ width: '100%' }}>
-                            <Space wrap>
-                              <Tag color={draftReviews[approval.id].review_status === 'approved' ? 'green' : draftReviews[approval.id].review_status === 'returned' ? 'red' : 'orange'}>
-                                {draftReviews[approval.id].review_status}
-                              </Tag>
-                              {draftReviews[approval.id].returned_for_rework && <Tag color="red">退回重做</Tag>}
-                              {draftReviews[approval.id].allow_formal_delivery_design && <Tag color="green">允许进入正式交付设计</Tag>}
-                            </Space>
-                            <Text type="secondary">复核人：{draftReviews[approval.id].reviewed_by_user_id || '-'}</Text>
-                            <Text type="secondary">复核时间：{draftReviews[approval.id].reviewed_at || '-'}</Text>
-                            {draftReviews[approval.id].review_comment && <Text>复核意见：{draftReviews[approval.id].review_comment}</Text>}
-                            {draftReviews[approval.id].review_status === 'pending' && (
-                              <>
-                                <TextArea
-                                  rows={2}
-                                  value={reviewComments[approval.id] || ''}
-                                  onChange={(event) => setReviewComments((items) => ({ ...items, [approval.id]: event.target.value }))}
-                                  placeholder="请输入人工复核意见"
-                                />
-                                <Space wrap>
-                                  <Button
-                                    size="small"
-                                    type="primary"
-                                    loading={approvalLoadingKey === `review-submit-${approval.id}-approved`}
-                                    onClick={() => void submitDraftReview(approval.id, 'approved')}
-                                  >
-                                    复核通过
-                                  </Button>
-                                  <Button
-                                    size="small"
-                                    danger
-                                    loading={approvalLoadingKey === `review-submit-${approval.id}-returned`}
-                                    onClick={() => void submitDraftReview(approval.id, 'returned')}
-                                  >
-                                    退回重做
-                                  </Button>
-                                </Space>
-                              </>
-                            )}
-                          </Space>
-                        </Card>
-                      )}
-                    </Space>
-                  </List.Item>
-                )}
-              />
-            )}
-          </Card>
-        </Space>
-      </Card>
-
-      <Card style={{ marginBottom: 16 }}>
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <TextArea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onPressEnter={(event) => {
-              if (!event.shiftKey) {
-                event.preventDefault()
-                void send()
-              }
-            }}
-            rows={3}
-            placeholder="例如：列出科目表 / 查看证据收件箱 / 有哪些导入任务 / 内控待办有哪些"
-          />
-          <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={() => void send()}>
-            发送
-          </Button>
-        </Space>
-      </Card>
-
-      <List
-        dataSource={messages}
-        renderItem={(item) => (
-          <List.Item>
-            <Card
+          {approvalRecords.some((item) => draftResults[item.id] || draftReviews[item.id]) && (
+            <Collapse
               size="small"
-              style={{ width: '100%', background: item.role === 'user' ? '#f6ffed' : '#f5f7fa' }}
-              title={item.role === 'user' ? '你' : '助手'}
-            >
-              <Paragraph>{item.content}</Paragraph>
-              {item.result && (
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  {item.result.intent && (
-                    <Space wrap>
-                      <Text strong>识别意图：</Text>
-                      <Tag color="blue">{intentLabels[item.result.intent] || item.result.intent}</Tag>
-                      {typeof item.result.confidence === 'number' && (
-                        <Text type="secondary">建议匹配度：{Math.round(item.result.confidence * 100)}%</Text>
-                      )}
-                      {item.result.source === 'llm' && <Tag color="green">智能助手</Tag>}
-                      {item.result.source === 'rules' && <Tag color="orange">规则回退</Tag>}
-                    </Space>
-                  )}
-                  {item.result.model_config && (
-                    <Text type="secondary">
-                      模型：{item.result.model_config.model_name || '未配置'}
-                      {item.result.model_config.is_ollama ? '（Ollama）' : ''}
-                      {item.result.model_config.config_source ? ` · 配置来源：${item.result.model_config.config_source}` : ''}
-                    </Text>
-                  )}
-                  {item.result.tool_executions && item.result.tool_executions.length > 0 && (
-                    <Card size="small" title="已执行工具">
-                      <List
-                        size="small"
-                        dataSource={item.result.tool_executions}
-                        renderItem={(execution) => (
-                          <List.Item>
-                            <Space direction="vertical" style={{ width: '100%' }}>
-                              <Space wrap>
-                                <Tag color={execution.status === 'success' ? 'green' : 'red'}>{execution.tool_name}</Tag>
-                                <Tag>{execution.status === 'success' ? '成功' : '失败'}</Tag>
-                              </Space>
-                              {execution.error && <Text type="danger">{execution.error}</Text>}
-                              {execution.result && (
-                                <pre style={{ margin: 0, maxHeight: 200, overflow: 'auto', fontSize: 12 }}>
-                                  {JSON.stringify(execution.result, null, 2)}
-                                </pre>
-                              )}
-                            </Space>
-                          </List.Item>
-                        )}
-                      />
-                    </Card>
-                  )}
-                  {item.result.pending_actions && item.result.pending_actions.length > 0 && (
-                    <Alert
-                      type="warning"
-                      showIcon
-                      title="待确认操作（未自动执行）"
-                      description={
-                        <List
-                          size="small"
-                          dataSource={item.result.pending_actions}
-                          renderItem={(action) => (
-                            <List.Item>
-                              <Space wrap>
-                                <Tag color={riskColors[action.risk_level || 'medium'] || 'orange'}>{action.tool_name}</Tag>
-                                <Text type="secondary">{action.reason}</Text>
-                              </Space>
-                            </List.Item>
+              items={[{
+                key: 'drafts',
+                label: '草稿与复核',
+                children: (
+                  <List
+                    className="agent-side-compact-list"
+                    size="small"
+                    dataSource={approvalRecords.filter((item) => draftResults[item.id] || draftReviews[item.id])}
+                    renderItem={(approval) => (
+                      <List.Item>
+                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                          <Text strong style={{ fontSize: 12 }}>#{approval.id}</Text>
+                          {draftResults[approval.id] && (
+                            <Text style={{ fontSize: 11 }}>{draftResults[approval.id].result.title}</Text>
                           )}
-                        />
-                      }
-                    />
-                  )}
-                  {item.result.suggested_path && (
-                    <Alert
-                      type="info"
-                      showIcon
-                      title={
-                        <Space>
-                          <span>建议路径：{item.result.suggested_path}</span>
-                          <Link to={item.result.suggested_path}>立即前往</Link>
+                          {draftResults[approval.id] && !draftReviews[approval.id] && approval.status === 'confirmed' && (
+                            <Button size="small" loading={approvalLoadingKey === `review-create-${approval.id}`} onClick={() => void createDraftReview(approval.id)}>
+                              创建复核
+                            </Button>
+                          )}
+                          {draftReviews[approval.id]?.review_status === 'pending' && (
+                            <>
+                              <TextArea
+                                rows={2}
+                                size="small"
+                                value={reviewComments[approval.id] || ''}
+                                onChange={(event) => setReviewComments((items) => ({ ...items, [approval.id]: event.target.value }))}
+                              />
+                              <Space size={4}>
+                                <Button size="small" type="primary" loading={approvalLoadingKey === `review-submit-${approval.id}-approved`} onClick={() => void submitDraftReview(approval.id, 'approved')}>
+                                  通过
+                                </Button>
+                                <Button size="small" danger loading={approvalLoadingKey === `review-submit-${approval.id}-returned`} onClick={() => void submitDraftReview(approval.id, 'returned')}>
+                                  退回
+                                </Button>
+                              </Space>
+                            </>
+                          )}
                         </Space>
-                      }
-                    />
-                  )}
-                  {item.result.steps && item.result.steps.length > 0 && (
-                    <List
-                      size="small"
-                      header={<Text strong>步骤建议</Text>}
-                      dataSource={item.result.steps}
-                      renderItem={(step, index) => <List.Item>{index + 1}. {step}</List.Item>}
-                    />
-                  )}
-                </Space>
-              )}
-            </Card>
-          </List.Item>
-        )}
-      />
+                      </List.Item>
+                    )}
+                  />
+                ),
+              }]}
+            />
+          )}
+        </Col>
+      </Row>
     </div>
   )
 }

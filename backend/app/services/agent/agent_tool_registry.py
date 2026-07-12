@@ -16,8 +16,26 @@ AGENT_TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "suggest_system_path": {
         "tool_name": "suggest_system_path",
         "description": "根据用户自然语言意图推荐系统页面路径，不操作业务数据。",
-        "allowed_agent_roles": ["navigation_agent"],
-        "intents": ["general_help"],
+        # 测试阶段放宽：assist 默认 accounting_assistant_agent；正式发版可收窄为 navigation_agent
+        "allowed_agent_roles": [
+            "navigation_agent",
+            "accounting_assistant_agent",
+            "audit_assistant_agent",
+        ],
+        "intents": ["general_help", "onboarding"],
+        "risk_level": "low",
+        "approval_required": False,
+        "audit_trace_required": True,
+    },
+    "get_auth_context": {
+        "tool_name": "get_auth_context",
+        "description": "只读查询当前用户的团队/账簿/项目绑定状态与下一步 onboarding 动作，不创建任何实体。",
+        "allowed_agent_roles": [
+            "navigation_agent",
+            "accounting_assistant_agent",
+            "audit_assistant_agent",
+        ],
+        "intents": ["general_help", "onboarding"],
         "risk_level": "low",
         "approval_required": False,
         "audit_trace_required": True,

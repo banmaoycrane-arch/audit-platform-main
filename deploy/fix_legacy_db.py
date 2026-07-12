@@ -53,6 +53,17 @@ PATCHES: dict[str, dict[str, str]] = {
     "accounting_entries": {
         "voucher_id": "ALTER TABLE accounting_entries ADD COLUMN voucher_id INTEGER",
     },
+    "entry_tags": {
+        "ledger_id": "ALTER TABLE entry_tags ADD COLUMN ledger_id INTEGER",
+        "category_id": "ALTER TABLE entry_tags ADD COLUMN category_id INTEGER",
+        "tag_type": "ALTER TABLE entry_tags ADD COLUMN tag_type VARCHAR(40)",
+        "tag_value": "ALTER TABLE entry_tags ADD COLUMN tag_value VARCHAR(200)",
+        "tag_value_normalized": "ALTER TABLE entry_tags ADD COLUMN tag_value_normalized VARCHAR(200)",
+        "value_id": "ALTER TABLE entry_tags ADD COLUMN value_id INTEGER",
+        "display_name": "ALTER TABLE entry_tags ADD COLUMN display_name VARCHAR(255)",
+        "weight": "ALTER TABLE entry_tags ADD COLUMN weight REAL DEFAULT 1.0 NOT NULL",
+        "vector_pending": "ALTER TABLE entry_tags ADD COLUMN vector_pending BOOLEAN DEFAULT 1 NOT NULL",
+    },
 }
 
 
@@ -101,9 +112,36 @@ def main() -> None:
             if updated:
                 print(f"  BACKFILL chart_of_accounts.ledger_id -> {ledger_id} ({updated} rows)")
 
+    if "entry_tags" in existing_tables and "accounting_entries" in existing_tables:
+        if "ledger_id" in columns(conn, "entry_tags"):
+            updated = conn.execute(
+                """
+                UPDATE entry_tags
+                SET ledger_id = (
+                    SELECT ae.ledger_id FROM accounting_entries ae
+                    WHERE ae.id = entry_tags.entry_id
+                )
+                WHERE ledger_id IS NULL
+                  AND EXISTS (
+                    SELECT 1 FROM accounting_entries ae WHERE ae.id = entry_tags.entry_id
+                  )
+                """
+            ).rowcount
+            if updated:
+                print(f"  BACKFILL entry_tags.ledger_id from accounting_entries ({updated} rows)")
+            elif ledger_id is not None:
+                updated = conn.execute(
+                    "UPDATE entry_tags SET ledger_id = ? WHERE ledger_id IS NULL",
+                    (ledger_id,),
+                ).rowcount
+                if updated:
+                    print(f"  BACKFILL entry_tags.ledger_id -> {ledger_id} ({updated} rows)")
+
     conn.commit()
     if "import_jobs" in existing_tables:
         print("import_jobs columns:", sorted(columns(conn, "import_jobs")))
+    if "entry_tags" in existing_tables:
+        print("entry_tags columns:", sorted(columns(conn, "entry_tags")))
     fix_chart_of_accounts_unique_index(conn)
     conn.commit()
     print("Done")

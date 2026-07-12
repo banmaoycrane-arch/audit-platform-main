@@ -7,11 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.services.agent.llm_client_service import LightweightLLMClient
-from app.services.doc_parsing.parser_engine.config_service import get_runtime_parser_engine_config
+from app.services.doc_parsing.parser_engine.config_service import (
+    get_runtime_parser_engine_config,
+    resolve_effective_llm_config,
+)
 
 
 def resolve_agent_llm_config(db: Session | None = None) -> dict[str, Any]:
-    runtime = get_runtime_parser_engine_config(db)
+    runtime = resolve_effective_llm_config(db)
     settings = get_settings()
     source = "env"
     if db:

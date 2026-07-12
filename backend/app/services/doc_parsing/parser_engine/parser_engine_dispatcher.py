@@ -25,6 +25,7 @@ from app.services.doc_parsing.parser_engine.config_service import (
     config_for_parse_llm,
     get_runtime_parser_engine_config,
     resolve_effective_comparison_engines,
+    resolve_effective_llm_config,
     resolve_parse_model,
 )
 from app.services.doc_parsing.parser_engine.parse_result import (
@@ -657,6 +658,15 @@ def parse_with_llm_engine(
     try:
         # 调用 LLM
         llm_result = llm_client.chat(messages, temperature=0.1)
+
+        if not llm_result.available:
+            fallback = llm_config.get("_cloud_fallback") if llm_config else None
+            if isinstance(fallback, dict) and fallback.get("ai_base_url"):
+                logger.info("主 LLM 链路不可用，尝试云端回退")
+                fallback_client = LightweightLLMClient(config=fallback)
+                llm_result = fallback_client.chat(messages, temperature=0.1)
+                if llm_result.available:
+                    model_name = fallback.get("ai_model") or model_name
         
         if not llm_result.available:
             logger.warning(f"LLM 调用失败: {llm_result.error}")
@@ -1972,7 +1982,7 @@ class ParserEngineDispatcher:
     def __init__(self, db: Any = None) -> None:
         self.settings = get_settings()
         self.db = db
-        self.config = get_runtime_parser_engine_config(db)
+        self.config = resolve_effective_llm_config(db)
     
     async def parse(
         self,

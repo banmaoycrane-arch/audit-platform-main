@@ -47,6 +47,42 @@ def _serialize_counterparty(counterparty: Counterparty) -> dict[str, Any]:
     }
 
 
+def _onboarding_path_for_action(next_action: str | None) -> str:
+    mapping = {
+        "create_team": "/onboarding",
+        "select_or_create_ledger": "/onboarding",
+        "select_or_create_project": "/onboarding",
+        "confirm_accounting_entity": "/onboarding",
+        "workspace": "/",
+    }
+    return mapping.get(str(next_action or ""), "/onboarding")
+
+
+def _run_get_auth_context(db: Session, args: dict[str, Any]) -> dict[str, Any]:
+    user_id = args.get("user_id")
+    if not user_id:
+        raise ValueError("缺少 user_id")
+    from app.models.user import User
+    from app.services.auth.auth_service import get_auth_context
+
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if user is None:
+        raise ValueError("用户不存在")
+    ctx = get_auth_context(db, user)
+    next_action = ctx.get("next_action")
+    return {
+        "requires_onboarding": ctx.get("requires_onboarding"),
+        "temporary_status": ctx.get("temporary_status"),
+        "missing_bindings": ctx.get("missing_bindings"),
+        "next_action": next_action,
+        "current_ledger_id": ctx.get("current_ledger_id"),
+        "suggested_path": _onboarding_path_for_action(next_action),
+        "teams_count": len(ctx.get("teams") or []),
+        "ledgers_count": len(ctx.get("ledgers") or []),
+        "projects_count": len(ctx.get("projects") or []),
+    }
+
+
 def _run_suggest_system_path(args: dict[str, Any]) -> dict[str, Any]:
     message = str(args.get("message") or "")
     if not message.strip():
@@ -232,6 +268,8 @@ def _run_list_internal_control_findings(db: Session, args: dict[str, Any]) -> di
 def _dispatch_tool(db: Session, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     if tool_name == "suggest_system_path":
         return _run_suggest_system_path(args)
+    if tool_name == "get_auth_context":
+        return _run_get_auth_context(db, args)
     if tool_name == "list_chart_of_accounts":
         return _run_list_chart_of_accounts(db, args)
     if tool_name == "list_counterparties":
@@ -311,6 +349,8 @@ def run_agent_tool_for_assist(
     _ = user_id
     service = AgentToolExecutionService()
     safe_args = dict(args or {})
+    if user_id is not None:
+        safe_args.setdefault("user_id", user_id)
     if ledger_id is not None and "ledger_id" not in safe_args:
         safe_args["ledger_id"] = ledger_id
     return service.run_low_risk_agent_tool(db, tool_name, agent_role, safe_args)

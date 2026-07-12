@@ -2,7 +2,7 @@
 
 > **用途**：决策者看「现在在哪、下一步做什么、什么不做」  
 > **真值链**：本文 → [code-truth-status.md](./code-truth-status.md) → [development-convergence-charter.md](./development-convergence-charter.md) → 代码  
-> **Git 基准**：`main` 在 `99a15db` 之后的大批本地增量（待 push）
+> **Git 基准**：`main` @ `00cfaf4`（已 push `origin/main`）
 
 ---
 
@@ -12,11 +12,11 @@
 |------|------|--------|------|
 | MVP 骨架 | 2025 Q4–2026 Q1 | 导入、向量、风险、凭证 CRUD、审计工作流前端 | ✅ 已合并 `main` |
 | 服务层领域化 | 2026-06 | `services/{accounting,audit,doc_parsing,...}` + API 治理文档 | ✅ `99a15db` |
-| 结构化 Staging | 2026-07-07~08 | Step4 维度中心、签章链、向量 ledger 隔离、维度门禁 | ✅ 本地，待 L6 签字 |
-| 经典报表 + 现金流量表 | 2026-07 | 三大表经典表样、PDF/Excel、行次固定 | ✅ 本地 |
-| 证据云空间 × 工作台 | 2026-07-12 | 收件箱/归档、ingest API、工作台聚合、分录反查证据 | ✅ 本地 |
-| 对话式 Agent | 2026-07-12 | `/api/agent/assist`、工具白名单、Ollama/云端配置 | ✅ 本地 |
-| 生产部署 | 持续 | `47.122.117.76` Docker + legacy schema 补丁 | ⚠️ 须随代码同步 schema |
+| 结构化 Staging | 2026-07-07~08 | Step4 维度中心、签章链、向量 ledger 隔离、维度门禁 | ✅ `00cfaf4`，待 L6 签字 |
+| 经典报表 + 现金流量表 | 2026-07 | 三大表经典表样、PDF/Excel、行次固定 | ✅ `00cfaf4` |
+| 证据云空间 × 工作台 | 2026-07-12 | 收件箱/归档、ingest API、工作台聚合、分录反查证据 | ✅ `00cfaf4` |
+| 对话式 Agent | 2026-07-12 | `/api/agent/assist`、工具白名单、Ollama/云端配置 | ✅ `00cfaf4` |
+| 生产部署 | 持续 | `47.122.117.76` Docker + legacy schema 补丁 | ⚠️ 代码已 push，schema 须随 deploy 同步 |
 
 ---
 
@@ -85,14 +85,14 @@ Week 2
 
 ### 推送前
 
-- [ ] 不提交 `backend/.env`、`.db`、`qdrant_local_storage/`、一次性 `fix_*.py`、测试输出 txt  
-- [ ] `pip install -e .` 后后端可 import  
-- [ ] pytest 全绿  
+- [x] 不提交 `backend/.env`、`.db`、`qdrant_local_storage/`、一次性 `fix_*.py`、测试输出 txt  
+- [x] `pip install -e .` 后后端可 import  
+- [ ] pytest 全绿（提交时 826 passed / 24 failed，已知债务）
 
-### 推送后
+### 推送后（2026-07-12 已完成）
 
 ```powershell
-git push -u origin main
+git push -u origin main   # → 00cfaf4
 ```
 
 ### 生产（代码已在服务器目录时）

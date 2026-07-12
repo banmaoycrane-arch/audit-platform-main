@@ -171,3 +171,38 @@ def test_agent_assist_can_disable_auto_execute_tools():
     assert response.status_code == 200
     data = response.json()
     assert data["tool_executions"] == []
+
+
+def test_agent_assist_onboarding_uses_auth_context_and_navigation():
+    headers = auth_headers("agent_assist_onboard_user", "13800139105")
+    response = client.post(
+        "/api/agent/assist",
+        json={"message": "我还没有团队，怎么开始用系统？"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    tool_names = [item["tool_name"] for item in data["tool_executions"]]
+    assert "get_auth_context" in tool_names
+    assert "suggest_system_path" in tool_names
+    assert all(item["status"] == "success" for item in data["tool_executions"])
+    auth_result = next(item for item in data["tool_executions"] if item["tool_name"] == "get_auth_context")
+    assert auth_result["result"]["requires_onboarding"] is True
+    assert "team" in auth_result["result"]["missing_bindings"]
+    assert data["suggested_path"] == "/onboarding"
+
+
+def test_agent_assist_general_help_can_suggest_system_path():
+    headers = auth_headers("agent_assist_nav_user", "13800139106")
+    response = client.post(
+        "/api/agent/assist",
+        json={"message": "我想导入凭证，从哪里进？"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert any(
+        item["tool_name"] == "suggest_system_path" and item["status"] == "success"
+        for item in data["tool_executions"]
+    )
+    assert data.get("suggested_path")

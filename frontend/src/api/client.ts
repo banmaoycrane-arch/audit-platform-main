@@ -1156,7 +1156,8 @@ export type BalanceSheetReport = LedgerReportMeta & {
   reclassification_summary?: ReclassificationSummary
 }
 
-export type IncomeStatementReport = {
+export type IncomeStatementReport = LedgerReportMeta & {
+  ledger_name?: string
   revenue: Record<string, number>
   expense: Record<string, number>
   ytd_revenue?: Record<string, number>

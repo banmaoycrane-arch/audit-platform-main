@@ -10,7 +10,11 @@ from app.models.global_settings import GlobalSettings
 from app.models.user import User
 from app.services.doc_parsing.parser_engine.config_service import (
     get_runtime_parser_engine_config,
+    is_masked_api_key,
     normalize_parser_engine_config,
+    resolve_api_key_for_use,
+    resolve_effective_llm_config,
+    _probe_openai_compatible,
 )
 from app.models.ledger import Ledger
 from app.services.shared import ledger_management_service
@@ -47,6 +51,10 @@ def _mask_parser_engine_config(config: dict[str, Any]) -> dict[str, Any]:
     masked = dict(config)
     if masked.get("ai_api_key"):
         masked["ai_api_key"] = _mask_api_key(str(masked["ai_api_key"]))
+    if masked.get("ai_cloud_api_key"):
+        masked["ai_cloud_api_key"] = _mask_api_key(str(masked["ai_cloud_api_key"]))
+    if masked.get("ai_local_api_key"):
+        masked["ai_local_api_key"] = _mask_api_key(str(masked["ai_local_api_key"]))
     return masked
 
 
@@ -56,6 +64,13 @@ class ParserEngineConfig(BaseModel):
     ai_model: str
     ai_reasoning_model: str = ""
     ai_api_key: str | None = None
+    ai_routing_mode: str = "manual"
+    ai_local_base_url: str = ""
+    ai_local_model: str = ""
+    ai_local_api_key: str | None = None
+    ai_cloud_base_url: str = ""
+    ai_cloud_model: str = ""
+    ai_cloud_api_key: str | None = None
     ai_local_model_enabled: bool
     ai_fallback_to_rules: bool
     
@@ -95,7 +110,11 @@ def get_parser_engine_config(db: Session = Depends(get_db), current_user: User =
 
 
 @router.post("/parser-engine/test-connection")
-def test_ai_connection(request: TestConnectionRequest, current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+def test_ai_connection(
+    request: TestConnectionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """
     测试AI模型连接是否可用。
 
@@ -106,13 +125,16 @@ def test_ai_connection(request: TestConnectionRequest, current_user: User = Depe
     from urllib import request as url_request
     from urllib.error import HTTPError, URLError
 
+    stored = get_runtime_parser_engine_config(db)
+    api_key = resolve_api_key_for_use(request.ai_api_key, stored.get("ai_api_key"))
+
     normalized_input_url = request.ai_base_url.rstrip("/")
     ollama_root_url = normalized_input_url[:-3] if normalized_input_url.endswith("/v1") else normalized_input_url
     is_ollama = ":11434" in normalized_input_url or "ollama" in normalized_input_url.lower()
 
     headers = {"Content-Type": "application/json"}
-    if request.ai_api_key:
-        headers["Authorization"] = f"Bearer {request.ai_api_key}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     def fetch_json(url: str, timeout: int = 5) -> dict[str, Any]:
         req = url_request.Request(url, headers=headers, method="GET")
@@ -159,31 +181,33 @@ def test_ai_connection(request: TestConnectionRequest, current_user: User = Depe
             except (HTTPError, URLError, TimeoutError, OSError) as exc:
                 errors.append(f"Ollama /api/tags 探活失败: {exc}")
 
-        models_url = f"{normalized_input_url}/models" if normalized_input_url.endswith("/v1") else f"{normalized_input_url}/v1/models"
-        data = fetch_json(models_url, timeout=5)
-        models = [item.get("id", "") for item in data.get("data", []) if item.get("id")]
-        elapsed_ms = round((time.time() - start_time) * 1000)
-        if not models or model_exists(models):
+        ok, message, available_models, elapsed_ms = _probe_openai_compatible(
+            request.ai_base_url,
+            request.ai_model,
+            api_key,
+        )
+        if ok:
             return {
                 "success": True,
-                "message": "连接成功！模型服务可达。",
+                "message": message,
                 "model": request.ai_model,
                 "base_url": request.ai_base_url,
-                "api_type": "openai-compatible-models",
-                "response_content": "模型列表探活成功",
+                "api_type": "openai-compatible",
+                "response_content": "探活成功",
                 "response_time_ms": elapsed_ms,
+                "available_models": available_models or None,
             }
         return {
             "success": False,
-            "message": f"模型服务可达，但未找到模型 {request.ai_model}。请检查模型名称。",
+            "message": message,
             "model": request.ai_model,
             "base_url": request.ai_base_url,
-            "api_type": "openai-compatible-models",
-            "available_models": models,
+            "api_type": "openai-compatible",
+            "available_models": available_models or None,
             "response_time_ms": elapsed_ms,
         }
     except Exception as exc:
-        errors.append(f"OpenAI兼容 /models 探活失败: {exc}")
+        errors.append(f"OpenAI兼容探活失败: {exc}")
         return {
             "success": False,
             "message": "连接失败: " + "; ".join(errors),
@@ -434,10 +458,22 @@ def save_parser_engine_config(config: ParserEngineConfig, db: Session = Depends(
         GlobalSettings.settings_key == "parser_engine"
     ).first()
     
+    existing = get_runtime_parser_engine_config(db)
+    incoming = config.model_dump()
+    incoming["ai_api_key"] = resolve_api_key_for_use(incoming.get("ai_api_key"), existing.get("ai_api_key"))
+    incoming["ai_cloud_api_key"] = resolve_api_key_for_use(
+        incoming.get("ai_cloud_api_key"),
+        existing.get("ai_cloud_api_key"),
+    )
+    incoming["ai_local_api_key"] = resolve_api_key_for_use(
+        incoming.get("ai_local_api_key"),
+        existing.get("ai_local_api_key"),
+    )
+
     config_dict = normalize_parser_engine_config(
         {
-            **get_runtime_parser_engine_config(db),
-            **config.model_dump(),
+            **existing,
+            **incoming,
             "ai_reasoning_model": (config.ai_reasoning_model or "").strip(),
             "ai_model": (config.ai_model or "").strip(),
         }

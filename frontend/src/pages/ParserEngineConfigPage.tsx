@@ -115,10 +115,11 @@ export function ParserEngineConfigPage() {
     setTestResult(null)
     
     try {
+      const apiKey = String(values.ai_api_key || '')
       const result = await api.testAIConnection({
         ai_base_url: values.ai_base_url,
         ai_model: values.ai_model,
-        ai_api_key: values.ai_api_key || undefined,
+        ai_api_key: apiKey.startsWith('*') ? undefined : (values.ai_api_key || undefined),
       })
       setTestResult(result)
       if (result.success) {
@@ -368,6 +369,59 @@ export function ParserEngineConfigPage() {
                         </Option>
                       ))}
                     </Select>
+                  </Form.Item>
+
+                  <Divider titlePlacement="start"><ThunderboltOutlined /> 路由策略（本地优先 / 云端回退）</Divider>
+
+                  <Form.Item
+                    name="ai_routing_mode"
+                    label="LLM 路由模式"
+                    tooltip="auto：先连局域网/反向代理本地模型，失败再用云端 API"
+                  >
+                    <Select>
+                      <Option value="manual">手动（仅用上方 API 地址）</Option>
+                      <Option value="auto">Auto — 本地优先，云端回退</Option>
+                      <Option value="local">仅本地/边缘节点</Option>
+                      <Option value="cloud">仅云端 API</Option>
+                    </Select>
+                  </Form.Item>
+
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="云端部署时，本地模型需通过 frp/Nginx 反代暴露公网可达地址"
+                    description="例：http://你的域名或IP:11434/v1 指向办公室 Ollama。生产服务器无法直接访问 192.168.x.x 内网。"
+                  />
+
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item name="ai_local_base_url" label="本地/边缘 API 地址">
+                        <Input placeholder="http://192.168.x.x:11434/v1 或反代公网地址" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="ai_local_model" label="本地解析模型">
+                        <Input placeholder="qwen2.5vl:latest" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item name="ai_cloud_base_url" label="云端 API 地址（回退）">
+                        <Input placeholder="https://api.moonshot.cn/v1" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="ai_cloud_model" label="云端模型 ID">
+                        <Input placeholder="moonshot-v1-8k" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+
+                  <Form.Item name="ai_cloud_api_key" label="云端 API 密钥（可与上方密钥相同）">
+                    <Input.Password placeholder="sk-..." allowClear />
                   </Form.Item>
 
                   <Divider titlePlacement="start"><DatabaseOutlined /> 连接信息</Divider>

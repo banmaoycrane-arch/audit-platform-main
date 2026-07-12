@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     ai_reasoning_model: str = ""
     ai_local_model_enabled: bool = True
     ai_fallback_to_rules: bool = True
+    ai_routing_mode: str = "manual"
+    ai_local_base_url: str = ""
+    ai_local_model: str = ""
+    ai_local_api_key: str = ""
+    ai_cloud_base_url: str = ""
+    ai_cloud_model: str = ""
+    ai_cloud_api_key: str = ""
     embedding_dimension: int = 384
     secret_key: str | None = None
     super_admin_usernames: str = ""

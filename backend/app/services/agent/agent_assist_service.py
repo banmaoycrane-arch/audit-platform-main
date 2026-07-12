@@ -19,7 +19,8 @@ ASSIST_SYSTEM_PROMPT = """你是财务向量审计系统的对话助手。
 1. 只使用工具清单中的 tool_name；参数放在 args 中。
 2. 低风险只读工具可自动执行；中高风险工具只生成 pending_action，不假装已执行。
 3. 涉及账簿的业务查询必须带上 ledger_id（系统会注入当前账簿）。
-4. 回复使用中文，简洁说明已完成的操作与结果摘要。
+4. 用户问如何开始、没有团队/账簿/项目时，优先调用 get_auth_context 与 suggest_system_path，引导至 /onboarding。
+5. 回复使用中文，简洁说明已完成的操作与结果摘要。
 5. 必须返回 JSON，格式：
 {
   "reply": "给用户看的总结",
@@ -46,6 +47,21 @@ RULE_TOOL_MAP: dict[str, list[dict[str, Any]]] = {
         {"tool_name": "list_accounting_periods", "agent_role": "accounting_assistant_agent", "args": {"limit": 6}},
     ],
 }
+
+_ONBOARDING_KEYWORDS = (
+    "团队", "账簿", "项目", "绑定", "onboarding", "入门", "开始用", "没有账簿",
+    "创建团队", "怎么开始", "初始化", "新用户",
+)
+
+
+def _resolve_tool_agent_role(tool: dict[str, Any], requested_role: str) -> str:
+    """测试阶段：请求角色不在白名单时回退到工具允许的第一个角色。"""
+    allowed = tool.get("allowed_agent_roles") or []
+    if requested_role in allowed:
+        return requested_role
+    if allowed:
+        return str(allowed[0])
+    return requested_role
 
 
 def _tool_catalog_for_prompt() -> list[dict[str, str]]:
@@ -96,6 +112,19 @@ def _rules_assist_plan(message: str) -> dict[str, Any]:
         tool_calls = [{"tool_name": "list_evidence_inbox", "agent_role": "accounting_assistant_agent", "args": {"limit": 30}}]
     elif "内控" in message or "待办" in message:
         tool_calls = [{"tool_name": "list_internal_control_findings", "agent_role": "audit_assistant_agent", "args": {"status": "pending", "limit": 30}}]
+    elif any(keyword in message for keyword in _ONBOARDING_KEYWORDS):
+        tool_calls = [
+            {"tool_name": "get_auth_context", "agent_role": "accounting_assistant_agent", "args": {}},
+            {"tool_name": "suggest_system_path", "agent_role": "accounting_assistant_agent", "args": {"message": message}},
+        ]
+    elif "从哪里" in message or "怎么进" in message or "入口" in message or "怎么走" in message:
+        tool_calls = [
+            {"tool_name": "suggest_system_path", "agent_role": "accounting_assistant_agent", "args": {"message": message}},
+        ]
+    elif intent_result["intent"] == "general_help":
+        tool_calls = [
+            {"tool_name": "suggest_system_path", "agent_role": "accounting_assistant_agent", "args": {"message": message}},
+        ]
     return {
         "reply": intent_result["reply"],
         "tool_calls": tool_calls,
@@ -123,6 +152,7 @@ def _execute_tool_calls(
         if not tool:
             pending.append({"tool_name": tool_name, "reason": "工具未在白名单注册"})
             continue
+        agent_role = _resolve_tool_agent_role(tool, agent_role)
         if tool["risk_level"] != "low" or tool["approval_required"]:
             pending.append({
                 "tool_name": tool_name,
@@ -235,6 +265,21 @@ def run_agent_assist(
         reply = f"已执行 {len(executed_tools)} 项查询，请查看工具结果。"
 
     intent = detect_intent(message)
+    suggested_path = intent.get("suggested_path")
+    steps = intent.get("steps") or []
+    auth_onboarding_path: str | None = None
+    for item in executed_tools:
+        if item.get("status") != "success":
+            continue
+        result = item.get("result") or {}
+        if item.get("tool_name") == "get_auth_context":
+            if result.get("requires_onboarding") and result.get("suggested_path"):
+                auth_onboarding_path = str(result.get("suggested_path"))
+        if item.get("tool_name") == "suggest_system_path" and result.get("suggested_path"):
+            suggested_path = result.get("suggested_path")
+            steps = result.get("steps") or steps
+    if auth_onboarding_path:
+        suggested_path = auth_onboarding_path
     return {
         "reply": reply,
         "intent": intent.get("intent"),
@@ -251,6 +296,6 @@ def run_agent_assist(
         "ledger_id": ledger_id,
         "tool_executions": executed_tools,
         "pending_actions": pending_tools,
-        "suggested_path": None,
-        "steps": [],
+        "suggested_path": suggested_path,
+        "steps": steps,
     }

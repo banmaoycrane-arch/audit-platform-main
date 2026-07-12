@@ -95,6 +95,170 @@ def normalize_parser_engine_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def is_masked_api_key(value: str | None) -> bool:
+    """判断是否为接口返回的掩码密钥（不可直接用于鉴权）。"""
+    if not value:
+        return False
+    text = str(value).strip()
+    return text.startswith("*") and len(text) >= 8
+
+
+def resolve_api_key_for_use(incoming: str | None, stored: str | None) -> str | None:
+    """表单提交或探活时：掩码/空值则回退数据库中的完整密钥。"""
+    if incoming and not is_masked_api_key(incoming):
+        return incoming.strip() or None
+    if stored and not is_masked_api_key(stored):
+        return str(stored).strip() or None
+    return None
+
+
+def _probe_openai_compatible(
+    base_url: str,
+    model: str,
+    api_key: str | None,
+    *,
+    timeout: int = 8,
+) -> tuple[bool, str, list[str], int]:
+    """
+    探活 OpenAI 兼容端点：优先 /models，失败则对云端尝试最小 chat 请求。
+    返回 (success, message, available_models, elapsed_ms)
+    """
+    import json
+    import time
+    from urllib import request as url_request
+    from urllib.error import HTTPError, URLError
+
+    normalized = base_url.rstrip("/")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    def fetch_json(url: str, *, method: str = "GET", body: dict | None = None) -> dict:
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+        req = url_request.Request(url, data=data, headers=headers, method=method)
+        with url_request.urlopen(req, timeout=timeout) as response:
+            parsed: dict = json.loads(response.read().decode("utf-8"))
+            return parsed
+
+    def normalize_model_name(name: str) -> str:
+        return name.removesuffix(":latest")
+
+    def model_exists(models: list[str]) -> bool:
+        expected = normalize_model_name(model)
+        return any(item == model or normalize_model_name(item) == expected for item in models)
+
+    start = time.time()
+
+    models_url = f"{normalized}/models" if normalized.endswith("/v1") else f"{normalized}/v1/models"
+    try:
+        data = fetch_json(models_url)
+        models = [item.get("id", "") for item in data.get("data", []) if item.get("id")]
+        elapsed_ms = round((time.time() - start) * 1000)
+        if not models or model_exists(models):
+            return True, "连接成功！模型服务可达。", models, elapsed_ms
+        return (
+            False,
+            f"模型服务可达，但未找到模型 {model}。可用: {', '.join(models[:8])}",
+            models,
+            elapsed_ms,
+        )
+    except HTTPError as exc:
+        if exc.code != 401:
+            elapsed_ms = round((time.time() - start) * 1000)
+            return False, f"OpenAI兼容 /models 探活失败: HTTP {exc.code}", [], elapsed_ms
+    except (URLError, TimeoutError, OSError) as exc:
+        return False, f"OpenAI兼容 /models 探活失败: {exc}", [], round((time.time() - start) * 1000)
+
+    # 部分云端（含 Kimi）/models 行为不一；401 时再试最小 chat Completion
+    chat_url = f"{normalized}/chat/completions" if normalized.endswith("/v1") else f"{normalized}/v1/chat/completions"
+    try:
+        fetch_json(
+            chat_url,
+            method="POST",
+            body={
+                "model": model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+                "temperature": 0,
+            },
+        )
+        elapsed_ms = round((time.time() - start) * 1000)
+        return True, "连接成功！聊天接口鉴权通过。", [], elapsed_ms
+    except HTTPError as exc:
+        elapsed_ms = round((time.time() - start) * 1000)
+        if exc.code == 401:
+            return (
+                False,
+                "鉴权失败 (401)：请确认 API Key 完整且未过期。"
+                "若页面显示掩码密钥，请重新粘贴完整 sk- 密钥后再测。"
+                "Kimi 密钥请从 platform.moonshot.cn 控制台获取。",
+                [],
+                elapsed_ms,
+            )
+        if exc.code == 404:
+            return False, f"聊天接口不可用 (404)：请检查模型 ID 是否为 moonshot-v1-8k 等官方 ID。", [], elapsed_ms
+        return False, f"聊天接口探活失败: HTTP {exc.code}", [], elapsed_ms
+    except (URLError, TimeoutError, OSError) as exc:
+        return False, f"聊天接口探活失败: {exc}", [], round((time.time() - start) * 1000)
+
+
+def resolve_effective_llm_config(db: Session | None = None) -> Dict[str, Any]:
+    """
+    解析实际使用的 LLM 端点。
+    ai_routing_mode:
+      - manual: 使用 ai_base_url / ai_model（当前行为）
+      - local: 优先 ai_local_base_url，否则 ai_base_url
+      - cloud: 优先 ai_cloud_* 云端字段
+      - auto: 运行时先 local，失败再由调用方回退 cloud（附带 _cloud_fallback）
+    """
+    runtime = get_runtime_parser_engine_config(db)
+    mode = str(runtime.get("ai_routing_mode") or "manual").strip().lower()
+
+    local_url = str(runtime.get("ai_local_base_url") or runtime.get("ai_base_url") or "").strip()
+    local_model = str(runtime.get("ai_local_model") or runtime.get("ai_model") or "").strip()
+    local_key = resolve_api_key_for_use(None, runtime.get("ai_local_api_key") or runtime.get("ai_api_key"))
+
+    cloud_url = str(runtime.get("ai_cloud_base_url") or "").strip()
+    cloud_model = str(runtime.get("ai_cloud_model") or "").strip()
+    cloud_key = resolve_api_key_for_use(None, runtime.get("ai_cloud_api_key") or runtime.get("ai_api_key"))
+
+    effective = dict(runtime)
+
+    if mode == "cloud" and cloud_url and cloud_model:
+        effective["ai_base_url"] = cloud_url
+        effective["ai_model"] = cloud_model
+        effective["ai_api_key"] = cloud_key
+        effective["_llm_route"] = "cloud"
+        return effective
+
+    if mode == "local" and local_url and local_model:
+        effective["ai_base_url"] = local_url
+        effective["ai_model"] = local_model
+        effective["ai_api_key"] = local_key
+        effective["_llm_route"] = "local"
+        return effective
+
+    if mode == "auto":
+        if local_url and local_model:
+            effective["ai_base_url"] = local_url
+            effective["ai_model"] = local_model
+            effective["ai_api_key"] = local_key
+            effective["_llm_route"] = "auto-local"
+        if cloud_url and cloud_model:
+            effective["_cloud_fallback"] = {
+                "ai_base_url": cloud_url,
+                "ai_model": cloud_model,
+                "ai_api_key": cloud_key,
+            }
+        return effective
+
+    effective["_llm_route"] = "manual"
+    effective["ai_api_key"] = local_key
+    return effective
+
+
 def get_runtime_parser_engine_config(db: Session | None = None) -> Dict[str, Any]:
     """
     获取解析引擎的运行时配置
@@ -128,6 +292,13 @@ def get_runtime_parser_engine_config(db: Session | None = None) -> Dict[str, Any
         "ai_model": settings.ai_model,
         "ai_reasoning_model": getattr(settings, "ai_reasoning_model", "") or "",
         "ai_api_key": settings.ai_api_key or None,
+        "ai_routing_mode": getattr(settings, "ai_routing_mode", "manual") or "manual",
+        "ai_local_base_url": getattr(settings, "ai_local_base_url", "") or "",
+        "ai_local_model": getattr(settings, "ai_local_model", "") or "",
+        "ai_local_api_key": getattr(settings, "ai_local_api_key", "") or "",
+        "ai_cloud_base_url": getattr(settings, "ai_cloud_base_url", "") or "",
+        "ai_cloud_model": getattr(settings, "ai_cloud_model", "") or "",
+        "ai_cloud_api_key": getattr(settings, "ai_cloud_api_key", "") or "",
         "ai_local_model_enabled": settings.ai_local_model_enabled,
         "ai_fallback_to_rules": settings.ai_fallback_to_rules,
         
