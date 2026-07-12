@@ -11,6 +11,7 @@ class CreateParseCorrectionRequest(BaseModel):
     corrected_result: dict[str, Any]
     correction_reason: str = ""
     corrected_by: str = ""
+    original_text: str = ""
 
 
 class ParseCorrectionResponse(BaseModel):

@@ -114,7 +114,7 @@ def list_excel_sheets_endpoint(
 
 
 @router.post("/parse-file", response_model=ParseResultResponse)
-def parse_file_endpoint(
+async def parse_file_endpoint(
     organization_id: int = Form(...),
     file: UploadFile = File(...),
     sheet_name: str | None = Form(None),
@@ -145,7 +145,6 @@ def parse_file_endpoint(
         raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
     
     try:
-        import asyncio
         from app.services.doc_parsing.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher, performance_monitor
         
         parse_start = performance_monitor.record_parse_start()
@@ -158,14 +157,7 @@ def parse_file_endpoint(
         )
         
         stage_start = time.time()
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                parse_result = loop.run_until_complete(dispatcher.parse(temp_path, sheet_name=sheet_name))
-            else:
-                parse_result = asyncio.run(dispatcher.parse(temp_path, sheet_name=sheet_name))
-        except RuntimeError:
-            parse_result = asyncio.run(dispatcher.parse(temp_path, sheet_name=sheet_name))
+        parse_result = await dispatcher.parse(temp_path, sheet_name=sheet_name)
         performance_monitor.record_stage_duration(
             "解析执行",
             (time.time() - stage_start) * 1000,
@@ -200,7 +192,7 @@ def parse_file_endpoint(
 
 
 @router.post("/parse-source-file/{file_id}", response_model=ParseResultResponse)
-def parse_source_file(file_id: int, db: Session = Depends(get_db)) -> ParseResultResponse:
+async def parse_source_file(file_id: int, db: Session = Depends(get_db)) -> ParseResultResponse:
     """
     对已上传的源文件进行解析
     
@@ -218,21 +210,12 @@ def parse_source_file(file_id: int, db: Session = Depends(get_db)) -> ParseResul
         raise HTTPException(status_code=404, detail="文件物理路径不存在")
     
     try:
-        import asyncio
         from app.services.doc_parsing.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher
         
         start_time = time.time()
         
         dispatcher = ParserEngineDispatcher(db)
-        
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                parse_result = loop.run_until_complete(dispatcher.parse(source_path))
-            else:
-                parse_result = asyncio.run(dispatcher.parse(source_path))
-        except RuntimeError:
-            parse_result = asyncio.run(dispatcher.parse(source_path))
+        parse_result = await dispatcher.parse(source_path)
         
         duration_ms = (time.time() - start_time) * 1000
         

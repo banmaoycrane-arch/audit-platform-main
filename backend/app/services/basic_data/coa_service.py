@@ -16,7 +16,9 @@ from typing import Any, Iterable
 from sqlalchemy.orm import Session
 
 from app.config.coa_code_config import CoaCodeRuleConfig, load_coa_code_config
-from app.db.models import AccountingEntry, ChartOfAccounts
+from app.db.models import ChartOfAccounts
+from app.services.accounting.balance_sheet_presentation_service import BS_ITEM_OPTIONS, DEFAULT_CODE_TO_BS_ITEM
+from app.services.accounting.cash_flow_presentation_service import DEFAULT_CODE_TO_CF_ITEM
 
 
 ACCOUNT_CATEGORY_MAP = {
@@ -74,6 +76,60 @@ DEFAULT_ACCOUNTS: list[dict[str, Any]] = [
     {"code": "6711", "name": "营业外支出", "category": "profit", "direction": "debit"},
     {"code": "6801", "name": "所得税费用", "category": "profit", "direction": "debit"},
 ]
+
+# 默认科目 → 科目细类 / 资产负债表列报项目
+COA_DEFAULT_DESIGN: dict[str, dict[str, str]] = {
+    "1001": {"account_subcategory": "流动资产", "balance_sheet_item": "cash_equivalents"},
+    "1002": {"account_subcategory": "流动资产", "balance_sheet_item": "cash_equivalents"},
+    "1012": {"account_subcategory": "流动资产", "balance_sheet_item": "cash_equivalents"},
+    "1101": {"account_subcategory": "流动资产", "balance_sheet_item": "trading_financial_assets"},
+    "1122": {"account_subcategory": "流动资产", "balance_sheet_item": "accounts_receivable"},
+    "1123": {"account_subcategory": "流动资产", "balance_sheet_item": "prepayments"},
+    "1221": {"account_subcategory": "流动资产", "balance_sheet_item": "other_receivables"},
+    "1231": {"account_subcategory": "流动资产", "balance_sheet_item": "accounts_receivable"},
+    "1401": {"account_subcategory": "流动资产", "balance_sheet_item": "inventory"},
+    "1403": {"account_subcategory": "流动资产", "balance_sheet_item": "inventory"},
+    "1405": {"account_subcategory": "流动资产", "balance_sheet_item": "inventory"},
+    "1601": {"account_subcategory": "非流动资产", "balance_sheet_item": "fixed_assets_net"},
+    "1602": {"account_subcategory": "非流动资产", "balance_sheet_item": "fixed_assets_net"},
+    "1701": {"account_subcategory": "非流动资产", "balance_sheet_item": "intangible_assets_net"},
+    "2001": {"account_subcategory": "流动负债", "balance_sheet_item": "short_term_borrowings"},
+    "2202": {"account_subcategory": "流动负债", "balance_sheet_item": "accounts_payable"},
+    "2203": {"account_subcategory": "流动负债", "balance_sheet_item": "advances_from_customers"},
+    "2211": {"account_subcategory": "流动负债", "balance_sheet_item": "employee_benefits_payable"},
+    "2221": {"account_subcategory": "流动负债", "balance_sheet_item": "taxes_payable"},
+    "2241": {"account_subcategory": "流动负债", "balance_sheet_item": "other_payables"},
+    "4001": {"account_category": "所有者权益", "equity_subcategory": "注册资本", "balance_sheet_item": "paid_in_capital"},
+    "4002": {"account_category": "所有者权益", "equity_subcategory": "资本公积", "balance_sheet_item": "capital_reserve"},
+    "4101": {"account_category": "所有者权益", "equity_subcategory": "盈余公积", "balance_sheet_item": "surplus_reserve"},
+    "4103": {"account_category": "所有者权益", "equity_subcategory": "未分配利润", "balance_sheet_item": "retained_earnings"},
+    "4104": {"account_category": "所有者权益", "equity_subcategory": "未分配利润", "balance_sheet_item": "retained_earnings"},
+    "6001": {"cash_flow_item": "sales_cash_received"},
+    "6401": {"cash_flow_item": "goods_services_cash_paid"},
+    "6601": {"cash_flow_item": "other_operating_outflow"},
+    "6801": {"cash_flow_item": "other_operating_outflow"},
+}
+
+
+def _default_design_for_code(code: str) -> dict[str, str]:
+    if code in COA_DEFAULT_DESIGN:
+        return dict(COA_DEFAULT_DESIGN[code])
+    design: dict[str, str] = {}
+    for pfx, item in sorted(DEFAULT_CODE_TO_CF_ITEM.items(), key=lambda x: len(x[0]), reverse=True):
+        if code == pfx or code.startswith(pfx):
+            design["cash_flow_item"] = item
+            break
+    for pfx, item in sorted(DEFAULT_CODE_TO_BS_ITEM.items(), key=lambda x: len(x[0]), reverse=True):
+        if code == pfx or code.startswith(pfx):
+            design["balance_sheet_item"] = item
+            if code.startswith(("1", "14")) and not code.startswith(("15", "16", "17", "18")):
+                design["account_subcategory"] = "流动资产"
+            elif code.startswith(("15", "16", "17", "18")):
+                design["account_subcategory"] = "非流动资产"
+            elif code.startswith(("2",)):
+                design["account_subcategory"] = "流动负债"
+            break
+    return design
 
 
 INDUSTRY_ACCOUNT_TEMPLATES: dict[str, dict[str, Any]] = {
@@ -360,6 +416,7 @@ def init_default_accounts(db: Session, ledger_id: int | None = None) -> int:
     for item in DEFAULT_ACCOUNTS:
         if item["code"] in existing_codes:
             continue
+        design = _default_design_for_code(item["code"])
         db.add(
             ChartOfAccounts(
                 ledger_id=ledger_id,
@@ -369,6 +426,11 @@ def init_default_accounts(db: Session, ledger_id: int | None = None) -> int:
                 level=1,
                 category=item["category"],
                 direction=item["direction"],
+                account_category=design.get("account_category"),
+                account_subcategory=design.get("account_subcategory"),
+                equity_subcategory=design.get("equity_subcategory"),
+                balance_sheet_item=design.get("balance_sheet_item"),
+                cash_flow_item=design.get("cash_flow_item"),
                 is_terminal=True,
                 status="active",
                 is_system=True,
@@ -468,6 +530,8 @@ def create_account(db: Session, payload: dict[str, Any]) -> ChartOfAccounts:
         account_category=payload.get("account_category"),
         account_subcategory=payload.get("account_subcategory"),
         equity_subcategory=payload.get("equity_subcategory"),
+        balance_sheet_item=payload.get("balance_sheet_item"),
+        cash_flow_item=payload.get("cash_flow_item"),
         include_in_dividend_base=payload.get("include_in_dividend_base"),
         is_terminal=payload.get("is_terminal", True),
         status="active",
@@ -487,6 +551,10 @@ def update_account(db: Session, code: str, payload: dict[str, Any], ledger_id: i
     # 系统科目允许改名，但禁改 code/category
     if "name" in payload:
         account.name = payload["name"]
+    if "balance_sheet_item" in payload:
+        account.balance_sheet_item = payload["balance_sheet_item"]
+    if "cash_flow_item" in payload:
+        account.cash_flow_item = payload["cash_flow_item"]
     if not account.is_system:
         if "category" in payload:
             account.category = payload["category"]

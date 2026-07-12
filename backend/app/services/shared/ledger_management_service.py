@@ -10,8 +10,9 @@
     2026-06-18  初始创建账簿管理服务
 """
 from datetime import date, datetime, timezone
+from typing import Any
 
-from sqlalchemy import or_
+from sqlalchemy import delete as sql_delete, or_
 from sqlalchemy.orm import Session
 from app.models.ledger import Ledger
 from app.models.user_ledger_auth import UserLedgerAuth
@@ -491,3 +492,177 @@ def restore_ledger(db: Session, ledger_id: int, reason: str | None = None) -> Le
     db.commit()
     db.refresh(ledger)
     return ledger
+
+
+def update_ledger(
+    db: Session,
+    ledger_id: int,
+    *,
+    name: str | None = None,
+    accounting_start_date: date | None = None,
+) -> Ledger:
+    """更新账簿基本信息（名称、会计时间线起点）。"""
+    ledger = get_ledger_by_id(db, ledger_id)
+    if not ledger:
+        raise ValueError("账簿不存在，无法更新")
+    if ledger.status == "deleted":
+        raise ValueError("已删除的账簿不可编辑")
+    if name is not None:
+        cleaned = name.strip()
+        if not cleaned:
+            raise ValueError("账簿名称不能为空")
+        ledger.name = cleaned
+    if accounting_start_date is not None:
+        ledger.accounting_start_date = accounting_start_date
+    db.commit()
+    db.refresh(ledger)
+    return ledger
+
+
+def initialize_ledger(db: Session, ledger_id: int, reason: str | None = None) -> dict[str, Any]:
+    """初始化账簿：删除全部凭证与分录，保留科目表、期间、设置与授权。"""
+    from app.db.models import (
+        AccountingEntry,
+        BankReconciliationItem,
+        BankTransaction,
+        EntryTag,
+        Voucher,
+    )
+
+    ledger = get_ledger_by_id(db, ledger_id)
+    if not ledger:
+        raise ValueError("账簿不存在，无法初始化")
+    if ledger.status == "deleted":
+        raise ValueError("已删除的账簿不可初始化")
+
+    _ = reason
+
+    voucher_count = db.query(Voucher).filter(Voucher.ledger_id == ledger_id).count()
+    voucher_ids = [
+        row[0] for row in db.query(Voucher.id).filter(Voucher.ledger_id == ledger_id).all()
+    ]
+    entry_filter = AccountingEntry.ledger_id == ledger_id
+    if voucher_ids:
+        entry_filter = or_(entry_filter, AccountingEntry.voucher_id.in_(voucher_ids))
+
+    entry_ids = [row[0] for row in db.query(AccountingEntry.id).filter(entry_filter).all()]
+    entry_count = len(entry_ids)
+
+    if entry_ids:
+        db.query(BankTransaction).filter(BankTransaction.matched_entry_id.in_(entry_ids)).update(
+            {BankTransaction.matched_entry_id: None},
+            synchronize_session=False,
+        )
+        db.query(BankReconciliationItem).filter(BankReconciliationItem.entry_id.in_(entry_ids)).update(
+            {BankReconciliationItem.entry_id: None},
+            synchronize_session=False,
+        )
+        db.query(EntryTag).filter(EntryTag.entry_id.in_(entry_ids)).delete(synchronize_session=False)
+    db.query(EntryTag).filter(EntryTag.ledger_id == ledger_id).delete(synchronize_session=False)
+    db.query(AccountingEntry).filter(entry_filter).delete(synchronize_session=False)
+    db.query(Voucher).filter(Voucher.ledger_id == ledger_id).delete(synchronize_session=False)
+    db.commit()
+
+    return {
+        "ledger_id": ledger_id,
+        "deleted_vouchers": voucher_count,
+        "deleted_entries": entry_count,
+    }
+
+
+def delete_ledger(db: Session, ledger_id: int, reason: str | None = None) -> dict[str, Any]:
+    """硬删除账簿：物理清除所有关联数据并删除账簿行。"""
+    import app.db.models  # noqa: F401 — register all ORM tables on Base.metadata
+    import app.models  # noqa: F401
+
+    from app.db.models import (
+        AccountingEntry,
+        AuditFinding,
+        AuditReport,
+        Entity,
+        EntryTag,
+        ImportJob,
+        SourceFile,
+        Voucher,
+    )
+    from app.db.session import Base
+    from app.models.binding_request import BindingRequest
+    from app.models.lifecycle_log import LifecycleLog
+    from app.models.project_ledger import ProjectLedger
+    from app.models.scope_settings import EntityScopeSettings, LedgerSettings
+    from app.models.user_ledger_auth import UserLedgerAuth
+
+    ledger = get_ledger_by_id(db, ledger_id)
+    if not ledger:
+        raise ValueError("账簿不存在，无法删除")
+
+    _ = reason  # 保留 API 参数，硬删除后不再写入 lifecycle 字段
+
+    db.query(User).filter(User.last_ledger_id == ledger_id).update(
+        {User.last_ledger_id: None}, synchronize_session=False
+    )
+    db.query(BindingRequest).filter(BindingRequest.ledger_id == ledger_id).update(
+        {BindingRequest.ledger_id: None}, synchronize_session=False
+    )
+
+    voucher_ids = [
+        row[0] for row in db.query(Voucher.id).filter(Voucher.ledger_id == ledger_id).all()
+    ]
+    entry_filter = AccountingEntry.ledger_id == ledger_id
+    if voucher_ids:
+        entry_filter = or_(entry_filter, AccountingEntry.voucher_id.in_(voucher_ids))
+    entry_ids_subq = db.query(AccountingEntry.id).filter(entry_filter)
+    db.query(EntryTag).filter(EntryTag.entry_id.in_(entry_ids_subq)).delete(synchronize_session=False)
+    db.query(EntryTag).filter(EntryTag.ledger_id == ledger_id).delete(synchronize_session=False)
+    db.query(AccountingEntry).filter(entry_filter).delete(synchronize_session=False)
+    db.query(Voucher).filter(Voucher.ledger_id == ledger_id).delete(synchronize_session=False)
+
+    job_ids = [
+        row[0] for row in db.query(ImportJob.id).filter(ImportJob.ledger_id == ledger_id).all()
+    ]
+    if job_ids:
+        db.query(AuditReport).filter(AuditReport.import_job_id.in_(job_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(AuditFinding).filter(AuditFinding.job_id.in_(job_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(SourceFile).filter(SourceFile.import_job_id.in_(job_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(ImportJob).filter(ImportJob.id.in_(job_ids)).delete(synchronize_session=False)
+    db.query(SourceFile).filter(SourceFile.ledger_id == ledger_id).delete(synchronize_session=False)
+
+    db.query(LifecycleLog).filter(
+        LifecycleLog.entity_type == "ledger",
+        LifecycleLog.entity_id == ledger_id,
+    ).delete(synchronize_session=False)
+
+    db.query(UserLedgerAuth).filter(UserLedgerAuth.ledger_id == ledger_id).delete(
+        synchronize_session=False
+    )
+    db.query(ProjectLedger).filter(ProjectLedger.ledger_id == ledger_id).delete(
+        synchronize_session=False
+    )
+    db.query(LedgerSettings).filter(LedgerSettings.ledger_id == ledger_id).delete(
+        synchronize_session=False
+    )
+    db.query(EntityScopeSettings).filter(EntityScopeSettings.ledger_id == ledger_id).delete(
+        synchronize_session=False
+    )
+
+    db.query(Entity).filter(Entity.ledger_id == ledger_id).update(
+        {Entity.parent_id: None}, synchronize_session=False
+    )
+
+    skip_tables = {"users", "binding_requests", "ledgers"}
+    for table in reversed(Base.metadata.sorted_tables):
+        if table.name in skip_tables:
+            continue
+        if "ledger_id" not in table.c:
+            continue
+        db.execute(sql_delete(table).where(table.c.ledger_id == ledger_id))
+
+    db.delete(ledger)
+    db.commit()
+    return {"deleted": True, "ledger_id": ledger_id}

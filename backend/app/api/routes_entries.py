@@ -1,14 +1,16 @@
 from typing import Any
 from datetime import date
 from decimal import Decimal, InvalidOperation
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
-from app.db.models import AccountingEntry, EntryTag
+from app.db.models import AccountingEntry, EntryTag, SourceFile, Voucher
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.accounting_entry import AccountingEntryRead, TagUpdate
@@ -16,7 +18,12 @@ from app.services.shared import ledger_management_service
 from app.services.accounting.entry_delete_service import VoucherDeleteKey, delete_vouchers_transactional
 from app.services.accounting.entry_query_service import load_voucher_lines, query_chronological_entries, query_vouchers
 from app.services.accounting.voucher_card_resolver import resolve_voucher_card_fields, resolve_voucher_card_fields_from_slim_rows
-from app.services.doc_parsing.vector_store_service import safe_vector_store
+from app.services.accounting.voucher_review_service import (
+    review_voucher,
+    review_vouchers_batch,
+    unreview_voucher,
+)
+from app.services.doc_parsing.draft_archive_service import get_evidence_lifecycle, load_archive_metadata
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
@@ -192,7 +199,7 @@ def list_entries(
     review_status: str | None = Query(None, description="复核状态筛选：draft/verified/ready"),
     date_from: date | None = Query(None, description="凭证日期起"),
     date_to: date | None = Query(None, description="凭证日期止"),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ) -> EntryListResponse:
@@ -227,15 +234,29 @@ def list_entries(
 def list_chronological_entries(
     ledger_id: int = Query(..., description="账簿 ID"),
     period_id: int | None = Query(None, description="会计期间 ID"),
+    period_ids: str | None = Query(None, description="多会计期间 JSON 数组，如 [1,2,3]"),
     date_from: date | None = Query(None, description="凭证日期起"),
     date_to: date | None = Query(None, description="凭证日期止"),
-    account_code: str | None = Query(None, description="科目代码（模糊）"),
+    account_code: str | None = Query(None, description="科目代码"),
+    account_codes: str | None = Query(None, description="多科目 JSON 数组，如 [\"1001\",\"1002\"]"),
+    account_code_match: str = Query(
+        "contains",
+        description="科目匹配方式：exact 精确 / prefix 本级及下级 / contains 模糊",
+    ),
     account_name: str | None = Query(None, description="科目名称（模糊）"),
     summary: str | None = Query(None, description="分录摘要（模糊）"),
     voucher_word: str | None = Query(None, description="记字号/凭证字，如 记、收、付、转"),
     voucher_no: str | None = Query(None, description="凭证号（模糊）"),
     amount_min: Decimal | None = Query(None, description="金额下限（借或贷）"),
     amount_max: Decimal | None = Query(None, description="金额上限（借或贷）"),
+    tag_category_code: str | None = Query(None, description="维度分类 code"),
+    tag_value: str | None = Query(None, description="维度 tag 值"),
+    tag_filters: str | None = Query(None, description="多维组合筛选 JSON：[{category_code,tag_value}]"),
+    counterparty: str | None = Query(None, description="往来单位（模糊）"),
+    tag_match_scope: str = Query(
+        "entry",
+        description="tag 匹配范围：entry 仅本分录行 / voucher 同凭证任一行（明细账对方科目维度）",
+    ),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -245,19 +266,32 @@ def list_chronological_entries(
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
 
+    from app.services.accounting.entry_query_service import parse_account_codes, parse_period_ids
+    from app.services.accounting.subsidiary_ledger_service import _parse_tag_filters
+
+    resolved_codes = parse_account_codes(account_codes, fallback=account_code)
+    resolved_period_ids = parse_period_ids(period_ids, fallback=period_id)
     items, total = query_chronological_entries(
         db,
         ledger_id=ledger_id,
-        period_id=period_id,
+        period_id=period_id if not period_ids else None,
+        period_ids=resolved_period_ids or None,
         date_from=date_from,
         date_to=date_to,
-        account_code=account_code,
+        account_code=account_code if not resolved_codes else None,
+        account_codes=resolved_codes or None,
+        account_code_match=account_code_match,
         account_name=account_name,
         summary=summary,
         voucher_word=voucher_word,
         voucher_no=voucher_no,
         amount_min=amount_min,
         amount_max=amount_max,
+        tag_category_code=tag_category_code,
+        tag_value=tag_value,
+        tag_filters=_parse_tag_filters(tag_filters),
+        counterparty=counterparty,
+        tag_match_scope=tag_match_scope,
         limit=limit,
         offset=offset,
     )
@@ -266,6 +300,186 @@ def list_chronological_entries(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get("/ledger-account-codes")
+def list_ledger_account_codes(
+    ledger_id: int = Query(..., description="账簿 ID"),
+    limit: int = Query(500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """账簿内实际出现过的科目编码（用于明细账科目选择）。"""
+    if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
+    rows = (
+        db.query(
+            AccountingEntry.account_code,
+            AccountingEntry.account_name,
+            func.count(AccountingEntry.id).label("entry_count"),
+        )
+        .filter(
+            AccountingEntry.ledger_id == ledger_id,
+            AccountingEntry.account_code.isnot(None),
+            AccountingEntry.account_code != "",
+        )
+        .group_by(AccountingEntry.account_code, AccountingEntry.account_name)
+        .order_by(AccountingEntry.account_code.asc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "account_code": row.account_code,
+            "account_name": row.account_name,
+            "entry_count": int(row.entry_count or 0),
+        }
+        for row in rows
+    ]
+
+
+@router.get("/subsidiary-ledger/opening-balance")
+def subsidiary_ledger_opening_balance(
+    ledger_id: int = Query(...),
+    account_code: str | None = Query(None),
+    account_codes: str | None = Query(None),
+    account_code_match: str = Query(
+        "prefix",
+        description="明细账固定按科目汇总：含本级及全部下级明细科目分录",
+    ),
+    organization_id: int | None = Query(None),
+    period_id: int | None = Query(None),
+    period_ids: str | None = Query(None),
+    date_from: date | None = Query(None),
+    summary: str | None = Query(None),
+    counterparty: str | None = Query(None),
+    tag_category_code: str | None = Query(None),
+    tag_value: str | None = Query(None),
+    tag_filters: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
+    from app.services.accounting.entry_query_service import parse_account_codes, parse_period_ids
+    from app.services.accounting.subsidiary_ledger_service import compute_subsidiary_opening_balance
+
+    resolved_codes = parse_account_codes(account_codes, fallback=account_code)
+    if not resolved_codes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少选择一个科目")
+    resolved_period_ids = parse_period_ids(period_ids, fallback=period_id)
+
+    return compute_subsidiary_opening_balance(
+        db,
+        ledger_id=ledger_id,
+        account_code=resolved_codes[0],
+        account_codes=resolved_codes,
+        account_code_match=account_code_match,
+        organization_id=organization_id,
+        period_id=period_id if not period_ids else None,
+        period_ids=resolved_period_ids or None,
+        date_from=date_from,
+        summary=summary,
+        counterparty=counterparty,
+        tag_category_code=tag_category_code,
+        tag_value=tag_value,
+        tag_filters_raw=tag_filters,
+    )
+
+
+@router.get("/subsidiary-ledger/export")
+def export_subsidiary_ledger(
+    ledger_id: int = Query(...),
+    account_code: str | None = Query(None),
+    account_codes: str | None = Query(None),
+    account_code_match: str = Query(
+        "prefix",
+        description="明细账固定按科目汇总：含本级及全部下级明细科目分录",
+    ),
+    period_id: int | None = Query(None),
+    period_ids: str | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    summary: str | None = Query(None),
+    counterparty: str | None = Query(None),
+    tag_category_code: str | None = Query(None),
+    tag_value: str | None = Query(None),
+    tag_filters: str | None = Query(None),
+    organization_id: int | None = Query(None),
+    category_codes: str | None = Query(None, description="导出维度列，逗号分隔"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
+    from app.services.accounting.entry_query_service import parse_account_codes, parse_period_ids
+    from app.services.accounting.subsidiary_ledger_service import (
+        compute_subsidiary_opening_balance,
+        export_subsidiary_ledger_xlsx,
+    )
+
+    resolved_codes = parse_account_codes(account_codes, fallback=account_code)
+    if not resolved_codes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少选择一个科目")
+    resolved_period_ids = parse_period_ids(period_ids, fallback=period_id)
+
+    opening = compute_subsidiary_opening_balance(
+        db,
+        ledger_id=ledger_id,
+        account_code=resolved_codes[0],
+        account_codes=resolved_codes,
+        account_code_match=account_code_match,
+        organization_id=organization_id,
+        period_id=period_id if not period_ids else None,
+        period_ids=resolved_period_ids or None,
+        date_from=date_from,
+        summary=summary,
+        counterparty=counterparty,
+        tag_category_code=tag_category_code,
+        tag_value=tag_value,
+        tag_filters_raw=tag_filters,
+    )
+    dim_codes = [code.strip() for code in (category_codes or "").split(",") if code.strip()]
+    from app.db.models import AccountingPeriod
+    from app.models.ledger import Ledger
+    from app.services.accounting.export_filename_service import build_report_export_filename, content_disposition_attachment
+
+    ledger = db.get(Ledger, ledger_id)
+    period = db.get(AccountingPeriod, period_id) if period_id else None
+    body = export_subsidiary_ledger_xlsx(
+        db,
+        ledger_id=ledger_id,
+        account_code=resolved_codes[0],
+        account_codes=resolved_codes,
+        account_code_match=account_code_match,
+        period_id=period_id if not period_ids else None,
+        period_ids=resolved_period_ids or None,
+        date_from=date_from,
+        date_to=date_to,
+        summary=summary,
+        counterparty=counterparty,
+        tag_category_code=tag_category_code,
+        tag_value=tag_value,
+        tag_filters_raw=tag_filters,
+        opening_balance=opening["opening_balance"],
+        direction=opening["direction"],
+        category_codes=dim_codes,
+        ledger_name=ledger.name if ledger else None,
+        period_code=period.period_code if period else None,
+    )
+    filename = build_report_export_filename(
+        "subsidiary_ledger",
+        ledger_name=ledger.name if ledger else None,
+        period_code=period.period_code if period else None,
+        fmt="xlsx",
+    )
+    if filename.startswith("ledger_"):
+        filename = f"05_明细账_{resolved_codes[0]}.xlsx"
+    return StreamingResponse(
+        iter([body]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": content_disposition_attachment(filename)},
     )
 
 
@@ -317,8 +531,10 @@ def list_voucher_cards(
     credit_max: Decimal | None = Query(None, description="贷方金额上限"),
     total_min: Decimal | None = Query(None, description="凭证合计金额下限"),
     total_max: Decimal | None = Query(None, description="凭证合计金额上限"),
+    import_job_id: int | None = Query(None, description="导入任务 ID（向导审核场景按批次筛选）"),
+    review_status: str | None = Query(None, description="分录复核状态（如 pending / reviewed）"),
     include_lines: bool = Query(False, description="是否返回每张凭证的全部分录行（默认否，展开时再请求 /vouchers/lines）"),
-    limit: int = Query(10, ge=1, le=500),
+    limit: int = Query(10, ge=1, le=500, description="单页最多返回的凭证张数"),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -348,6 +564,8 @@ def list_voucher_cards(
         credit_max=credit_max,
         total_min=total_min,
         total_max=total_max,
+        import_job_id=import_job_id,
+        review_status=review_status,
         limit=limit,
         offset=offset,
         include_lines=include_lines,
@@ -382,6 +600,67 @@ def get_voucher_lines(
     return VoucherLinesResponse(items=[VoucherLineRead.model_validate(line) for line in lines])
 
 
+@router.get("/{entry_id}/source-evidence")
+def get_entry_source_evidence(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """从分录反查证据云空间原件。"""
+    entry = db.get(AccountingEntry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="分录不存在")
+    if entry.ledger_id and not ledger_management_service.user_has_ledger_access(
+        db, current_user.id, entry.ledger_id
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
+    if not entry.source_file_id:
+        return {
+            "entry_id": entry_id,
+            "source_file_id": None,
+            "linked": False,
+            "evidence_path": None,
+            "source_file": None,
+        }
+    source_file = db.get(SourceFile, entry.source_file_id)
+    if not source_file:
+        return {
+            "entry_id": entry_id,
+            "source_file_id": entry.source_file_id,
+            "linked": False,
+            "evidence_path": f"/ledger/files?fileId={entry.source_file_id}",
+            "source_file": None,
+        }
+    archive = load_archive_metadata(source_file) or {}
+    lifecycle = get_evidence_lifecycle(source_file)
+    evidence_meta: dict[str, Any] = {}
+    try:
+        notes = json.loads(source_file.notes or "{}")
+        raw = notes.get("evidence")
+        if isinstance(raw, dict):
+            evidence_meta = raw
+    except json.JSONDecodeError:
+        evidence_meta = {}
+    return {
+        "entry_id": entry_id,
+        "source_file_id": source_file.id,
+        "linked": True,
+        "evidence_path": f"/ledger/files?fileId={source_file.id}",
+        "source_file": {
+            "id": source_file.id,
+            "filename": source_file.filename,
+            "file_type": source_file.file_type,
+            "ledger_id": source_file.ledger_id,
+            "parse_status": source_file.text_extract_status,
+            "evidence_lifecycle": lifecycle,
+            "ingest_channel": evidence_meta.get("ingest_channel"),
+            "archive_category": archive.get("archive_category"),
+            "period_code": archive.get("period_code"),
+            "project_id": archive.get("project_id"),
+        },
+    }
+
+
 @router.post("/vouchers/batch-delete", response_model=VoucherBatchDeleteResponse)
 def batch_delete_vouchers(
     payload: VoucherBatchDeleteRequest,
@@ -406,6 +685,40 @@ def batch_delete_vouchers(
         db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"删除凭证失败: {exc}") from exc
     return VoucherBatchDeleteResponse(**result)
+
+
+class VoucherReviewBatchRequest(BaseModel):
+    voucher_ids: list[int]
+
+
+@router.post("/vouchers/{voucher_id}/review")
+def review_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    try:
+        voucher = review_voucher(db, voucher_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"voucher_id": voucher.id, "status": voucher.status, "reviewed": True}
+
+
+@router.post("/vouchers/review-batch")
+def review_vouchers_batch_endpoint(
+    payload: VoucherReviewBatchRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        count = review_vouchers_batch(db, payload.voucher_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"reviewed_count": count}
+
+
+@router.post("/vouchers/{voucher_id}/unreview")
+def unreview_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    try:
+        voucher = unreview_voucher(db, voucher_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"voucher_id": voucher.id, "status": voucher.status, "reviewed": False}
 
 
 @router.patch("/{entry_id}", response_model=AccountingEntryRead)

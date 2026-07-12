@@ -10,6 +10,8 @@ from sqlalchemy.pool import StaticPool
 from app.db.models import AccountingEntry, ImportJob, Organization
 from app.db.session import Base, get_db
 from app.main import app
+from app.models.ledger import Ledger
+from app.models.team import Team
 
 
 @pytest.fixture
@@ -44,7 +46,19 @@ def _seed(TestingSessionLocal):
         org = Organization(name="导出测试", fiscal_year=2026)
         db.add(org)
         db.flush()
-        job = ImportJob(organization_id=org.id, status="completed", entry_count=2, file_count=1)
+        team = Team(name="导出团队", type="firm")
+        db.add(team)
+        db.flush()
+        ledger = Ledger(name="测试账套A", team_id=team.id, status="active")
+        db.add(ledger)
+        db.flush()
+        job = ImportJob(
+            organization_id=org.id,
+            ledger_id=ledger.id,
+            status="completed",
+            entry_count=2,
+            file_count=1,
+        )
         db.add(job)
         db.flush()
         db.add(
@@ -96,6 +110,8 @@ def test_export_xlsx_returns_xlsx(client):
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     assert "attachment" in response.headers["content-disposition"]
+    assert f"job{job_id}_entries.xlsx" in response.headers["content-disposition"] or f"job{job_id}" in response.headers["content-disposition"]
+    assert "测试账套A" in response.headers["content-disposition"] or "UTF-8" in response.headers["content-disposition"]
     assert len(response.content) > 100
 
 
@@ -125,6 +141,45 @@ def test_export_unknown_job_404(client):
     test_client, _ = client
     response = test_client.get("/api/import-jobs/9999/export", params={"format": "xlsx"})
     assert response.status_code == 404
+
+
+def test_post_pending_import_entries(client):
+    test_client, TestingSessionLocal = client
+    db = TestingSessionLocal()
+    try:
+        org = Organization(name="过账测试", fiscal_year=2026)
+        db.add(org)
+        db.flush()
+        job = ImportJob(organization_id=org.id, status="preview", entry_count=1, file_count=1)
+        db.add(job)
+        db.flush()
+        db.add(
+            AccountingEntry(
+                organization_id=org.id,
+                import_job_id=job.id,
+                entry_source="auto",
+                voucher_no="银-002",
+                entry_line_no=1,
+                voucher_date=date(2026, 1, 6),
+                summary="测试",
+                account_code="1002",
+                account_name="银行存款",
+                debit_amount=Decimal("500"),
+                credit_amount=Decimal("0"),
+                review_status="pending",
+                post_status="draft",
+            )
+        )
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+
+    response = test_client.post(f"/api/import-jobs/{job_id}/post")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["posted"] == 1
+    assert payload["total"] == 1
 
 
 def test_export_unknown_format_400(client):

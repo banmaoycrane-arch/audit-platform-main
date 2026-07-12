@@ -7,7 +7,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db.models import AccountingEntry, EntryTag, ImportJob, Organization
+from app.db.models import AccountingEntry, EntryTag, ImportJob, Organization, TagCategory
+from app.models.ledger import Ledger
+from app.models.team import Team
 from app.db.session import Base, get_db
 from app.main import app
 
@@ -213,3 +215,102 @@ def test_unknown_entry_get_and_post_tags_return_404(client):
 
     assert get_resp.status_code == 404
     assert post_resp.status_code == 404
+
+
+def _seed_ledger(TestingSessionLocal) -> int:
+    db = TestingSessionLocal()
+    try:
+        team = Team(name="分类测试团队", type="virtual")
+        db.add(team)
+        db.flush()
+        ledger = Ledger(name="分类测试账簿", team_id=team.id)
+        db.add(ledger)
+        db.commit()
+        return ledger.id
+    finally:
+        db.close()
+
+
+def test_create_tag_category_persists_and_lists(client):
+    test_client, TestingSessionLocal = client
+    ledger_id = _seed_ledger(TestingSessionLocal)
+
+    create_resp = test_client.post(
+        f"/api/entry-tags/categories?ledger_id={ledger_id}",
+        json={"code": "product_line", "name": "产品线"},
+    )
+    assert create_resp.status_code == 200
+    created = create_resp.json()
+    assert created["code"] == "product_line"
+    assert created["name"] == "产品线"
+
+    list_resp = test_client.get(f"/api/entry-tags/categories?ledger_id={ledger_id}&status=all")
+    assert list_resp.status_code == 200
+    codes = [node["code"] for node in list_resp.json()]
+    assert "product_line" in codes
+
+    db = TestingSessionLocal()
+    try:
+        row = db.query(TagCategory).filter(TagCategory.code == "product_line").one()
+        assert row.ledger_id == ledger_id
+        assert row.name == "产品线"
+    finally:
+        db.close()
+
+
+def test_batch_get_entry_tags_returns_category_fields(client):
+    test_client, TestingSessionLocal = client
+    ledger_id = _seed_ledger(TestingSessionLocal)
+    db = TestingSessionLocal()
+    try:
+        org = Organization(name="批量标签", fiscal_year=2026)
+        db.add(org)
+        db.flush()
+        job = ImportJob(organization_id=org.id, status="completed", source_type="voucher_import")
+        db.add(job)
+        db.flush()
+        category = TagCategory(ledger_id=ledger_id, code="dept", name="部门")
+        db.add(category)
+        db.flush()
+        entry = AccountingEntry(
+            organization_id=org.id,
+            import_job_id=job.id,
+            ledger_id=ledger_id,
+            voucher_no="记-010",
+            voucher_date=date(2026, 1, 10),
+            summary="测试",
+            account_code="1002",
+            account_name="银行存款",
+            debit_amount=Decimal("100"),
+            credit_amount=Decimal("0"),
+            normalized_text="记-010",
+            entry_line_no=1,
+        )
+        db.add(entry)
+        db.flush()
+        db.add(
+            EntryTag(
+                entry_id=entry.id,
+                ledger_id=ledger_id,
+                category_id=category.id,
+                tag_name="dept",
+                tag_value="财务部",
+                display_name="财务部",
+            )
+        )
+        db.commit()
+        entry_id = entry.id
+    finally:
+        db.close()
+
+    resp = test_client.post(
+        "/api/entry-tags/tags/batch",
+        json={"entry_ids": [entry_id], "ledger_id": ledger_id},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["category_code"] == "dept"
+    assert body[0]["category_name"] == "部门"
+    assert body[0]["tag_value"] == "财务部"

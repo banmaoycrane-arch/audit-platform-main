@@ -1,5 +1,22 @@
 # AI 凭证证据充分性、EntryTag 语义体系与重分类规则总 Spec
 
+```text
+Domain: D04/D05 交界 — 凭证草稿与证据链
+Status: active-increment
+Owner Spec: govern-ai-voucher-evidence-tags（本文档）
+Depends On: document-parsing-engine, parser-dual-scenario-strategy.md
+In Scope:
+- 证据充分性判断 → draft 而非强行 post
+- EntryTag 语义层、重分类规则
+- 合同等多来源 → 同一 business_key 多草稿（增量 Task G1）
+Out of Scope:
+- 解析引擎分层、印章检测（→ document-parsing-engine / seal）
+- 正式凭证 post、结账
+Acceptance Level: 多草稿 UI + 审计留痕；与 parser-voucher 预览链路联调
+```
+
+> 多草稿模型见 [parser-dual-scenario-strategy.md](../../documents/parser-dual-scenario-strategy.md) §5.3。
+
 ## Why
 
 AI 自动生成会计凭证不能只追求“自动化”，还必须符合会计证据链和审计可追溯要求。当原始资料不足以判断完整会计分录时，系统应当提示补充资料、暂存为 draft 草稿，而不是强行指定科目。

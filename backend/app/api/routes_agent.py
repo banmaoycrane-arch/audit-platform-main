@@ -25,13 +25,20 @@ from app.services.agent.agent_tool_execution_service import run_low_risk_agent_t
 from app.services.agent.agent_tool_registry import get_agent_tool
 from app.services.audit.audit_case_template_service import build_due_diligence_case_template
 from app.services.doc_parsing.execution_audit_service import create_execution_audit_log
-from app.services.agent.model_config_service import get_model_config_status
+from app.services.agent.agent_assist_service import run_agent_assist
+from app.services.agent.agent_model_resolver import resolve_agent_llm_config
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 
 class AgentChatRequest(BaseModel):
     message: str
+
+
+class AgentAssistRequest(BaseModel):
+    message: str
+    conversation_history: list[dict[str, str]] | None = None
+    auto_execute_tools: bool = True
 
 
 class AgentToolRunRequest(BaseModel):
@@ -238,8 +245,50 @@ def _write_agent_orchestration_audit_log(
 @router.get("/model/config")
 def get_agent_model_config(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    return get_model_config_status()
+    from app.services.agent.model_config_service import get_model_config_status
+
+    status = get_model_config_status()
+    resolved = resolve_agent_llm_config(db)
+    status["config_source"] = resolved.get("source")
+    status["is_ollama"] = resolved.get("is_ollama")
+    status["agent_mode"] = "conversational_assist"
+    return status
+
+
+@router.post("/assist")
+def agent_assist(
+    payload: AgentAssistRequest,
+    current_user: User = Depends(get_current_user),
+    ledger_id: int | None = Depends(get_current_ledger),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """对话式助手：鉴权下自动执行低风险 API 工具，无需跳转页面。"""
+    message = payload.message.strip()
+    if not message:
+        _write_agent_audit_log(
+            db, current_user, ledger_id, message, "agent_assist", "failed", error_message="message 不能为空"
+        )
+        raise HTTPException(status_code=400, detail="message 不能为空")
+    try:
+        result = run_agent_assist(
+            db,
+            message=message,
+            user_id=current_user.id,
+            ledger_id=ledger_id,
+            conversation_history=payload.conversation_history,
+            max_tool_rounds=2 if payload.auto_execute_tools else 0,
+        )
+    except ValueError as exc:
+        _write_agent_audit_log(db, current_user, ledger_id, message, "agent_assist", "failed", error_message=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        _write_agent_audit_log(db, current_user, ledger_id, message, "agent_assist", "failed", error_message=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    _write_agent_audit_log(db, current_user, ledger_id, message, "agent_assist", "success", result=result)
+    return result
 
 
 @router.post("/chat")

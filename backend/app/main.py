@@ -39,6 +39,7 @@ from app.api.routes_binding_requests import router as binding_requests_router
 from app.api.routes_confirmations import router as confirmations_router
 from app.api.routes_purchase_match import router as purchase_match_router
 from app.api.routes_vouchers import router as vouchers_router
+from app.api.routes_workbench import router as workbench_router
 from app.api.routes_workpapers import router as workpapers_router
 from app.api.routes_audit_workflow import router as audit_workflow_router
 from app.api.routes_audit_branches import router as audit_branches_router
@@ -53,6 +54,7 @@ from app.api.routes_team import router as team_router
 from app.api.routes_scope_settings import router as scope_settings_router
 from app.api.routes_parser_engine import router as parser_engine_router
 from app.api.routes_parse_correction import router as parse_correction_router
+from app.api.routes_parser_evolution import router as parser_evolution_router
 from app.api.routes_parser_voucher import router as parser_voucher_router
 from app.api.routes_config import router as config_router
 from app.api.routes_llm_resolution import router as llm_resolution_router
@@ -107,6 +109,7 @@ def _ensure_local_sqlite_schema() -> None:
             import_job_columns = {column["name"] for column in inspector.get_columns("import_jobs")}
             import_job_missing_columns = {
                 "ledger_id": "ALTER TABLE import_jobs ADD COLUMN ledger_id INTEGER",
+                "draft_data": "ALTER TABLE import_jobs ADD COLUMN draft_data JSON",
                 "audit_scope_type": "ALTER TABLE import_jobs ADD COLUMN audit_scope_type VARCHAR(40)",
                 "audit_period_id": "ALTER TABLE import_jobs ADD COLUMN audit_period_id INTEGER",
                 "audit_account_codes": "ALTER TABLE import_jobs ADD COLUMN audit_account_codes JSON",
@@ -132,8 +135,15 @@ def _ensure_local_sqlite_schema() -> None:
 
         if "ledgers" in table_names:
             ledger_columns = {column["name"] for column in inspector.get_columns("ledgers")}
-            if "accounting_start_date" not in ledger_columns:
-                connection.execute(text("ALTER TABLE ledgers ADD COLUMN accounting_start_date DATE"))
+            ledger_missing_columns = {
+                "organization_id": "ALTER TABLE ledgers ADD COLUMN organization_id INTEGER",
+                "accounting_start_date": "ALTER TABLE ledgers ADD COLUMN accounting_start_date DATE",
+                "is_working": "ALTER TABLE ledgers ADD COLUMN is_working BOOLEAN DEFAULT 0 NOT NULL",
+                "project_id": "ALTER TABLE ledgers ADD COLUMN project_id INTEGER",
+            }
+            for column_name, ddl in ledger_missing_columns.items():
+                if column_name not in ledger_columns:
+                    connection.execute(text(ddl))
 
         if "accounting_periods" in table_names:
             period_columns = {column["name"] for column in inspector.get_columns("accounting_periods")}
@@ -150,6 +160,8 @@ def _ensure_local_sqlite_schema() -> None:
         if "chart_of_accounts" in table_names:
             account_columns = {column["name"] for column in inspector.get_columns("chart_of_accounts")}
             account_missing_columns = {
+                "ledger_id": "ALTER TABLE chart_of_accounts ADD COLUMN ledger_id INTEGER",
+                "organization_id": "ALTER TABLE chart_of_accounts ADD COLUMN organization_id INTEGER",
                 "account_category": "ALTER TABLE chart_of_accounts ADD COLUMN account_category VARCHAR(40)",
                 "account_subcategory": "ALTER TABLE chart_of_accounts ADD COLUMN account_subcategory VARCHAR(40)",
                 "equity_subcategory": "ALTER TABLE chart_of_accounts ADD COLUMN equity_subcategory VARCHAR(40)",
@@ -158,6 +170,41 @@ def _ensure_local_sqlite_schema() -> None:
             for column_name, ddl in account_missing_columns.items():
                 if column_name not in account_columns:
                     connection.execute(text(ddl))
+            if "ledger_id" not in account_columns or any(
+                row[0] is None
+                for row in connection.execute(
+                    text("SELECT ledger_id FROM chart_of_accounts LIMIT 1")
+                ).fetchall()
+            ):
+                default_ledger_id = connection.execute(text("SELECT MIN(id) FROM ledgers")).scalar()
+                if default_ledger_id is not None:
+                    connection.execute(
+                        text(
+                            "UPDATE chart_of_accounts SET ledger_id = :ledger_id WHERE ledger_id IS NULL"
+                        ),
+                        {"ledger_id": default_ledger_id},
+                    )
+            legacy_code_index = connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='index' "
+                    "AND tbl_name='chart_of_accounts' AND name='ix_chart_of_accounts_code'"
+                )
+            ).fetchone()
+            if legacy_code_index:
+                connection.execute(text("DROP INDEX ix_chart_of_accounts_code"))
+            ledger_code_index = connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='index' "
+                    "AND name='uq_chart_of_accounts_ledger_code'"
+                )
+            ).fetchone()
+            if not ledger_code_index:
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX uq_chart_of_accounts_ledger_code "
+                        "ON chart_of_accounts (ledger_id, code)"
+                    )
+                )
 
         if "counterparties" in table_names:
             counterparty_columns = {column["name"] for column in inspector.get_columns("counterparties")}
@@ -211,6 +258,7 @@ def _ensure_local_sqlite_schema() -> None:
             entry_columns = {column["name"] for column in inspector.get_columns("accounting_entries")}
             entry_missing_columns = {
                 "ledger_id": "ALTER TABLE accounting_entries ADD COLUMN ledger_id INTEGER",
+                "voucher_id": "ALTER TABLE accounting_entries ADD COLUMN voucher_id INTEGER",
                 "entity_id": "ALTER TABLE accounting_entries ADD COLUMN entity_id INTEGER",
                 "original_entity_name": "ALTER TABLE accounting_entries ADD COLUMN original_entity_name VARCHAR(500)",
                 "source_file_id": "ALTER TABLE accounting_entries ADD COLUMN source_file_id INTEGER",
@@ -255,6 +303,33 @@ def _ensure_local_sqlite_schema() -> None:
             }
             for column_name, ddl in risk_missing_columns.items():
                 if column_name not in risk_columns:
+                    connection.execute(text(ddl))
+
+        if "bank_accounts" in table_names:
+            bank_columns = {column["name"] for column in inspector.get_columns("bank_accounts")}
+            if "source_sub_code" not in bank_columns:
+                connection.execute(text("ALTER TABLE bank_accounts ADD COLUMN source_sub_code VARCHAR(20)"))
+
+        voucher_signature_columns = {
+            "vouchers": {
+                "source_preparer_name": "ALTER TABLE vouchers ADD COLUMN source_preparer_name VARCHAR(200)",
+                "cross_reviewed_by_user_id": "ALTER TABLE vouchers ADD COLUMN cross_reviewed_by_user_id INTEGER",
+                "cross_reviewed_at": "ALTER TABLE vouchers ADD COLUMN cross_reviewed_at DATETIME",
+                "approved_by_user_id": "ALTER TABLE vouchers ADD COLUMN approved_by_user_id INTEGER",
+                "approved_at": "ALTER TABLE vouchers ADD COLUMN approved_at DATETIME",
+            },
+            "staging_accounting_entries": {
+                "source_preparer_name": "ALTER TABLE staging_accounting_entries ADD COLUMN source_preparer_name VARCHAR(200)",
+                "cross_reviewed_by_user_id": "ALTER TABLE staging_accounting_entries ADD COLUMN cross_reviewed_by_user_id INTEGER",
+                "cross_reviewed_at": "ALTER TABLE staging_accounting_entries ADD COLUMN cross_reviewed_at DATETIME",
+            },
+        }
+        for table_name, missing_columns in voucher_signature_columns.items():
+            if table_name not in table_names:
+                continue
+            existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+            for column_name, ddl in missing_columns.items():
+                if column_name not in existing_columns:
                     connection.execute(text(ddl))
 
         register_table_columns = {
@@ -374,6 +449,7 @@ application.include_router(risks_router)
 application.include_router(accounting_periods_router)
 application.include_router(accounting_units_router)
 application.include_router(agent_router)
+application.include_router(workbench_router)
 application.include_router(audit_tests_router)
 application.include_router(audit_export_router)
 application.include_router(document_parsing_router)
@@ -399,6 +475,7 @@ application.include_router(team_router)
 application.include_router(scope_settings_router)
 application.include_router(parser_engine_router)
 application.include_router(parse_correction_router)
+application.include_router(parser_evolution_router)
 application.include_router(parser_voucher_router)
 application.include_router(config_router)
 application.include_router(llm_resolution_router)

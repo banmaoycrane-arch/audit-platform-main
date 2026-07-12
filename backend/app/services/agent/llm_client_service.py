@@ -11,6 +11,7 @@
     2025-01-20  封装为 LlmClientService 类
 """
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -26,6 +27,7 @@ class LLMResult:
     content: str | None = None
     error: str | None = None
     model: str | None = None
+    thinking: str | None = None
 
 
 class LightweightLLMClient:
@@ -54,6 +56,7 @@ class LightweightLLMClient:
                 ai_base_url=config.get("ai_base_url", ""),
                 ai_model=config.get("ai_model", ""),
                 ai_api_key=config.get("ai_api_key", None),
+                llm_timeout_seconds=int(config.get("llm_timeout_seconds") or 30),
             )
         else:
             self.settings = settings or get_settings()
@@ -66,7 +69,13 @@ class LightweightLLMClient:
         """检查LLM是否已配置。"""
         return bool(self.settings.ai_base_url and self.settings.ai_model)
 
-    def chat(self, messages: list[dict[str, Any]], temperature: float = 0.2) -> LLMResult:
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        *,
+        timeout_seconds: int | None = None,
+    ) -> LLMResult:
         """
         调用LLM聊天接口
 
@@ -115,7 +124,11 @@ class LightweightLLMClient:
 
             payload = json.dumps(body).encode("utf-8")
             req = request.Request(url, data=payload, headers=headers, method="POST")
-            with request.urlopen(req, timeout=60) as response:
+            if timeout_seconds is None:
+                configured_timeout = int(getattr(self.settings, "llm_timeout_seconds", 30) or 30)
+                # 本地 Ollama + 合规类长 prompt 常超过 2 分钟
+                timeout_seconds = max(configured_timeout, 300) if self.is_ollama else max(configured_timeout, 90)
+            with request.urlopen(req, timeout=timeout_seconds) as response:
                 data = json.loads(response.read().decode("utf-8"))
 
             # 解析返回内容
@@ -141,6 +154,108 @@ class LightweightLLMClient:
         except Exception as exc:
             return LLMResult(available=False, error=str(exc), model=self.settings.ai_model)
 
+    def iter_chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        *,
+        timeout_seconds: int | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """
+        流式调用 LLM（主要用于 Ollama 本地模型），逐块产出思索/回复文本。
+
+        Yields:
+            {"channel": "thinking"|"content", "delta": str, "text": str}
+            结束时 yield {"channel": "done", "content": str, "thinking": str}
+            失败时 yield {"channel": "error", "error": str}
+        """
+        if not self.is_configured():
+            yield {"channel": "error", "error": "LLM 未配置"}
+            return
+
+        if timeout_seconds is None:
+            configured_timeout = int(getattr(self.settings, "llm_timeout_seconds", 30) or 30)
+            timeout_seconds = max(configured_timeout, 300) if self.is_ollama else max(configured_timeout, 90)
+
+        if not self.is_ollama:
+            result = self.chat(messages, temperature, timeout_seconds=timeout_seconds)
+            if not result.available:
+                yield {"channel": "error", "error": result.error or "LLM 调用失败"}
+                return
+            if result.content:
+                yield {"channel": "content", "delta": result.content, "text": result.content}
+            yield {
+                "channel": "done",
+                "content": result.content or "",
+                "thinking": result.thinking or "",
+            }
+            return
+
+        base_url = self.settings.ai_base_url.rstrip("/").rstrip("/v1")
+        url = f"{base_url}/api/chat"
+        body = {
+            "model": self.settings.ai_model,
+            "messages": messages,
+            "stream": True,
+            "options": {"temperature": temperature},
+        }
+        headers = {"Content-Type": "application/json"}
+        if self.settings.ai_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.ai_api_key}"
+
+        full_content = ""
+        full_thinking = ""
+        try:
+            payload = json.dumps(body).encode("utf-8")
+            req = request.Request(url, data=payload, headers=headers, method="POST")
+            with request.urlopen(req, timeout=timeout_seconds) as response:
+                buffer = ""
+                while True:
+                    raw = response.read(4096)
+                    if not raw:
+                        break
+                    buffer += raw.decode("utf-8", errors="replace")
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        message = data.get("message") or {}
+                        thinking_delta = str(message.get("thinking") or "")
+                        content_delta = str(message.get("content") or "")
+                        if thinking_delta:
+                            full_thinking += thinking_delta
+                            yield {
+                                "channel": "thinking",
+                                "delta": thinking_delta,
+                                "text": full_thinking,
+                            }
+                        if content_delta:
+                            full_content += content_delta
+                            yield {
+                                "channel": "content",
+                                "delta": content_delta,
+                                "text": full_content,
+                            }
+                        if data.get("done"):
+                            yield {
+                                "channel": "done",
+                                "content": full_content,
+                                "thinking": full_thinking,
+                            }
+                            return
+            yield {
+                "channel": "done",
+                "content": full_content,
+                "thinking": full_thinking,
+            }
+        except Exception as exc:
+            yield {"channel": "error", "error": str(exc)}
+
 
 class LlmClientService:
     """LLM客户端服务包装类"""
@@ -151,8 +266,23 @@ class LlmClientService:
     def is_configured(self) -> bool:
         return self.client.is_configured()
     
-    def chat(self, messages: list[dict[str, Any]], temperature: float = 0.2) -> LLMResult:
-        return self.client.chat(messages, temperature)
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        *,
+        timeout_seconds: int | None = None,
+    ) -> LLMResult:
+        return self.client.chat(messages, temperature, timeout_seconds=timeout_seconds)
+
+    def iter_chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        *,
+        timeout_seconds: int | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        return self.client.iter_chat_stream(messages, temperature, timeout_seconds=timeout_seconds)
     
     @property
     def is_ollama(self) -> bool:

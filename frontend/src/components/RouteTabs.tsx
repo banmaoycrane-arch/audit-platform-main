@@ -25,12 +25,19 @@ const EXACT_ROUTE_TITLES: Record<string, string> = {
   '/workspace': '首页',
   '/agent': 'Agent 助手',
   '/ledger/workspace': '财务工作台',
-  '/ledger/files': '支持性文件',
+  '/ledger/files': '证据云空间',
   '/ledger/entries': '凭证查询',
   '/ledger/books': '账簿管理',
+  '/ledger/dimensions': '核算结构（科目+维度）',
+  '/ledger/control-defects': '内控待办',
   '/ledger/general-ledger': '总账',
   '/ledger/subsidiary-ledger': '明细账',
   '/reports/trial-balance': '科目余额表',
+  '/reports': '报表编制中心',
+  '/reports/balance-sheet': '资产负债表',
+  '/reports/income-statement': '利润表',
+  '/reports/cash-flow-statement': '现金流量表',
+  '/accounting-periods': '损益结转与结账',
   '/audit/workspace': '审计工作台',
   '/audit/dashboard': '审计协作台',
   '/audit/tasks': '审计任务',
@@ -100,12 +107,16 @@ function shouldSkipPath(pathname: string) {
 }
 
 function normalizePathname(pathname: string) {
-  return pathname === '/' ? '/workspace' : pathname
+  if (pathname === '/') return '/workspace'
+  if (pathname === '/entries' || pathname === '/ledger/vouchers') return '/ledger/entries'
+  return pathname
 }
 
 function shouldKeepSearch(pathname: string, search: string) {
   if (!search) return false
   if (pathname.startsWith('/ledger/vouchers/step/') && search.includes('jobId=')) return true
+  if (pathname === '/ledger/dimensions' && search.includes('jobId=')) return true
+  if (pathname === '/ledger/control-defects' && search.includes('jobId=')) return true
   if (pathname === '/audit/workpapers' && search.includes('version_id=')) return true
   return false
 }

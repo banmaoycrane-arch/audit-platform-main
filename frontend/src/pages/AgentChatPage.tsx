@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Alert, Button, Card, List, Select, Space, Tag, Typography, Input, message } from 'antd'
 import { SendOutlined } from '@ant-design/icons'
-import { api, type AgentChatResponse } from '../api/client'
+import { api, type AgentAssistResponse } from '../api/client'
+import { useAuthStore } from '../stores/authStore'
 
 const { Title, Paragraph, Text } = Typography
 const { TextArea } = Input
@@ -10,7 +11,7 @@ const { TextArea } = Input
 type ChatMessage = {
   role: 'user' | 'assistant'
   content: string
-  result?: AgentChatResponse
+  result?: AgentAssistResponse
 }
 
 type AgentModelConfig = {
@@ -21,6 +22,9 @@ type AgentModelConfig = {
   local_lightweight_model_enabled: boolean
   fallback_to_rules_enabled: boolean
   active_mode: string
+  config_source?: string
+  is_ollama?: boolean
+  agent_mode?: string
 }
 
 type AgentCaseTemplate = {
@@ -147,6 +151,7 @@ const draftExecutableTools = new Set([
 ])
 
 export function AgentChatPage() {
+  const { currentLedgerId } = useAuthStore()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [controlLoading, setControlLoading] = useState(false)
@@ -163,19 +168,23 @@ export function AgentChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
-      content: '你好，我可以根据你的财务或审计任务，帮你判断下一步应进入哪个业务页面。当前只提供受控建议，不会直接执行高风险操作。'
+      content: '你好，我是对话式 Agent 助手。在已登录且选定账簿的前提下，我可以直接调用后端 API 帮你查科目、证据收件箱、导入任务、内控待办等，无需跳转页面。中高风险操作会列为待确认项，不会自动执行。'
     }
   ])
 
   const agentRequest = async <T,>(path: string, body?: unknown): Promise<T> => {
     const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }
+    if (currentLedgerId) {
+      headers['X-Ledger-Id'] = String(currentLedgerId)
+    }
     const response = await fetch(`${api.baseUrl}${path}`, {
       method: body ? 'POST' : 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: body ? JSON.stringify(body) : undefined
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
     })
     if (!response.ok) {
       throw new Error(`请求失败（${response.status}）`)
@@ -320,9 +329,17 @@ export function AgentChatPage() {
 
     setInput('')
     setLoading(true)
-    setMessages((items) => [...items, { role: 'user', content: text }])
+    const nextMessages: ChatMessage[] = [...messages, { role: 'user', content: text }]
+    setMessages(nextMessages)
     try {
-      const result = await api.agentChat(text)
+      const conversationHistory = nextMessages
+        .filter((item) => item.role === 'user' || item.role === 'assistant')
+        .slice(-8)
+        .map((item) => ({ role: item.role, content: item.content }))
+      const result = await api.agentAssist(text, {
+        conversationHistory,
+        ledgerId: currentLedgerId,
+      })
       setMessages((items) => [...items, { role: 'assistant', content: result.reply, result }])
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
@@ -336,7 +353,8 @@ export function AgentChatPage() {
     <div>
       <Title level={3}>Agent 助手</Title>
       <Paragraph type="secondary">
-        Agent 入口与传统页面共用同一套后端鉴权、账簿权限和审计留痕；当前先提供任务规划与受控建议，不直接执行高风险动作。
+        通过对话直接调用已鉴权的后端 API 完成查询与准备工作，无需跳转页面。低风险工具自动执行；中高风险仅通知待确认。
+        {currentLedgerId ? ` 当前账簿 ID：${currentLedgerId}。` : ' 请先在顶部选择账簿，以便查询账簿相关业务数据。'}
       </Paragraph>
 
       <Card
@@ -374,13 +392,17 @@ export function AgentChatPage() {
                 <Tag color={modelConfig.remote_model_configured ? 'green' : 'orange'}>
                   {modelConfig.active_mode}
                 </Tag>
+                {modelConfig.agent_mode === 'conversational_assist' && <Tag color="blue">对话式助手</Tag>}
                 <Text>供应商：{modelConfig.provider}</Text>
                 <Text>模型：{modelConfig.model_name || '未配置'}</Text>
+                {modelConfig.config_source && <Tag>{modelConfig.config_source === 'parser_engine_db' ? '解析引擎 DB 配置' : '环境变量'}</Tag>}
+                {modelConfig.is_ollama && <Tag color="cyan">Ollama 本地</Tag>}
                 <Tag color={modelConfig.api_key_configured ? 'green' : 'red'}>
                   API Key {modelConfig.api_key_configured ? '已配置' : '未配置'}
                 </Tag>
                 {modelConfig.local_lightweight_model_enabled && <Tag color="blue">本地轻量识别启用</Tag>}
                 {modelConfig.fallback_to_rules_enabled && <Tag color="orange">不可用时回退规则识别</Tag>}
+                <Link to="/parser-engine/config">前往解析引擎配置</Link>
               </Space>
             </Card>
           )}
@@ -610,7 +632,7 @@ export function AgentChatPage() {
               }
             }}
             rows={3}
-            placeholder="例如：我要导入原始凭证生成分录 / 执行审计测试并查看风险发现 / 导出审计报告xlsx"
+            placeholder="例如：列出科目表 / 查看证据收件箱 / 有哪些导入任务 / 内控待办有哪些"
           />
           <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={() => void send()}>
             发送
@@ -630,71 +652,89 @@ export function AgentChatPage() {
               <Paragraph>{item.content}</Paragraph>
               {item.result && (
                 <Space direction="vertical" style={{ width: '100%' }}>
-                  <Space wrap>
-                    <Text strong>识别意图：</Text>
-                    <Tag color="blue">{intentLabels[item.result.intent] || item.result.intent}</Tag>
-                    <Text type="secondary">建议匹配度：{Math.round(item.result.confidence * 100)}%</Text>
-                    {item.result.source === 'llm' && <Tag color="green">智能建议</Tag>}
-                    {item.result.source === 'rules' && <Tag color="orange">基础规则建议</Tag>}
-                  </Space>
-                  {item.result.model_available === false && (
+                  {item.result.intent && (
+                    <Space wrap>
+                      <Text strong>识别意图：</Text>
+                      <Tag color="blue">{intentLabels[item.result.intent] || item.result.intent}</Tag>
+                      {typeof item.result.confidence === 'number' && (
+                        <Text type="secondary">建议匹配度：{Math.round(item.result.confidence * 100)}%</Text>
+                      )}
+                      {item.result.source === 'llm' && <Tag color="green">智能助手</Tag>}
+                      {item.result.source === 'rules' && <Tag color="orange">规则回退</Tag>}
+                    </Space>
+                  )}
+                  {item.result.model_config && (
+                    <Text type="secondary">
+                      模型：{item.result.model_config.model_name || '未配置'}
+                      {item.result.model_config.is_ollama ? '（Ollama）' : ''}
+                      {item.result.model_config.config_source ? ` · 配置来源：${item.result.model_config.config_source}` : ''}
+                    </Text>
+                  )}
+                  {item.result.tool_executions && item.result.tool_executions.length > 0 && (
+                    <Card size="small" title="已执行工具">
+                      <List
+                        size="small"
+                        dataSource={item.result.tool_executions}
+                        renderItem={(execution) => (
+                          <List.Item>
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                              <Space wrap>
+                                <Tag color={execution.status === 'success' ? 'green' : 'red'}>{execution.tool_name}</Tag>
+                                <Tag>{execution.status === 'success' ? '成功' : '失败'}</Tag>
+                              </Space>
+                              {execution.error && <Text type="danger">{execution.error}</Text>}
+                              {execution.result && (
+                                <pre style={{ margin: 0, maxHeight: 200, overflow: 'auto', fontSize: 12 }}>
+                                  {JSON.stringify(execution.result, null, 2)}
+                                </pre>
+                              )}
+                            </Space>
+                          </List.Item>
+                        )}
+                      />
+                    </Card>
+                  )}
+                  {item.result.pending_actions && item.result.pending_actions.length > 0 && (
                     <Alert
                       type="warning"
                       showIcon
-                      title="当前智能建议服务暂不可用，系统正在使用基础规则给出建议。"
+                      title="待确认操作（未自动执行）"
+                      description={
+                        <List
+                          size="small"
+                          dataSource={item.result.pending_actions}
+                          renderItem={(action) => (
+                            <List.Item>
+                              <Space wrap>
+                                <Tag color={riskColors[action.risk_level || 'medium'] || 'orange'}>{action.tool_name}</Tag>
+                                <Text type="secondary">{action.reason}</Text>
+                              </Space>
+                            </List.Item>
+                          )}
+                        />
+                      }
                     />
                   )}
-                  <Alert
-                    type="info"
-                    showIcon
-                    title={
-                      <Space>
-                        <span>建议路径：{item.result.suggested_path}</span>
-                        <Link to={item.result.suggested_path}>立即前往</Link>
-                      </Space>
-                    }
-                  />
-                  {item.result.task_plan && (
-                    <Card size="small" title="受控任务计划">
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        <Space wrap>
-                          <Text strong>Agent 角色：</Text>
-                          <Tag>{item.result.task_plan.agent_role}</Tag>
-                          <Text strong>风险等级：</Text>
-                          <Tag color={riskColors[item.result.task_plan.risk_level] || 'default'}>
-                            {riskLabels[item.result.task_plan.risk_level] || item.result.task_plan.risk_level}
-                          </Tag>
-                          {item.result.task_plan.approval_required && <Tag color="red">需要人工确认</Tag>}
-                          {item.result.task_plan.audit_trace_required && <Tag color="blue">执行需留痕</Tag>}
+                  {item.result.suggested_path && (
+                    <Alert
+                      type="info"
+                      showIcon
+                      title={
+                        <Space>
+                          <span>建议路径：{item.result.suggested_path}</span>
+                          <Link to={item.result.suggested_path}>立即前往</Link>
                         </Space>
-                        <Text type="secondary">{item.result.task_plan.approval_reason}</Text>
-                        <List
-                          size="small"
-                          header={<Text strong>所需资料</Text>}
-                          dataSource={item.result.task_plan.required_inputs}
-                          renderItem={(inputItem) => <List.Item>{inputItem}</List.Item>}
-                        />
-                        <List
-                          size="small"
-                          header={<Text strong>可使用的系统功能</Text>}
-                          dataSource={item.result.task_plan.allowed_tools}
-                          renderItem={(tool) => <List.Item>{tool}</List.Item>}
-                        />
-                        <List
-                          size="small"
-                          header={<Text strong>上下文与留痕说明</Text>}
-                          dataSource={item.result.task_plan.context_notes}
-                          renderItem={(note) => <List.Item>{note}</List.Item>}
-                        />
-                      </Space>
-                    </Card>
+                      }
+                    />
                   )}
-                  <List
-                    size="small"
-                    header={<Text strong>步骤建议</Text>}
-                    dataSource={item.result.steps}
-                    renderItem={(step, index) => <List.Item>{index + 1}. {step}</List.Item>}
-                  />
+                  {item.result.steps && item.result.steps.length > 0 && (
+                    <List
+                      size="small"
+                      header={<Text strong>步骤建议</Text>}
+                      dataSource={item.result.steps}
+                      renderItem={(step, index) => <List.Item>{index + 1}. {step}</List.Item>}
+                    />
+                  )}
                 </Space>
               )}
             </Card>

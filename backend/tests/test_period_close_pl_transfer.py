@@ -161,3 +161,46 @@ def test_pl_transfer_unknown_period_returns_404(client):
     test_client, _ = client
     resp = test_client.post("/api/accounting-periods/9999/pl-transfer")
     assert resp.status_code == 404
+
+
+def test_batch_pl_transfer_by_period_ids(client):
+    test_client, TestingSessionLocal = client
+    org_id, period_id = _seed(TestingSessionLocal)
+    db = TestingSessionLocal()
+    try:
+        period = db.get(AccountingPeriod, period_id)
+        ledger_id = period.ledger_id
+    finally:
+        db.close()
+
+    resp = test_client.post(
+        "/api/accounting-periods/batch/pl-transfer",
+        json={"ledger_id": ledger_id, "period_ids": [period_id]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["succeeded_count"] == 1
+    assert body["failed_count"] == 0
+    assert body["succeeded"][0]["period_id"] == period_id
+
+
+def test_batch_pl_transfer_skips_already_transferred(client):
+    test_client, TestingSessionLocal = client
+    org_id, period_id = _seed(TestingSessionLocal)
+    db = TestingSessionLocal()
+    try:
+        period = db.get(AccountingPeriod, period_id)
+        ledger_id = period.ledger_id
+    finally:
+        db.close()
+
+    test_client.post(f"/api/accounting-periods/{period_id}/pl-transfer")
+    resp = test_client.post(
+        "/api/accounting-periods/batch/pl-transfer",
+        json={"ledger_id": ledger_id, "period_ids": [period_id], "skip_transferred": True},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["succeeded_count"] == 0
+    assert body["skipped_count"] == 1
+    assert body["skipped"][0]["period_id"] == period_id

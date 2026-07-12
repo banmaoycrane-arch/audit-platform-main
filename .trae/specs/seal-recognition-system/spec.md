@@ -1,4 +1,20 @@
-# 印章识别系统开发 Spec
+# 印章识别系统（场景 B · Layer1）
+
+```text
+Domain: D05 - 原始资料导入与解析（场景 B 分层流水线 Step 1）
+Status: active-increment
+Owner Spec: seal-recognition-system（本文档）
+Depends On: document-parsing-engine, parser-dual-scenario-strategy.md
+In Scope:
+- 印章检测、抠图、OCR、ContractSeal 持久化
+- 印章→主体候选（供台账/底稿/融合层使用）
+Out of Scope:
+- 全文档解析、凭证自动 post
+- 替代 parser_engine RULE/LLM 层
+Acceptance Level: 合同 B 类样本印章检出率/主体回填率单独验收
+```
+
+> 总纲：[parser-dual-scenario-strategy.md](../../documents/parser-dual-scenario-strategy.md) §四 Layer1。
 
 ## Why
 

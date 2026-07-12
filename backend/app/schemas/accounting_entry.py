@@ -7,7 +7,8 @@ from pydantic import BaseModel
 class AccountingEntryRead(BaseModel):
     id: int
     organization_id: int
-    import_job_id: int
+    ledger_id: int | None = None
+    import_job_id: int | None = None
     voucher_no: str | None
     voucher_date: date | None
     summary: str | None
@@ -22,6 +23,7 @@ class AccountingEntryRead(BaseModel):
     post_status: str = "draft"
     posted_at: datetime | None = None
     posted_by: int | None = None
+    source_file_id: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

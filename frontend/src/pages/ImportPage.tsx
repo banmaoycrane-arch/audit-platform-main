@@ -89,7 +89,7 @@ export function ImportPage({ jobs, onChanged }: { jobs: ImportJob[]; onChanged: 
         throw new Error('当前任务没有可解析的上传文件')
       }
       await api.parseSourceFileWithEngine(selectedJobId, latestFile.id)
-      setMessage('统一解析引擎处理完成，结果已写入草稿')
+      setMessage('原始资料解析完成，结果已写入草稿')
 
       // 获取导入报告
       try {

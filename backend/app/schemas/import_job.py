@@ -14,6 +14,11 @@ class AuditScopeUpdate(BaseModel):
     project_id: int | None = None
 
 
+class ParseOptionsUpdate(BaseModel):
+    charset: str = "auto"
+    delimiter: str = "auto"
+
+
 class ImportJobCreate(BaseModel):
     """
     导入任务创建请求
@@ -74,3 +79,14 @@ class DayBookReportRead(BaseModel):
     completeness_score: float
     missing_voucher_nos: list[str]
     unbalanced_vouchers: list[dict[str, Any]]
+
+
+class ImportJobCleanupPayload(BaseModel):
+    """批量清理导入任务请求。"""
+
+    ledger_id: int | None = None
+    job_ids: list[int] | None = None
+    statuses: list[str] | None = None
+    keep_job_ids: list[int] = Field(default_factory=list)
+    stuck_only: bool = False
+    delete_files: bool = True

@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
 
@@ -67,8 +68,42 @@ def test_ensure_local_sqlite_schema_adds_missing_user_columns(monkeypatch, tmp_p
 from tests.conftest import register_auth_headers
 
 
-def test_create_import_job() -> None:
-    client = TestClient(app)
+@pytest.fixture
+def import_api_client(monkeypatch, tmp_path):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from types import SimpleNamespace
+
+    from app.db.session import Base, get_db
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    monkeypatch.setattr("app.storage.local_storage.get_settings", lambda: SimpleNamespace(upload_dir=str(tmp_path)))
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+
+
+def test_create_import_job(import_api_client) -> None:
+    client = import_api_client
     headers = register_auth_headers(client, username="import_job_user", phone="13800138001")
     response = client.post(
         "/api/import-jobs",
@@ -80,8 +115,8 @@ def test_create_import_job() -> None:
     assert response.json()["source_type"] == "voucher_import"
 
 
-def test_upload_pdf_source_file() -> None:
-    client = TestClient(app)
+def test_upload_pdf_source_file(import_api_client) -> None:
+    client = import_api_client
     headers = register_auth_headers(client, username="upload_pdf_user", phone="13800138002")
     job_response = client.post(
         "/api/import-jobs",

@@ -450,8 +450,8 @@ def test_config_parameters():
     
     # 验证默认值
     assert settings.llm_max_concurrent_models == 1
-    assert settings.llm_preferred_model == "qwen2.5-14b-chat"
-    assert settings.llm_multi_engine_enabled == False
+    assert settings.llm_preferred_model == "qwen2.5-14b"
+    assert settings.llm_multi_engine_enabled is True
     assert settings.llm_comparison_strategy == "weighted_vote"
 
 

@@ -15,7 +15,12 @@ from app.schemas.document_parsing import (
 )
 from app.services.doc_parsing.document_parsing_service import DocumentParsingService
 
-router = APIRouter(prefix="/api/parse", tags=["document-parsing"])
+# .. deprecated:: 2026-07-06 — 请改用 /api/import-jobs 或 /api/parser-engine（见 development-convergence-charter.md S1-1）
+router = APIRouter(
+    prefix="/api/parse",
+    tags=["document-parsing（deprecated）"],
+    deprecated=True,
+)
 
 
 def _ensure_organization(db: Session, organization_id: int) -> None:

@@ -1,5 +1,43 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
+/** 序时簿/分录列表 API 单页最多行数 */
+export const ENTRIES_PAGE_MAX_LIMIT = 500
+
+/** 凭证查询页单页最多展示的凭证张数（与后端 VOUCHER_QUERY_PAGE_MAX 一致） */
+export const VOUCHER_QUERY_PAGE_MAX = 500
+
+function clampEntriesPageLimit(limit?: number): number {
+  if (limit == null) return ENTRIES_PAGE_MAX_LIMIT
+  return Math.min(Math.max(limit, 1), ENTRIES_PAGE_MAX_LIMIT)
+}
+
+function clampVoucherQueryLimit(limit?: number): number {
+  if (limit == null) return 50
+  return Math.min(Math.max(limit, 1), VOUCHER_QUERY_PAGE_MAX)
+}
+
+export type ComplianceStreamEvent =
+  | { type: 'status'; message: string }
+  | {
+      type: 'models'
+      parse_model: string
+      reasoning_model: string
+      active_model: string
+      reasoning_configured: boolean
+    }
+  | { type: 'vector_done'; count: number }
+  | { type: 'thinking'; delta: string; text: string }
+  | { type: 'content'; delta: string; text: string }
+  | { type: 'voucher_done'; item: Record<string, unknown> }
+  | {
+      type: 'done'
+      reviewed_vouchers: number
+      skipped: boolean
+      scope?: string
+      items: Array<Record<string, unknown>>
+    }
+  | { type: 'error'; message: string }
+
 export type ImportJob = {
   id: number
   organization_id: number
@@ -16,6 +54,48 @@ export type ImportJob = {
   created_at: string
 }
 
+export type ImportJobCleanupRow = {
+  id: number
+  status: string
+  source_type: string
+  file_count: number
+  entry_count: number
+  staging_rows: number
+  error_message: string | null
+  created_at: string | null
+  ledger_id: number | null
+  cleanable: boolean
+  stuck: boolean
+  stuck_reason: string | null
+}
+
+export type ImportJobCleanupSummary = {
+  ledger_id: number | null
+  total_jobs: number
+  by_status: Record<string, number>
+  cleanable_count: number
+  stuck_count: number
+  total_staging_rows: number
+  stuck_active_hours: number
+  cleanable_statuses: string[]
+  jobs: ImportJobCleanupRow[]
+  cleanable_jobs: ImportJobCleanupRow[]
+  stuck_jobs: ImportJobCleanupRow[]
+}
+
+export type ImportJobCleanupResult = {
+  purged_count: number
+  skipped_count: number
+  purged: Array<{
+    job_id: number
+    purged: boolean
+    staging_rows_deleted: number
+    related_records_deleted: number
+    source_files_deleted: number
+  }>
+  skipped: Array<{ job_id: number; reason: string }>
+}
+
 export type AuditScopePayload = {
   audit_scope_type: 'all' | 'by_account' | 'by_period'
   audit_period_id?: number | null
@@ -26,6 +106,7 @@ export type AuditScopePayload = {
 export type AccountingEntry = {
   id: number
   import_job_id: number
+  ledger_id?: number | null
   voucher_no: string | null
   voucher_date: string | null
   summary: string | null
@@ -37,25 +118,44 @@ export type AccountingEntry = {
   normalized_text: string
   entry_line_no: number
   review_status: string
+  source_file_id?: number | null
+  compliance_hint?: string | null
+  compliance_severity?: string
+  spot_check_flag?: boolean
   created_at: string
   resolved_account_code: string | null
   resolved_account_name: string | null
   counterparty_id: number | null
+  entry_tags_payload?: Array<{
+    category_code?: string
+    tag_value?: string
+    display_name?: string
+    source_sub_code?: string | null
+    name_standardized?: boolean
+  }>
   requires_llm_resolution: boolean
 }
 
 export type ChronologicalEntryFilters = {
   ledger_id: number
   period_id?: number
+  period_ids?: number[]
   date_from?: string
   date_to?: string
   account_code?: string
+  account_codes?: string[]
+  account_code_match?: 'exact' | 'prefix' | 'contains'
   account_name?: string
   summary?: string
   voucher_word?: string
   voucher_no?: string
   amount_min?: number
   amount_max?: number
+  tag_category_code?: string
+  tag_value?: string
+  tag_filters?: string
+  counterparty?: string
+  tag_match_scope?: 'entry' | 'voucher'
   limit?: number
   offset?: number
 }
@@ -100,6 +200,8 @@ export type VoucherQueryFilters = {
   date_from?: string
   date_to?: string
   month?: string
+  import_job_id?: number
+  review_status?: string
   filter_mode?: 'line' | 'voucher'
   account_code?: string
   account_name?: string
@@ -236,6 +338,7 @@ export type DayBookReport = {
   missing_voucher_nos: string[]
   unbalanced_vouchers: Array<{
     voucher_no: string
+    voucher_date?: string | null
     debit_total: string
     credit_total: string
     difference: string
@@ -249,6 +352,9 @@ export type ParseDiagnostics = {
   unmatched_headers?: string[]
   total_rows?: number
   success_rows?: number
+  error_rows?: number
+  quality_score?: number
+  engine?: string
   expected_columns?: string[]
   guidance?: string
 }
@@ -256,10 +362,12 @@ export type ParseDiagnostics = {
 export type AuditFinding = {
   id: string
   db_id?: number
+  job_id?: number
+  ledger_id?: number | null
   finding_type: string
-  severity: 'high' | 'medium' | 'low'
+  severity: string
   business_type: string
-  related_entries: string[]
+  related_entries: string[] | Array<Record<string, unknown>>
   related_files: string[]
   finding_title: string
   finding_description: string
@@ -269,6 +377,74 @@ export type AuditFinding = {
   recommendation: string
   metadata: Record<string, unknown>
   status?: string
+  created_at?: string | null
+}
+
+export type WorkbenchItem = {
+  id: string
+  source: 'internal_control' | 'dimension' | 'risk' | string
+  source_label: string
+  severity: 'blocking' | 'warning' | 'info' | string
+  category: string
+  title: string
+  description: string
+  status: string
+  ledger_id?: number | null
+  job_id?: number | null
+  related_finding_id?: number | null
+  related_entry_ids?: number[]
+  related_source_file_ids?: number[]
+  metadata?: Record<string, unknown>
+  suggested_path?: string | null
+  suggested_action?: string | null
+  created_at?: string | null
+}
+
+export type WorkbenchQueueResponse = {
+  ledger_id: number
+  summary: {
+    total: number
+    blocking: number
+    warning: number
+    info: number
+    by_source: {
+      internal_control: number
+      dimension: number
+      risk: number
+    }
+  }
+  items: WorkbenchItem[]
+}
+
+export type EntrySourceEvidence = {
+  entry_id: number
+  source_file_id: number | null
+  linked: boolean
+  evidence_path: string | null
+  source_file: {
+    id: number
+    filename: string
+    file_type?: string | null
+    ledger_id?: number | null
+    parse_status?: string | null
+    evidence_lifecycle?: string | null
+    ingest_channel?: string | null
+    archive_category?: string | null
+    period_code?: string | null
+    project_id?: number | null
+  } | null
+}
+
+export type IngestApiExample = {
+  ledger_id: number
+  ledger_name: string
+  endpoint: string
+  method: string
+  headers: Record<string, string>
+  form_fields: Record<string, unknown>
+  curl_example: string
+  cli_example: string
+  notes: string[]
 }
 
 export type AuditTestReport = {
@@ -298,6 +474,35 @@ export type AuditTestReport = {
   }
 }
 
+export type PlTransferBatchResult = {
+  ledger_id: number
+  total: number
+  succeeded_count: number
+  failed_count: number
+  skipped_count: number
+  stopped_early: boolean
+  succeeded: Array<{
+    period_id: number
+    period_code: string
+    status: string
+    voucher_no?: string | null
+    lines?: number | null
+    net_profit?: number | null
+  }>
+  failed: Array<{
+    period_id: number
+    period_code: string
+    status: string
+    error?: string | null
+  }>
+  skipped: Array<{
+    period_id: number
+    period_code: string
+    status: string
+    reason?: string | null
+  }>
+}
+
 export type AccountingPeriod = {
   id: number
   organization_id: number
@@ -306,6 +511,9 @@ export type AccountingPeriod = {
   start_date: string
   end_date: string
   status: string
+  snapshot_status?: string | null
+  snapshot_version?: number
+  source?: string
 }
 
 export type SourceFileParseFeedback = {
@@ -362,6 +570,8 @@ export type SourceFileRead = {
   project_name?: string | null
   period_code?: string | null
   archive_context?: DraftArchiveContext | null
+  evidence_lifecycle?: 'inbox' | 'archived' | string
+  ingest_channel?: string | null
   customer_context?: {
     counterparty_id: number | null
     counterparty_name: string | null
@@ -521,9 +731,32 @@ export type ModuleRegisterSummary = {
 
 export type ImportPeriodSuggestion = {
   detected_month: string | null
+  detected_months?: string[]
+  is_multi_period?: boolean
   suggested_period: AccountingPeriodSuggestion | null
   matched_period: (AccountingPeriod & { id: number }) | null
   reason: string
+}
+
+export type PeriodMappingMode = 'preserve_source' | 'unify_target'
+
+export type ApplyImportPeriodMappingPayload = {
+  period_mapping_mode: PeriodMappingMode
+  period_mode?: 'adaptive' | 'fixed' | null
+  period_id?: number | null
+  period_start_date?: string | null
+  period_end_date?: string | null
+}
+
+export type ApplyImportPeriodMappingResult = {
+  period_mapping_mode: PeriodMappingMode
+  period_mode: string | null
+  assigned_voucher_count: number
+  total_voucher_count: number
+  created_period_codes: string[]
+  used_period_codes: string[]
+  out_of_range_count: number
+  primary_period_id: number | null
 }
 
 export type AccountingPeriodSuggestion = {
@@ -760,24 +993,147 @@ export type TrialBalanceRow = {
   opening_credit: number
   period_debit: number
   period_credit: number
+  ytd_debit: number
+  ytd_credit: number
   closing_debit: number
   closing_credit: number
 }
 
-export type TrialBalanceReport = {
+export type LedgerReportMeta = {
+  period_id?: number
+  period_code?: string
+  period_status?: string
+  period_start_date?: string
+  period_end_date?: string
+  as_of_date?: string
+  balance_source?: 'live' | 'snapshot'
+  snapshot_frozen?: boolean
+}
+
+export type TrialBalanceReport = LedgerReportMeta & {
   rows: TrialBalanceRow[]
   totals: {
     opening_debit: number
     opening_credit: number
     period_debit: number
     period_credit: number
+    ytd_debit: number
+    ytd_credit: number
     closing_debit: number
     closing_credit: number
   }
   is_balanced: boolean
 }
 
-export type BalanceSheetReport = {
+export type PlTransferHealth = {
+  period_id: number
+  period_code: string
+  period_status: string
+  is_balanced: boolean
+  has_system_pl_voucher: boolean
+  imported_pl_voucher_count: number
+  profit_accounts_cleared?: boolean
+  ready?: boolean
+  mode?: string
+  can_close_without_manual_transfer?: boolean
+  message?: string
+  non_zero_profit_accounts?: Array<{
+    account_code: string
+    account_name: string
+    closing_debit: string
+    closing_credit: string
+  }>
+  imported_pl_vouchers?: Array<{
+    voucher_id: number
+    voucher_no: string | null
+    voucher_date: string
+    summary: string | null
+    pl_accounts: string[]
+  }>
+  period_status_consistent: boolean
+  warnings: string[]
+  fixed?: boolean
+}
+
+export type BalanceSheetPresentationMode = 'balance' | 'net_movement'
+
+export type AuditAssertionRisk = {
+  assertion: string
+  risk_level: 'high' | 'medium' | 'low'
+  risk_description: string
+  related_accounts?: string[]
+}
+
+export type ReclassificationAdjustment = {
+  from_account_code: string
+  from_account_name?: string
+  to_account_code: string
+  to_account_name?: string
+  amount: string | number
+  balance_direction?: string
+  reason?: string
+  standard_basis?: string
+  standard_reference?: string
+  audit_assertion_risks?: AuditAssertionRisk[]
+  counterparty_semantic_note?: string
+}
+
+export type ReclassificationSummary = {
+  applied: boolean
+  adjustment_count: number
+  standard_note: string
+  items: Array<{
+    from_account_code: string
+    from_account_name?: string
+    to_account_code: string
+    to_account_name?: string
+    amount: string | number
+    reason?: string
+    standard_basis?: string | null
+    standard_reference?: string | null
+    audit_assertion_risks?: AuditAssertionRisk[]
+  }>
+  assertion_risk_summary: AuditAssertionRisk[]
+}
+
+export type FinancialStatementLine = {
+  line_no: number | string
+  line_code?: string
+  label: string
+  section?: string
+  group?: string
+  is_header?: boolean
+  is_subtotal?: boolean
+  direction?: string
+  opening_balance?: string | number
+  closing_balance?: string | number
+  current_amount?: string | number
+  prior_amount?: string | number
+  ytd_amount?: string | number
+  month_amount?: string | number
+  year_to_date_amount?: string | number
+  account_codes?: string[]
+  reconciled_with_direct?: boolean
+}
+
+export type ClassicDualColumnBalanceSheet = {
+  format: string
+  paired_rows: Array<{
+    row_index: number
+    asset_label: string
+    asset_opening: string | number
+    asset_closing: string | number
+    asset_is_section?: boolean
+    asset_is_subtotal?: boolean
+    liability_label: string
+    liability_opening: string | number
+    liability_closing: string | number
+    liability_is_section?: boolean
+    liability_is_subtotal?: boolean
+  }>
+}
+
+export type BalanceSheetReport = LedgerReportMeta & {
   assets: TrialBalanceRow[]
   liabilities: TrialBalanceRow[]
   equity: TrialBalanceRow[]
@@ -785,11 +1141,27 @@ export type BalanceSheetReport = {
   liabilities_total: number
   equity_total: number
   is_balanced: boolean
+  statement_lines?: FinancialStatementLine[]
+  classic_dual_column?: ClassicDualColumnBalanceSheet
+  format?: string
+  statement_balanced?: boolean
+  presentation_mode?: BalanceSheetPresentationMode
+  uses_resolved_account_code?: boolean
+  unmapped_entry_net?: string | number
+  coa_gap_mapping_count?: number
+  coa_gap_mappings?: Record<string, string>
+  unmapped_codes?: string[]
+  pl_transfer_health?: PlTransferHealth
+  reclassification_adjustments?: ReclassificationAdjustment[]
+  reclassification_summary?: ReclassificationSummary
 }
 
 export type IncomeStatementReport = {
   revenue: Record<string, number>
   expense: Record<string, number>
+  ytd_revenue?: Record<string, number>
+  ytd_expense?: Record<string, number>
+  statement_lines?: FinancialStatementLine[]
   operating_revenue: number
   operating_cost: number
   period_expenses: number
@@ -797,6 +1169,41 @@ export type IncomeStatementReport = {
   total_profit: number
   income_tax: number
   net_profit: number
+  ytd_operating_profit?: number
+  ytd_total_profit?: number
+  ytd_income_tax?: number
+  ytd_net_profit?: number
+}
+
+export type ReportExportSignature = {
+  preparer_name?: string
+  reviewer_name?: string
+  approver_name?: string
+}
+
+export type CashFlowActivityBlock = {
+  inflow: string
+  outflow: string
+  net: string
+}
+
+export type CashFlowStatementReport = {
+  method?: string
+  statement_lines?: FinancialStatementLine[]
+  indirect_lines?: FinancialStatementLine[]
+  direct_indirect_reconciled?: boolean
+  compilation_notes?: string[]
+  pattern_flags?: {
+    direct_revenue_to_bank?: boolean
+    receivable_collection?: boolean
+  }
+  operating_activities: CashFlowActivityBlock
+  investing_activities: CashFlowActivityBlock
+  financing_activities: CashFlowActivityBlock
+  net_increase_in_cash: string
+  period_id?: number
+  period_code?: string
+  as_of_date?: string
 }
 
 export type Team = {
@@ -815,9 +1222,155 @@ export type BankAccount = {
   account_no: string
   account_name: string
   coa_account_code: string
+  source_sub_code?: string | null
   opening_balance: number
   current_balance: number
   is_active: boolean
+}
+
+export type TagCategoryNode = {
+  id: number
+  code: string
+  name: string
+  description?: string | null
+  level?: number
+  value_type: string
+  source_table?: string | null
+  is_mandatory: boolean
+  is_system?: boolean
+  status: string
+  sort_order: number
+  children?: TagCategoryNode[]
+}
+
+export type TagMappingRule = {
+  id: number
+  source_pattern: string
+  source_type: string
+  target_category_code: string
+  target_value: string | null
+  priority: number
+  is_regex: boolean
+  is_active: boolean
+  description?: string | null
+}
+
+export type EntryTagAggregate = {
+  tag_value: string
+  count: number
+  avg_weight: number
+  display_name?: string | null
+}
+
+export type MasterSyncResult = {
+  synced?: boolean
+  reason?: string
+  target?: string
+  action?: string
+  id?: number
+  category_code?: string
+}
+
+export type DimensionPendingQueueItem = {
+  queue_type:
+    | 'non_standardized'
+    | 'missing_in_master'
+    | 'requires_llm'
+    | 'unknown_category'
+    | 'internal_control'
+    | 'mapped'
+  priority: 'high' | 'medium' | 'low'
+  account_code?: string
+  account_name?: string
+  category_code?: string
+  source_sub_code?: string | null
+  tag_value?: string
+  display_name?: string
+  original_display_name?: string
+  mapped_at?: string
+  mapped_by_user_id?: number
+  line_count?: number
+  voucher_count?: number
+  staging_id?: number
+  voucher_no?: string
+  summary?: string
+  finding_id?: number
+  message: string
+}
+
+export type DimensionPendingQueueResponse = {
+  job_id: number
+  ledger_id: number | null
+  summary: {
+    total: number
+    non_standardized: number
+    missing_in_master: number
+    requires_llm: number
+    unknown_category: number
+    internal_control: number
+    mapped: number
+  }
+  items: DimensionPendingQueueItem[]
+  registry_warnings: Array<{
+    severity: string
+    code: string
+    account_code?: string
+    message: string
+  }>
+}
+
+export type DimensionRegistryResponse = {
+  job_id: number
+  ledger_id: number | null
+  dimension_count: number
+  blocking: boolean
+  items: Array<{
+    account_code: string
+    account_name: string
+    category_code: string
+    source_sub_code: string | null
+    tag_value: string
+    display_name: string
+    name_standardized: boolean
+    line_count: number
+    voucher_count: number
+  }>
+  warnings: Array<{
+    severity: string
+    code: string
+    account_code?: string
+    message: string
+    coa_sub_codes?: string[]
+    used_sub_codes?: string[]
+    missing_in_import?: string[]
+    items?: Array<{ source_sub_code?: string | null; display_name?: string; tag_value?: string }>
+  }>
+  layers?: {
+    config_coa: Array<{ parent_code: string; account_code: string }>
+    config_bank_evidence: Array<{
+      bank_name: string
+      account_no: string
+      account_name: string
+      coa_account_code: string
+      source_sub_code?: string | null
+    }>
+    import_used: DimensionRegistryResponse['items']
+  }
+  comparison?: {
+    matched: Array<Record<string, unknown>>
+    in_import_not_in_evidence: DimensionRegistryResponse['items']
+    in_evidence_not_in_import: Array<{
+      source_sub_code?: string | null
+      bank_name: string
+      account_no: string
+    }>
+    coa_gaps: Array<{
+      account_code: string
+      missing_in_import: string[]
+      defined_sub_codes: string[]
+      used_sub_codes: string[]
+    }>
+  }
 }
 
 export type BankTransaction = {
@@ -1363,6 +1916,8 @@ export type LedgerAuth = {
   ledger_id: number
   user_id: number
   role: string
+  username?: string | null
+  phone?: string | null
   granted_at: string | null
   granted_by?: number | null
 }
@@ -1370,6 +1925,11 @@ export type LedgerAuth = {
 export type CreateLedgerPayload = {
   name: string
   team_id: number
+  accounting_start_date?: string
+}
+
+export type UpdateLedgerPayload = {
+  name?: string
   accounting_start_date?: string
 }
 
@@ -1388,6 +1948,33 @@ export type AgentTaskPlan = {
   context_notes: string[]
 }
 
+export type AgentToolExecution = {
+  tool_name: string
+  status: 'success' | 'failed'
+  result?: Record<string, unknown>
+  error?: string
+}
+
+export type AgentAssistResponse = {
+  reply: string
+  intent?: string
+  confidence?: number
+  source?: 'llm' | 'rules' | string
+  model?: string | null
+  model_config?: {
+    provider?: string
+    model_name?: string | null
+    config_source?: string
+    is_ollama?: boolean
+    remote_model_configured?: boolean
+  }
+  ledger_id?: number | null
+  tool_executions?: AgentToolExecution[]
+  pending_actions?: Array<{ tool_name: string; reason: string; risk_level?: string }>
+  suggested_path?: string | null
+  steps?: string[]
+}
+
 export type AgentChatResponse = {
   intent: string
   confidence: number
@@ -1397,6 +1984,25 @@ export type AgentChatResponse = {
   source?: 'llm' | 'rules'
   model_available?: boolean
   task_plan?: AgentTaskPlan
+}
+
+export type EvolutionProposal = {
+  id: number
+  rule_name: string
+  document_type: string
+  rule_type: string
+  target_field: string
+  source: string | null
+  source_correction_id: number | null
+  source_header: string | null
+  evidence_file: string | null
+  file_name: string | null
+  category: string | null
+  shadow_note: string | null
+  original_value: unknown
+  corrected_value: unknown
+  status: string
+  created_at: string | null
 }
 
 async function getApiErrorMessage(response: Response): Promise<string> {
@@ -1486,7 +2092,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       headers,
     })
   } catch (error) {
-    throw new Error('后端服务不可用，请确认后端服务已启动后重试')
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('请求已取消')
+    }
+    const detail = error instanceof Error ? error.message : String(error)
+    if (/failed to fetch|networkerror|load failed/i.test(detail)) {
+      throw new Error('无法连接后端服务，请确认 API 地址正确且服务已启动')
+    }
+    throw new Error(`网络请求失败：${detail}`)
   }
   if (response.status === 401) {
     // 登录相关接口的 401 不应清除 token 或重定向，直接透传错误给调用方
@@ -1500,6 +2113,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
   if (!response.ok) {
     const errorMessage = await getApiErrorMessage(response)
+    if (/^请求失败（(500|502|503|504)）$/.test(errorMessage)) {
+      throw new Error('无法连接后端服务，请先启动后端（http://127.0.0.1:8000）')
+    }
     throw new Error(errorMessage)
   }
   const data = await response.json()
@@ -1610,6 +2226,31 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message })
     }),
+  agentAssist: (
+    message: string,
+    options?: {
+      conversationHistory?: Array<{ role: string; content: string }>
+      autoExecuteTools?: boolean
+      ledgerId?: number | null
+    },
+  ) => {
+    const normalizedLedgerId = typeof options?.ledgerId === 'number' && Number.isInteger(options.ledgerId) && options.ledgerId > 0
+      ? options.ledgerId
+      : undefined
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (normalizedLedgerId) {
+      headers['X-Ledger-Id'] = String(normalizedLedgerId)
+    }
+    return request<AgentAssistResponse>('/api/agent/assist', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        message,
+        conversation_history: options?.conversationHistory,
+        auto_execute_tools: options?.autoExecuteTools ?? true,
+      }),
+    })
+  },
   createImportJob: (
     organizationName: string,
     sourceType?: string,
@@ -1641,6 +2282,27 @@ export const api = {
     const query = params.toString()
     return request<ImportJob[]>(`/api/import-jobs${query ? `?${query}` : ''}`)
   },
+  getImportJobCleanupSummary: (ledgerId?: number) => {
+    const params = new URLSearchParams()
+    if (ledgerId) params.set('ledger_id', String(ledgerId))
+    const query = params.toString()
+    return request<ImportJobCleanupSummary>(
+      `/api/import-jobs/cleanup-summary${query ? `?${query}` : ''}`,
+    )
+  },
+  cleanupImportJobs: (payload: {
+    ledger_id?: number
+    job_ids?: number[]
+    statuses?: string[]
+    keep_job_ids?: number[]
+    stuck_only?: boolean
+    delete_files?: boolean
+  }) =>
+    request<ImportJobCleanupResult>('/api/import-jobs/cleanup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
   getImportJob: (jobId: number) => request<ImportJob>(`/api/import-jobs/${jobId}`),
   uploadFile: (jobId: number, file: File, documentTypeHints?: string[]) => {
     const form = new FormData()
@@ -1650,6 +2312,39 @@ export const api = {
     }
     return request<SourceFileRead>(`/api/import-jobs/${jobId}/files`, { method: 'POST', body: form })
   },
+  detectImportFormat: (
+    file: File,
+    parseOptions?: { charset?: string; delimiter?: string },
+  ) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (parseOptions?.charset) form.append('charset', parseOptions.charset)
+    if (parseOptions?.delimiter) form.append('delimiter', parseOptions.delimiter)
+    return request<{
+      filename?: string
+      file_name?: string
+      file_extension: string
+      is_structured_tabular: boolean
+      charset: string | null
+      charset_confidence?: number | null
+      delimiter?: string | null
+      delimiter_label?: string | null
+      header_row_index?: number | null
+      detected_headers: string[]
+      estimated_data_rows: number
+      parseable: boolean
+      hints: string[]
+      company_name?: string | null
+      report_period?: string | null
+      parse_options?: { charset: string; delimiter: string }
+    }>('/api/import-jobs/detect-format', { method: 'POST', body: form })
+  },
+  updateImportJobParseOptions: (jobId: number, parseOptions: { charset: string; delimiter: string }) =>
+    request<ImportJob>(`/api/import-jobs/${jobId}/parse-options`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(parseOptions),
+    }),
   parseSourceFileWithEngine: (jobId: number, fileId: number) =>
     request<SourceFileRead>(`/api/import-jobs/${jobId}/files/${fileId}/parse`, { method: 'POST' }),
   parseUploadedFile: (jobId: number, fileId: number) =>
@@ -1660,6 +2355,488 @@ export const api = {
     request<{ job: ImportJob; report: Record<string, unknown> }>(
       `/api/import-jobs/${jobId}/process/sync`,
       { method: 'POST' }
+    ),
+  listPreviewEntries: (jobId: number, limit = 100, offset = 0) =>
+    request<{
+      items: Array<{
+        id: number
+        voucher_no: string | null
+        voucher_date: string | null
+        summary: string | null
+        account_code: string | null
+        account_name: string | null
+        debit_amount: number
+        credit_amount: number
+        counterparty: string | null
+        entry_line_no: number
+        review_status: string
+        compliance_hint: string | null
+        compliance_severity: string
+        spot_check_flag: boolean
+      }>
+      total: number
+      limit: number
+      offset: number
+      review_stats?: {
+        total_vouchers: number
+        verified_vouchers: number
+        partial_vouchers: number
+        unbalanced_voucher_nos: string[]
+        total_lines: number
+        spot_check_vouchers?: number
+        compliance_pending_vouchers?: number
+        compliance_reviewed_vouchers?: number
+      }
+    }>(`/api/import-jobs/${jobId}/preview-entries?limit=${limit}&offset=${offset}`),
+  listPreviewVouchers: (
+    jobId: number,
+    options?: {
+      reviewFilter?: 'all' | 'pending' | 'verified' | 'unbalanced' | 'spot_check' | 'compliance_pending' | 'compliance_reviewed'
+      search?: string
+      limit?: number
+      offset?: number
+    },
+  ) => {
+    const params = new URLSearchParams()
+    if (options?.reviewFilter) params.set('review_filter', options.reviewFilter)
+    if (options?.search) params.set('search', options.search)
+    if (options?.limit) params.set('limit', String(options.limit))
+    if (options?.offset) params.set('offset', String(options.offset))
+    const query = params.toString()
+    return request<{
+      items: Array<{
+        group_key: string
+        voucher_no: string | null
+        voucher_date: string | null
+        voucher_word: string | null
+        line_count: number
+        debit_total: number
+        credit_total: number
+        is_balanced: boolean
+        review_status: string
+        compliance_hint: string | null
+        compliance_severity: string
+        spot_check_flag?: boolean
+        summary_preview: string | null
+        anchor_entry_id: number
+        source_preparer_name?: string | null
+        cross_reviewed_by_user_id?: number | null
+        cross_reviewed_by_name?: string | null
+        cross_reviewed_at?: string | null
+      }>
+      total: number
+      limit: number
+      offset: number
+      review_stats?: {
+        total_vouchers: number
+        verified_vouchers: number
+        partial_vouchers: number
+        unbalanced_voucher_nos: string[]
+        total_lines: number
+        spot_check_vouchers?: number
+        compliance_pending_vouchers?: number
+        compliance_reviewed_vouchers?: number
+      }
+    }>(`/api/import-jobs/${jobId}/preview-vouchers${query ? `?${query}` : ''}`)
+  },
+  getPreviewVoucherReviewStats: (jobId: number) =>
+    request<{
+      total_vouchers: number
+      verified_vouchers: number
+      partial_vouchers: number
+      unbalanced_voucher_nos: string[]
+      total_lines: number
+    }>(`/api/import-jobs/${jobId}/preview-voucher-stats`),
+  getPreviewVoucherLines: (jobId: number, groupKey: string) =>
+    request<{
+      group_key: string
+      signature?: {
+        source_preparer_name?: string | null
+        cross_reviewed_by_user_id?: number | null
+        cross_reviewed_by_name?: string | null
+        cross_reviewed_at?: string | null
+        approved_by_name?: string | null
+        approved_at?: string | null
+      }
+      items: Array<{
+        id: number
+        voucher_no: string | null
+        voucher_date: string | null
+        summary: string | null
+        account_code: string | null
+        account_name: string | null
+        resolved_account_code?: string | null
+        resolved_account_name?: string | null
+        entry_tags_payload?: Array<{
+          category_code?: string
+          tag_value?: string
+          display_name?: string
+          source_sub_code?: string | null
+          name_standardized?: boolean
+        }>
+        debit_amount: number
+        credit_amount: number
+        counterparty: string | null
+        entry_line_no: number
+        review_status: string
+        compliance_hint: string | null
+        compliance_severity: string
+        spot_check_flag: boolean
+      }>
+    }>(`/api/import-jobs/${jobId}/preview-vouchers/${encodeURIComponent(groupKey)}/lines`),
+  updatePreviewEntry: (
+    jobId: number,
+    stagingId: number,
+    patch: Partial<{
+      summary: string
+      account_code: string
+      account_name: string
+      debit_amount: number
+      credit_amount: number
+      counterparty: string
+      review_status: string
+      tag_updates: Array<{ tag_index: number; display_name: string; name_standardized?: boolean }>
+      sync_to_master?: boolean
+    }>,
+  ) =>
+    request<{
+      id: number
+      updated: boolean
+      entry?: Record<string, unknown>
+      master_sync?: MasterSyncResult[]
+    }>(
+      `/api/import-jobs/${jobId}/preview-entries/${stagingId}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      },
+    ),
+  updateDimensionDisplayName: (
+    jobId: number,
+    payload: {
+      account_code: string
+      category_code: string
+      tag_value: string
+      display_name: string
+      source_sub_code?: string | null
+      name_standardized?: boolean
+      sync_to_master?: boolean
+    },
+  ) =>
+    request<{
+      updated_lines: number
+      resolved_findings: number
+      display_name: string
+      master_sync?: MasterSyncResult | null
+    }>(
+      `/api/import-jobs/${jobId}/dimension-registry/update-display-name`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    ),
+  batchReviewPreviewEntries: (jobId: number, entryIds: number[], reviewStatus: string) =>
+    request<{ updated_vouchers: number; updated_lines: number }>(
+      `/api/import-jobs/${jobId}/preview-entries/review-batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entry_ids: entryIds, review_status: reviewStatus }),
+      },
+    ),
+  reviewAllPreviewEntries: (jobId: number, reviewStatus: string) =>
+    request<{ updated_vouchers: number; updated_lines: number }>(
+      `/api/import-jobs/${jobId}/preview-entries/review-all`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ review_status: reviewStatus }),
+      },
+    ),
+  confirmImport: (jobId: number) =>
+    request<{ job: ImportJob; entries_created: number }>(`/api/import-jobs/${jobId}/confirm`, {
+      method: 'POST',
+    }),
+  cancelImport: (jobId: number) =>
+    request<{ job: ImportJob; cancelled: boolean }>(`/api/import-jobs/${jobId}/cancel`, {
+      method: 'POST',
+    }),
+  complianceSpotCheck: (jobId: number, amountThreshold: number) =>
+    request<{
+      flagged_count: number
+      flagged_voucher_nos: string[]
+      flagged_group_keys?: string[]
+    }>(
+      `/api/import-jobs/${jobId}/compliance-spot-check`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount_threshold: amountThreshold }),
+      },
+    ),
+  complianceRandomSample: (
+    jobId: number,
+    options: { sampleRate?: number; sampleCount?: number; seed?: number },
+  ) =>
+    request<{
+      flagged_count: number
+      flagged_voucher_nos: string[]
+      flagged_group_keys: string[]
+      sampled_vouchers: number
+    }>(`/api/import-jobs/${jobId}/compliance-random-sample`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sample_rate: options.sampleRate,
+        sample_count: options.sampleCount,
+        seed: options.seed,
+      }),
+    }),
+  getDimensionRegistry: (jobId: number) =>
+    request<DimensionRegistryResponse>(`/api/import-jobs/${jobId}/dimension-registry`),
+  getDimensionPendingQueue: (jobId: number) =>
+    request<DimensionPendingQueueResponse>(`/api/import-jobs/${jobId}/dimension-pending-queue`),
+  complianceReview: (
+    jobId: number,
+    mode: 'each' | 'spot' | 'random' | 'skip',
+    options?: {
+      voucherNos?: string[]
+      groupKeys?: string[]
+      useLlm?: boolean
+    },
+  ) =>
+    request<{
+      reviewed_vouchers: number
+      skipped: boolean
+      scope?: string
+      items: Array<{
+        group_key?: string
+        voucher_no: string | null
+        compliance_hint: string | null
+        compliance_severity: string
+        line_count: number
+        engine?: string
+        llm_used?: boolean
+        llm_error?: string | null
+        llm_thinking?: string | null
+        compliant?: boolean
+        similar_tag_refs?: Array<{
+          score: number
+          category_code?: string
+          tag_value?: string
+          display_name?: string
+          voucher_no?: string
+          summary?: string
+        }>
+        llm_reasoning?: string | null
+        findings?: string[]
+        similar_case_notes?: string | null
+      }>
+    }>(`/api/import-jobs/${jobId}/preview-entries/compliance-review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode,
+        voucher_nos: options?.voucherNos,
+        group_keys: options?.groupKeys,
+        use_llm: options?.useLlm ?? true,
+      }),
+    }),
+  complianceReviewStream: async (
+    jobId: number,
+    mode: 'each' | 'spot' | 'random' | 'skip',
+    options: {
+      voucherNos?: string[]
+      groupKeys?: string[]
+      useLlm?: boolean
+      onEvent: (event: ComplianceStreamEvent) => void
+      signal?: AbortSignal
+    },
+  ): Promise<{
+    reviewed_vouchers: number
+    skipped: boolean
+    scope?: string
+    items: Array<{
+      group_key?: string
+      voucher_no: string | null
+      compliance_hint: string | null
+      compliance_severity: string
+      line_count: number
+      engine?: string
+      llm_used?: boolean
+      llm_error?: string | null
+      llm_thinking?: string | null
+      compliant?: boolean
+      similar_tag_refs?: Array<{
+        score: number
+        category_code?: string
+        tag_value?: string
+        display_name?: string
+        voucher_no?: string
+        summary?: string
+      }>
+      llm_reasoning?: string | null
+      findings?: string[]
+      similar_case_notes?: string | null
+    }>
+  }> => {
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      'Cache-Control': 'no-cache',
+    }
+    if (token) {
+      headers.Authorization = `Bearer ${token}`
+    }
+    const response = await fetch(`${API_BASE}/api/import-jobs/${jobId}/preview-entries/compliance-review/stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mode,
+        voucher_nos: options.voucherNos,
+        group_keys: options.groupKeys,
+        use_llm: options.useLlm ?? true,
+      }),
+      signal: options.signal,
+    })
+    if (response.status === 404 || response.status === 405) {
+      options.onEvent({
+        type: 'status',
+        message: '流式接口不可用，已切换为普通合规审查（请重启后端以启用实时输出）…',
+      })
+      const fallback = await request<{
+        reviewed_vouchers: number
+        skipped: boolean
+        scope?: string
+        items: Array<{
+          group_key?: string
+          voucher_no: string | null
+          compliance_hint: string | null
+          compliance_severity: string
+          line_count: number
+          engine?: string
+          llm_used?: boolean
+          llm_error?: string | null
+          llm_thinking?: string | null
+          compliant?: boolean
+          similar_tag_refs?: Array<Record<string, unknown>>
+          llm_reasoning?: string | null
+          findings?: string[]
+          similar_case_notes?: string | null
+        }>
+      }>(`/api/import-jobs/${jobId}/preview-entries/compliance-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          voucher_nos: options.voucherNos,
+          group_keys: options.groupKeys,
+          use_llm: options.useLlm ?? true,
+        }),
+      })
+      options.onEvent({
+        type: 'done',
+        reviewed_vouchers: fallback.reviewed_vouchers,
+        skipped: fallback.skipped ?? false,
+        scope: fallback.scope,
+        items: fallback.items as Array<Record<string, unknown>>,
+      })
+      return fallback
+    }
+    if (!response.ok) {
+      const errorMessage = await getApiErrorMessage(response)
+      throw new Error(errorMessage)
+    }
+    if (!response.body) {
+      throw new Error('流式响应不可用')
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let finalResult: {
+      reviewed_vouchers: number
+      skipped: boolean
+      scope?: string
+      items: Array<Record<string, unknown>>
+    } | null = null
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const chunks = buffer.split('\n\n')
+      buffer = chunks.pop() || ''
+      for (const chunk of chunks) {
+        const line = chunk
+          .split('\n')
+          .map((part) => part.trim())
+          .find((part) => part.startsWith('data:'))
+        if (!line) continue
+        const payload = JSON.parse(line.slice(5).trim()) as ComplianceStreamEvent
+        options.onEvent(payload)
+        if (payload.type === 'done') {
+          finalResult = {
+            reviewed_vouchers: payload.reviewed_vouchers,
+            skipped: payload.skipped,
+            scope: payload.scope,
+            items: payload.items,
+          }
+        }
+        if (payload.type === 'error') {
+          throw new Error(payload.message || '合规审查失败')
+        }
+      }
+    }
+    if (!finalResult) {
+      throw new Error('合规审查未返回最终结果')
+    }
+    return finalResult as {
+      reviewed_vouchers: number
+      skipped: boolean
+      scope?: string
+      items: Array<{
+        group_key?: string
+        voucher_no: string | null
+        compliance_hint: string | null
+        compliance_severity: string
+        line_count: number
+        engine?: string
+        llm_used?: boolean
+        llm_error?: string | null
+        llm_thinking?: string | null
+        compliant?: boolean
+        similar_tag_refs?: Array<{
+          score: number
+          category_code?: string
+          tag_value?: string
+          display_name?: string
+          voucher_no?: string
+          summary?: string
+        }>
+        llm_reasoning?: string | null
+        findings?: string[]
+        similar_case_notes?: string | null
+      }>
+    }
+  },
+  reviewVoucher: (voucherId: number) =>
+    request<{ voucher_id: number; status: string; reviewed: boolean }>(
+      `/api/entries/vouchers/${voucherId}/review`,
+      { method: 'POST' },
+    ),
+  reviewVouchersBatch: (voucherIds: number[]) =>
+    request<{ reviewed_count: number }>(`/api/entries/vouchers/review-batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voucher_ids: voucherIds }),
+    }),
+  unreviewVoucher: (voucherId: number) =>
+    request<{ voucher_id: number; status: string; reviewed: boolean }>(
+      `/api/entries/vouchers/${voucherId}/unreview`,
+      { method: 'POST' },
     ),
   getImportJobDraft: (jobId: number) =>
     request<{
@@ -1680,6 +2857,12 @@ export const api = {
   getImportReport: (jobId: number) => request<any>(`/api/import-jobs/${jobId}/report`),
   getDayBookReport: (jobId: number) => request<DayBookReport>(`/api/import-jobs/${jobId}/day-book-report`),
   getImportPeriodSuggestion: (jobId: number) => request<ImportPeriodSuggestion>(`/api/import-jobs/${jobId}/period-suggestion`),
+  applyImportPeriodMapping: (jobId: number, payload: ApplyImportPeriodMappingPayload) =>
+    request<ApplyImportPeriodMappingResult>(`/api/import-jobs/${jobId}/apply-period-mapping`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
   listEntries: (jobId?: number, ledgerId?: number, reviewStatus?: string, dateFrom?: string, dateTo?: string, limit = 100, offset = 0) => {
     const params = new URLSearchParams()
     if (jobId) params.set('import_job_id', String(jobId))
@@ -1687,7 +2870,7 @@ export const api = {
     if (reviewStatus) params.set('review_status', reviewStatus)
     if (dateFrom) params.set('date_from', dateFrom)
     if (dateTo) params.set('date_to', dateTo)
-    params.set('limit', String(limit))
+    params.set('limit', String(clampEntriesPageLimit(limit)))
     params.set('offset', String(offset))
     const query = params.toString()
     return request<EntryListResponse>(`/api/entries${query ? `?${query}` : ''}`)
@@ -1695,27 +2878,112 @@ export const api = {
   listChronologicalEntries: (filters: ChronologicalEntryFilters) => {
     const params = new URLSearchParams()
     params.set('ledger_id', String(filters.ledger_id))
-    if (filters.period_id != null) params.set('period_id', String(filters.period_id))
+    if (filters.period_ids?.length) params.set('period_ids', JSON.stringify(filters.period_ids))
+    else if (filters.period_id != null) params.set('period_id', String(filters.period_id))
     if (filters.date_from) params.set('date_from', filters.date_from)
     if (filters.date_to) params.set('date_to', filters.date_to)
     if (filters.account_code) params.set('account_code', filters.account_code)
+    if (filters.account_codes?.length) params.set('account_codes', JSON.stringify(filters.account_codes))
+    if (filters.account_code_match) params.set('account_code_match', filters.account_code_match)
     if (filters.account_name) params.set('account_name', filters.account_name)
     if (filters.summary) params.set('summary', filters.summary)
     if (filters.voucher_word) params.set('voucher_word', filters.voucher_word)
     if (filters.voucher_no) params.set('voucher_no', filters.voucher_no)
     if (filters.amount_min != null) params.set('amount_min', String(filters.amount_min))
     if (filters.amount_max != null) params.set('amount_max', String(filters.amount_max))
-    if (filters.limit != null) params.set('limit', String(filters.limit))
+    if (filters.tag_category_code) params.set('tag_category_code', filters.tag_category_code)
+    if (filters.tag_value) params.set('tag_value', filters.tag_value)
+    if (filters.tag_filters) params.set('tag_filters', filters.tag_filters)
+    if (filters.counterparty) params.set('counterparty', filters.counterparty)
+    if (filters.tag_match_scope) params.set('tag_match_scope', filters.tag_match_scope)
+    if (filters.limit != null) params.set('limit', String(clampEntriesPageLimit(filters.limit)))
     if (filters.offset != null) params.set('offset', String(filters.offset))
     return request<ChronologicalEntryListResponse>(`/api/entries/chronological?${params.toString()}`)
+  },
+  listLedgerAccountCodes: (ledgerId: number, limit = 500) =>
+    request<Array<{ account_code: string; account_name: string | null; entry_count: number }>>(
+      `/api/entries/ledger-account-codes?ledger_id=${ledgerId}&limit=${limit}`,
+    ),
+  getSubsidiaryOpeningBalance: (filters: {
+    ledger_id: number
+    account_code?: string
+    account_codes?: string[]
+    account_code_match?: 'exact' | 'prefix' | 'contains'
+    organization_id?: number
+    period_id?: number
+    period_ids?: number[]
+    date_from?: string
+    summary?: string
+    counterparty?: string
+    tag_filters?: string
+  }) => {
+    const params = new URLSearchParams()
+    params.set('ledger_id', String(filters.ledger_id))
+    if (filters.account_codes?.length) {
+      params.set('account_codes', JSON.stringify(filters.account_codes))
+    } else if (filters.account_code) {
+      params.set('account_code', filters.account_code)
+    }
+    if (filters.account_code_match) params.set('account_code_match', filters.account_code_match)
+    if (filters.organization_id != null) params.set('organization_id', String(filters.organization_id))
+    if (filters.period_ids?.length) params.set('period_ids', JSON.stringify(filters.period_ids))
+    else if (filters.period_id != null) params.set('period_id', String(filters.period_id))
+    if (filters.date_from) params.set('date_from', filters.date_from)
+    if (filters.summary) params.set('summary', filters.summary)
+    if (filters.counterparty) params.set('counterparty', filters.counterparty)
+    if (filters.tag_filters) params.set('tag_filters', filters.tag_filters)
+    return request<{ account_code: string; direction: 'debit' | 'credit'; opening_balance: number }>(
+      `/api/entries/subsidiary-ledger/opening-balance?${params.toString()}`,
+    )
+  },
+  exportSubsidiaryLedger: async (filters: {
+    ledger_id: number
+    account_code?: string
+    account_codes?: string[]
+    account_code_match?: 'exact' | 'prefix' | 'contains'
+    organization_id?: number
+    period_id?: number
+    period_ids?: number[]
+    date_from?: string
+    date_to?: string
+    summary?: string
+    counterparty?: string
+    tag_filters?: string
+    category_codes?: string
+  }): Promise<Blob> => {
+    const params = new URLSearchParams()
+    params.set('ledger_id', String(filters.ledger_id))
+    if (filters.account_codes?.length) {
+      params.set('account_codes', JSON.stringify(filters.account_codes))
+    } else if (filters.account_code) {
+      params.set('account_code', filters.account_code)
+    }
+    if (filters.account_code_match) params.set('account_code_match', filters.account_code_match)
+    if (filters.organization_id != null) params.set('organization_id', String(filters.organization_id))
+    if (filters.period_ids?.length) params.set('period_ids', JSON.stringify(filters.period_ids))
+    else if (filters.period_id != null) params.set('period_id', String(filters.period_id))
+    if (filters.date_from) params.set('date_from', filters.date_from)
+    if (filters.date_to) params.set('date_to', filters.date_to)
+    if (filters.summary) params.set('summary', filters.summary)
+    if (filters.counterparty) params.set('counterparty', filters.counterparty)
+    if (filters.tag_filters) params.set('tag_filters', filters.tag_filters)
+    if (filters.category_codes) params.set('category_codes', filters.category_codes)
+    const response = await fetch(`${API_BASE}/api/entries/subsidiary-ledger/export?${params.toString()}`)
+    if (!response.ok) {
+      throw new Error(await response.text())
+    }
+    return response.blob()
   },
   queryVouchers: (filters: VoucherQueryFilters) => {
     const params = new URLSearchParams()
     params.set('ledger_id', String(filters.ledger_id))
-    if (filters.period_id != null) params.set('period_id', String(filters.period_id))
+    if (filters.period_ids?.length) params.set('period_ids', JSON.stringify(filters.period_ids))
+    else if (filters.period_id != null) params.set('period_id', String(filters.period_id))
     if (filters.date_from) params.set('date_from', filters.date_from)
     if (filters.date_to) params.set('date_to', filters.date_to)
     if (filters.month) params.set('month', filters.month)
+    if (filters.import_job_id != null) params.set('import_job_id', String(filters.import_job_id))
+    if (filters.review_status) params.set('review_status', filters.review_status)
     if (filters.filter_mode) params.set('filter_mode', filters.filter_mode)
     if (filters.account_code) params.set('account_code', filters.account_code)
     if (filters.account_name) params.set('account_name', filters.account_name)
@@ -1729,7 +2997,7 @@ export const api = {
     if (filters.total_min != null) params.set('total_min', String(filters.total_min))
     if (filters.total_max != null) params.set('total_max', String(filters.total_max))
     if (filters.include_lines != null) params.set('include_lines', String(filters.include_lines))
-    if (filters.limit != null) params.set('limit', String(filters.limit))
+    if (filters.limit != null) params.set('limit', String(clampVoucherQueryLimit(filters.limit)))
     if (filters.offset != null) params.set('offset', String(filters.offset))
     return request<VoucherQueryResponse>(`/api/entries/vouchers?${params.toString()}`)
   },
@@ -1833,18 +3101,56 @@ export const api = {
   runAuditTests: (jobId: number) => request<AuditTestReport>(`/api/audit-tests/${jobId}/run`, { method: 'POST' }),
   getAuditTestReport: (jobId: number) => request<AuditTestReport>(`/api/audit-tests/${jobId}/report`),
   getAuditFindings: (jobId: number) => request<AuditFinding[]>(`/api/audit-tests/${jobId}/findings`),
+  searchAuditFindings: (params?: {
+    ledgerId?: number
+    jobId?: number
+    findingType?: string
+    status?: string
+  }) => {
+    const qs = new URLSearchParams()
+    if (params?.ledgerId != null) qs.set('ledger_id', String(params.ledgerId))
+    if (params?.jobId != null) qs.set('job_id', String(params.jobId))
+    if (params?.findingType) qs.set('finding_type', params.findingType)
+    if (params?.status) qs.set('status', params.status)
+    const query = qs.toString()
+    return request<AuditFinding[]>(`/api/audit-tests/findings/search${query ? `?${query}` : ''}`)
+  },
+  listWorkbenchItems: (params?: {
+    ledgerId?: number
+    status?: string
+    source?: string
+    jobId?: number
+    limit?: number
+  }) => {
+    const query = new URLSearchParams()
+    if (params?.status) query.set('status', params.status)
+    if (params?.source) query.set('source', params.source)
+    if (params?.jobId) query.set('job_id', String(params.jobId))
+    if (params?.limit) query.set('limit', String(params.limit))
+    const headers = params?.ledgerId ? { 'X-Ledger-Id': String(params.ledgerId) } : undefined
+    const suffix = query.toString()
+    return request<WorkbenchQueueResponse>(`/api/workbench/items${suffix ? `?${suffix}` : ''}`, { headers })
+  },
+  getEntrySourceEvidence: (entryId: number) =>
+    request<EntrySourceEvidence>(`/api/entries/${entryId}/source-evidence`),
   reviewAuditFinding: (findingDbId: number, action: string, comment?: string) =>
     request<AuditFinding>(`/api/audit-tests/findings/${findingDbId}/review`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, comment })
     }),
-  exportImportJob: async (jobId: number, format: 'xlsx' | 'csv' | 'json'): Promise<Blob> => {
+  exportImportJob: async (
+    jobId: number,
+    format: 'xlsx' | 'csv' | 'json',
+  ): Promise<{ blob: Blob; contentDisposition: string | null }> => {
     const response = await fetch(`${API_BASE}/api/import-jobs/${jobId}/export?format=${format}`)
     if (!response.ok) {
       throw new Error(await response.text())
     }
-    return response.blob()
+    return {
+      blob: await response.blob(),
+      contentDisposition: response.headers.get('Content-Disposition'),
+    }
   },
   postImportJobEntries: (jobId: number) =>
     request<{ job_id: number; posted: number; total: number; posted_at: string }>(
@@ -1892,6 +3198,7 @@ export const api = {
     file_type?: string
     parse_status?: string
     archive_category?: string
+    lifecycle?: 'inbox' | 'archived' | 'all'
   }) => {
     const params = new URLSearchParams()
     if (filters?.ledger_id) params.set('ledger_id', String(filters.ledger_id))
@@ -1902,9 +3209,32 @@ export const api = {
     if (filters?.file_type) params.set('file_type', filters.file_type)
     if (filters?.parse_status) params.set('parse_status', filters.parse_status)
     if (filters?.archive_category) params.set('archive_category', filters.archive_category)
+    if (filters?.lifecycle) params.set('lifecycle', filters.lifecycle)
     const query = params.toString()
     return request<SourceFileRead[]>(`/api/files${query ? `?${query}` : ''}`)
   },
+  ingestEvidenceFile: (ledgerId: number, file: File, fileType?: string) => {
+    const form = new FormData()
+    form.append('ledger_id', String(ledgerId))
+    form.append('file', file)
+    if (fileType) form.append('file_type', fileType)
+    return request<SourceFileRead>('/api/files/ingest', {
+      method: 'POST',
+      headers: { 'X-Ingest-Channel': 'web' },
+      body: form,
+    })
+  },
+  getIngestApiExample: (ledgerId: number) =>
+    request<IngestApiExample>(`/api/files/ingest/example?ledger_id=${ledgerId}`),
+  archiveEvidenceFile: (
+    fileId: number,
+    payload: { project_id: number; period_code: string; archive_category: string; document_folder?: string },
+  ) =>
+    request<SourceFileRead>(`/api/files/${fileId}/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
   listProjectFiles: (projectId: number, filters?: { ledger_id?: number; archive_category?: string }) => {
     const params = new URLSearchParams()
     if (filters?.ledger_id) params.set('ledger_id', String(filters.ledger_id))
@@ -2077,22 +3407,265 @@ export const api = {
     if (ledgerId) params.set('ledger_id', String(ledgerId))
     return request<TrialBalance>(`/api/opening-balances/trial-balance?${params.toString()}`)
   },
-  getTrialBalanceReport: (organizationId: number, periodId: number) =>
-    request<TrialBalanceReport>(`/api/reports/trial-balance?organization_id=${organizationId}&period_id=${periodId}`),
-  getBalanceSheetReport: (organizationId: number, periodId: number) =>
-    request<BalanceSheetReport>(`/api/reports/balance-sheet?organization_id=${organizationId}&period_id=${periodId}`),
+  getTrialBalanceReport: (params: {
+    ledgerId: number
+    periodId: number
+    asOfDate?: string
+    organizationId?: number
+  }) => {
+    const query = new URLSearchParams({
+      ledger_id: String(params.ledgerId),
+      period_id: String(params.periodId),
+    })
+    if (params.asOfDate) query.set('as_of_date', params.asOfDate)
+    if (params.organizationId) query.set('organization_id', String(params.organizationId))
+    return request<TrialBalanceReport>(`/api/reports/trial-balance?${query}`)
+  },
+  getBalanceSheetReport: (params: {
+    ledgerId: number
+    periodId: number
+    asOfDate?: string
+    organizationId?: number
+    presentationMode?: BalanceSheetPresentationMode
+  }) => {
+    const query = new URLSearchParams({
+      ledger_id: String(params.ledgerId),
+      period_id: String(params.periodId),
+    })
+    if (params.asOfDate) query.set('as_of_date', params.asOfDate)
+    if (params.organizationId) query.set('organization_id', String(params.organizationId))
+    if (params.presentationMode) query.set('presentation_mode', params.presentationMode)
+    return request<BalanceSheetReport>(`/api/reports/balance-sheet?${query}`)
+  },
+  getBalanceSheetBreakdown: (params: {
+    ledgerId: number
+    periodId: number
+    accountPrefix: string
+    category?: 'asset' | 'liability' | 'equity'
+    asOfDate?: string
+    organizationId?: number
+    presentationMode?: BalanceSheetPresentationMode
+  }) => {
+    const query = new URLSearchParams({
+      ledger_id: String(params.ledgerId),
+      period_id: String(params.periodId),
+      account_prefix: params.accountPrefix,
+    })
+    if (params.category) query.set('category', params.category)
+    if (params.asOfDate) query.set('as_of_date', params.asOfDate)
+    if (params.organizationId) query.set('organization_id', String(params.organizationId))
+    if (params.presentationMode) query.set('presentation_mode', params.presentationMode)
+    return request<{
+      account_prefix: string
+      category: string
+      presentation_mode?: BalanceSheetPresentationMode
+      rows: TrialBalanceRow[]
+      as_of_date?: string
+    }>(`/api/reports/balance-sheet/breakdown?${query}`)
+  },
   getIncomeStatementReport: (organizationId: number, periodId: number) =>
     request<IncomeStatementReport>(`/api/reports/income-statement?organization_id=${organizationId}&period_id=${periodId}`),
+
+  getCashFlowStatementReport: (params: {
+    ledgerId: number
+    periodId: number
+    asOfDate?: string
+    organizationId?: number
+  }) => {
+    const query = new URLSearchParams({
+      ledger_id: String(params.ledgerId),
+      period_id: String(params.periodId),
+    })
+    if (params.asOfDate) query.set('as_of_date', params.asOfDate)
+    if (params.organizationId) query.set('organization_id', String(params.organizationId))
+    return request<CashFlowStatementReport>(`/api/reports/cash-flow-statement?${query}`)
+  },
+
+  exportTrialBalanceReport: async (
+    params: { ledgerId: number; periodId: number; asOfDate?: string; organizationId?: number } & ReportExportSignature,
+    format: 'xlsx' | 'csv' | 'pdf' = 'xlsx',
+  ): Promise<{ blob: Blob; contentDisposition: string | null }> => {
+    const query = new URLSearchParams({
+      ledger_id: String(params.ledgerId),
+      period_id: String(params.periodId),
+      format,
+    })
+    if (params.asOfDate) query.set('as_of_date', params.asOfDate)
+    if (params.organizationId) query.set('organization_id', String(params.organizationId))
+    if (params.preparer_name) query.set('preparer_name', params.preparer_name)
+    if (params.reviewer_name) query.set('reviewer_name', params.reviewer_name)
+    if (params.approver_name) query.set('approver_name', params.approver_name)
+    const response = await fetch(`${API_BASE}/api/reports/trial-balance/export?${query}`)
+    if (!response.ok) throw new Error(await response.text())
+    return { blob: await response.blob(), contentDisposition: response.headers.get('Content-Disposition') }
+  },
+
+  exportBalanceSheetReport: async (
+    params: {
+      ledgerId: number
+      periodId: number
+      asOfDate?: string
+      organizationId?: number
+      presentationMode?: BalanceSheetPresentationMode
+    } & ReportExportSignature,
+    format: 'xlsx' | 'csv' | 'pdf' = 'xlsx',
+  ): Promise<{ blob: Blob; contentDisposition: string | null }> => {
+    const query = new URLSearchParams({
+      ledger_id: String(params.ledgerId),
+      period_id: String(params.periodId),
+      format,
+    })
+    if (params.asOfDate) query.set('as_of_date', params.asOfDate)
+    if (params.organizationId) query.set('organization_id', String(params.organizationId))
+    if (params.presentationMode) query.set('presentation_mode', params.presentationMode)
+    if (params.preparer_name) query.set('preparer_name', params.preparer_name)
+    if (params.reviewer_name) query.set('reviewer_name', params.reviewer_name)
+    if (params.approver_name) query.set('approver_name', params.approver_name)
+    const response = await fetch(`${API_BASE}/api/reports/balance-sheet/export?${query}`)
+    if (!response.ok) throw new Error(await response.text())
+    return { blob: await response.blob(), contentDisposition: response.headers.get('Content-Disposition') }
+  },
+
+  exportIncomeStatementReport: async (
+    params: { organizationId: number; periodId: number; ledgerId?: number } & ReportExportSignature,
+    format: 'xlsx' | 'csv' | 'pdf' = 'xlsx',
+  ): Promise<{ blob: Blob; contentDisposition: string | null }> => {
+    const query = new URLSearchParams({
+      organization_id: String(params.organizationId),
+      period_id: String(params.periodId),
+      format,
+    })
+    if (params.ledgerId) query.set('ledger_id', String(params.ledgerId))
+    if (params.preparer_name) query.set('preparer_name', params.preparer_name)
+    if (params.reviewer_name) query.set('reviewer_name', params.reviewer_name)
+    if (params.approver_name) query.set('approver_name', params.approver_name)
+    const response = await fetch(`${API_BASE}/api/reports/income-statement/export?${query}`)
+    if (!response.ok) throw new Error(await response.text())
+    return { blob: await response.blob(), contentDisposition: response.headers.get('Content-Disposition') }
+  },
+
+  exportCashFlowStatementReport: async (
+    params: { ledgerId: number; periodId: number; asOfDate?: string; organizationId?: number } & ReportExportSignature,
+    format: 'xlsx' | 'csv' | 'pdf' = 'xlsx',
+  ): Promise<{ blob: Blob; contentDisposition: string | null }> => {
+    const query = new URLSearchParams({
+      ledger_id: String(params.ledgerId),
+      period_id: String(params.periodId),
+      format,
+    })
+    if (params.asOfDate) query.set('as_of_date', params.asOfDate)
+    if (params.organizationId) query.set('organization_id', String(params.organizationId))
+    if (params.preparer_name) query.set('preparer_name', params.preparer_name)
+    if (params.reviewer_name) query.set('reviewer_name', params.reviewer_name)
+    if (params.approver_name) query.set('approver_name', params.approver_name)
+    const response = await fetch(`${API_BASE}/api/reports/cash-flow-statement/export?${query}`)
+    if (!response.ok) throw new Error(await response.text())
+    return { blob: await response.blob(), contentDisposition: response.headers.get('Content-Disposition') }
+  },
+
+  exportReportsPackage: async (
+    params: {
+      ledgerId: number
+      periodId: number
+      asOfDate?: string
+      organizationId?: number
+      includePdf?: boolean
+    } & ReportExportSignature,
+  ): Promise<{ blob: Blob; contentDisposition: string | null }> => {
+    const query = new URLSearchParams({
+      ledger_id: String(params.ledgerId),
+      period_id: String(params.periodId),
+      include_pdf: String(params.includePdf !== false),
+    })
+    if (params.asOfDate) query.set('as_of_date', params.asOfDate)
+    if (params.organizationId) query.set('organization_id', String(params.organizationId))
+    if (params.preparer_name) query.set('preparer_name', params.preparer_name)
+    if (params.reviewer_name) query.set('reviewer_name', params.reviewer_name)
+    if (params.approver_name) query.set('approver_name', params.approver_name)
+    const response = await fetch(`${API_BASE}/api/reports/package/export?${query}`)
+    if (!response.ok) throw new Error(await response.text())
+    return { blob: await response.blob(), contentDisposition: response.headers.get('Content-Disposition') }
+  },
+
+  deliverReportsPackage: (params: {
+    ledgerId: number
+    periodId: number
+    asOfDate?: string
+    organizationId?: number
+    includePdf?: boolean
+    includeSubsidiary?: boolean
+  } & ReportExportSignature) => {
+    const query = new URLSearchParams({
+      ledger_id: String(params.ledgerId),
+      period_id: String(params.periodId),
+      include_pdf: String(params.includePdf !== false),
+      include_subsidiary: String(params.includeSubsidiary !== false),
+    })
+    if (params.asOfDate) query.set('as_of_date', params.asOfDate)
+    if (params.organizationId) query.set('organization_id', String(params.organizationId))
+    if (params.preparer_name) query.set('preparer_name', params.preparer_name)
+    if (params.reviewer_name) query.set('reviewer_name', params.reviewer_name)
+    if (params.approver_name) query.set('approver_name', params.approver_name)
+    return request<{
+      delivery_root: string
+      delivery_folder: string
+      manifest_path: string
+      zip_path: string
+      files: string[]
+      ledger_name: string
+      period_code: string
+    }>(`/api/reports/package/deliver?${query}`, { method: 'POST' })
+  },
+
   plTransfer: (periodId: number) =>
     request<{ period_id: number; voucher_no: string; lines: number; net_profit: number; status: string }>(
       `/api/accounting-periods/${periodId}/pl-transfer`,
       { method: 'POST' }
     ),
+  plTransferBatch: (payload: {
+    ledgerId: number
+    periodIds?: number[]
+    fromPeriodId?: number
+    toPeriodId?: number
+    stopOnError?: boolean
+    skipTransferred?: boolean
+  }) =>
+    request<PlTransferBatchResult>('/api/accounting-periods/batch/pl-transfer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ledger_id: payload.ledgerId,
+        period_ids: payload.periodIds,
+        from_period_id: payload.fromPeriodId,
+        to_period_id: payload.toPeriodId,
+        stop_on_error: payload.stopOnError !== false,
+        skip_transferred: payload.skipTransferred !== false,
+      }),
+    }),
   plTransferReverse: (periodId: number) =>
     request<{ period_id: number; voucher_no: string; deleted_lines: number; status: string }>(
       `/api/accounting-periods/${periodId}/pl-transfer/reverse`,
       { method: 'POST' }
     ),
+  reconcilePlTransfer: (periodId: number, autoFix = false) => {
+    const query = autoFix ? '?auto_fix=true' : ''
+    return request<PlTransferHealth>(
+      `/api/accounting-periods/${periodId}/pl-transfer/reconcile${query}`,
+      { method: 'POST' }
+    )
+  },
+  autoProvisionCoaGaps: (ledgerId: number, dryRun = false) => {
+    const query = new URLSearchParams({ ledger_id: String(ledgerId) })
+    if (dryRun) query.set('dry_run', 'true')
+    return request<{
+      ledger_id: number
+      dry_run: boolean
+      orphan_code_count: number
+      created_count: number
+      created: Array<Record<string, unknown>>
+      skipped: Array<{ code: string; reason: string }>
+    }>(`/api/coa/auto-provision-gaps?${query}`, { method: 'POST' })
+  },
   closePeriod: (periodId: number) =>
     request<AccountingPeriod>(
       `/api/accounting-periods/${periodId}/close`,
@@ -2174,17 +3747,45 @@ export const api = {
 
   listBankAccounts: (ledgerId: number) =>
     request<BankAccount[]>('/api/bank/accounts', { headers: { 'X-Ledger-Id': String(ledgerId) } }),
+  bulkImportBankAccounts: (ledgerId: number, records: Array<Record<string, unknown>>) =>
+    request<{ created: number; skipped: number; errors: string[] }>('/api/bank/accounts/bulk-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify({ records }),
+    }),
   createBankAccount: (ledgerId: number, payload: {
     bank_name: string
     account_no: string
     account_name: string
     coa_account_code?: string
+    source_sub_code?: string | null
     opening_balance?: number
   }) =>
     request<BankAccount>('/api/bank/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
       body: JSON.stringify(payload),
+    }),
+  updateBankAccount: (
+    ledgerId: number,
+    accountId: number,
+    payload: {
+      bank_name: string
+      account_no: string
+      account_name: string
+      coa_account_code?: string
+      source_sub_code?: string | null
+    },
+  ) =>
+    request<BankAccount>(`/api/bank/accounts/${accountId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+  deleteBankAccount: (ledgerId: number, accountId: number) =>
+    request<{ status: string }>(`/api/bank/accounts/${accountId}`, {
+      method: 'DELETE',
+      headers: { 'X-Ledger-Id': String(ledgerId) },
     }),
   listBankTransactions: (ledgerId: number, status?: string) =>
     request<BankTransaction[]>(`/api/bank/transactions${status ? `?status=${status}` : ''}`, {
@@ -2336,16 +3937,43 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   listLedgers: () => request<Ledger[]>('/api/ledgers'),
+  updateLedger: (ledgerId: number, payload: UpdateLedgerPayload) =>
+    request<Ledger>(`/api/ledgers/${ledgerId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  deleteLedger: (ledgerId: number, reason?: string) =>
+    request<{ deleted: boolean; ledger_id: number }>(`/api/ledgers/${ledgerId}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    }),
+  initializeLedger: (ledgerId: number, reason?: string) =>
+    request<{ ledger_id: number; deleted_vouchers: number; deleted_entries: number }>(
+      `/api/ledgers/${ledgerId}/initialize`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      },
+    ),
   switchLedger: (ledgerId: number) =>
     request<{ ledger_id: number; message: string }>(`/api/ledgers/${ledgerId}/switch`, { method: 'POST' }),
   getLedgerAuths: (ledgerId: number) =>
     request<LedgerAuth[]>(`/api/ledgers/${ledgerId}/auths`),
-  grantLedgerAuth: (ledgerId: number, payload: { user_id: number; role: string }) =>
-    request<{ message: string; user_id: number; ledger_id: number; role: string }>(`/api/ledgers/${ledgerId}/auth`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }),
+  grantLedgerAuth: (
+    ledgerId: number,
+    payload: { user_id?: number; username?: string; phone?: string; role: string }
+  ) =>
+    request<{ message: string; user_id: number; username?: string; ledger_id: number; role: string }>(
+      `/api/ledgers/${ledgerId}/auth`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    ),
   revokeLedgerAuth: (ledgerId: number, authId: number) =>
     request<{ message: string; auth_id: number; user_id: number; ledger_id: number }>(
       `/api/ledgers/${ledgerId}/auths/${authId}`,
@@ -2696,6 +4324,7 @@ export const api = {
       ai_provider: string
       ai_base_url: string
       ai_model: string
+      ai_reasoning_model?: string
       ai_api_key: string | null
       ai_local_model_enabled: boolean
       ai_fallback_to_rules: boolean
@@ -3058,6 +4687,157 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  listTagCategories: (ledgerId: number, params?: { status?: 'active' | 'disabled' | 'archived' | 'all' }) => {
+    const qs = new URLSearchParams({ ledger_id: String(ledgerId) })
+    if (params?.status) qs.set('status', params.status)
+    return request<TagCategoryNode[]>(`/api/entry-tags/categories?${qs.toString()}`)
+  },
+
+  createTagCategory: (
+    ledgerId: number,
+    payload: {
+      code: string
+      name: string
+      description?: string
+      parent_id?: number | null
+      value_type?: string
+      source_table?: string
+      is_mandatory?: boolean
+      sort_order?: number
+    },
+  ) =>
+    request<{ id: number; code: string; name: string }>(
+      `/api/entry-tags/categories?ledger_id=${ledgerId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    ),
+
+  updateTagCategory: (
+    categoryId: number,
+    payload: Partial<{
+      name: string
+      description: string
+      value_type: string
+      source_table: string
+      is_mandatory: boolean
+      sort_order: number
+      status: string
+    }>,
+  ) =>
+    request<{ id: number; code: string; name: string }>(`/api/entry-tags/categories/${categoryId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  deleteTagCategory: (categoryId: number) =>
+    request<{ message: string }>(`/api/entry-tags/categories/${categoryId}`, { method: 'DELETE' }),
+
+  aggregateEntryTags: (ledgerId: number, categoryCode: string) =>
+    request<EntryTagAggregate[]>(
+      `/api/entry-tags/aggregate/${encodeURIComponent(categoryCode)}?ledger_id=${ledgerId}`,
+    ),
+
+  aggregateEntryTagsScoped: (
+    ledgerId: number,
+    categoryCode: string,
+    options?: {
+      account_codes?: string[]
+      account_code_match?: 'exact' | 'prefix' | 'contains'
+      q?: string
+      limit?: number
+      include_voucher_lines?: boolean
+    },
+  ) => {
+    const qs = new URLSearchParams({ ledger_id: String(ledgerId) })
+    if (options?.account_codes?.length) qs.set('account_codes', JSON.stringify(options.account_codes))
+    if (options?.account_code_match) qs.set('account_code_match', options.account_code_match)
+    if (options?.q) qs.set('q', options.q)
+    if (options?.limit != null) qs.set('limit', String(options.limit))
+    if (options?.include_voucher_lines) qs.set('include_voucher_lines', 'true')
+    return request<EntryTagAggregate[]>(
+      `/api/entry-tags/aggregate/${encodeURIComponent(categoryCode)}?${qs.toString()}`,
+    )
+  },
+
+  listTagMappingRules: (ledgerId: number, sourceType?: string) => {
+    const qs = new URLSearchParams({ ledger_id: String(ledgerId) })
+    if (sourceType) qs.set('source_type', sourceType)
+    return request<TagMappingRule[]>(`/api/entry-tags/mapping-rules?${qs.toString()}`)
+  },
+
+  createTagMappingRule: (
+    ledgerId: number,
+    payload: {
+      source_pattern: string
+      target_category_code: string
+      source_type?: string
+      target_value?: string | null
+      priority?: number
+      is_regex?: boolean
+      description?: string | null
+    },
+  ) =>
+    request<{ id: number; source_pattern: string }>(
+      `/api/entry-tags/mapping-rules?ledger_id=${ledgerId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    ),
+
+  updateTagMappingRule: (
+    ruleId: number,
+    payload: Partial<{
+      target_value: string | null
+      priority: number
+      is_active: boolean
+      description: string | null
+    }>,
+  ) =>
+    request<{ id: number; source_pattern: string }>(`/api/entry-tags/mapping-rules/${ruleId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  deleteTagMappingRule: (ruleId: number) =>
+    request<{ status: string }>(`/api/entry-tags/mapping-rules/${ruleId}`, { method: 'DELETE' }),
+
+  createCounterparty: (payload: {
+    name: string
+    role?: string
+    unified_credit_no?: string | null
+    is_related_party?: boolean
+  }) =>
+    request<Counterparty>('/api/counterparties', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  updateCounterparty: (
+    counterpartyId: number,
+    payload: {
+      name?: string
+      role?: string
+      unified_credit_no?: string | null
+      is_related_party?: boolean
+    },
+  ) =>
+    request<Counterparty>(`/api/counterparties/${counterpartyId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  disableCounterparty: (counterpartyId: number) =>
+    request<Counterparty>(`/api/counterparties/${counterpartyId}/disable`, { method: 'POST' }),
+
   getCounterparty: (counterpartyId: number) =>
     request<Counterparty>(`/api/counterparties/${counterpartyId}`),
 
@@ -3067,6 +4847,16 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids }),
     }),
+
+  batchUpdateCounterpartyRole: (payload: { ids: number[]; role: string }) =>
+    request<{ updated: number; role: string; items: Counterparty[]; skipped_ids: number[] }>(
+      '/api/counterparties/batch-update-role',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    ),
 
   // ==========================================================================
   // LLM Tag Resolution API
@@ -3134,7 +4924,127 @@ export const api = {
     }),
 
   resetAccountTagRules: () =>
-    request<{ success: boolean; message?: string }>('/api/config/account-tag-rules/reset', {
+    request<{ success: boolean; message?: string; config?: AccountTagConfig }>(
+      '/api/config/account-tag-rules/reset',
+      {
+        method: 'POST',
+      },
+    ),
+
+  getLedgerAccountTagRules: (ledgerId: number) =>
+    request<{
+      success: boolean
+      config: AccountTagConfig
+      has_ledger_override?: boolean
+      message?: string
+    }>(`/api/config/ledgers/${ledgerId}/account-tag-rules`),
+
+  saveLedgerAccountTagRules: (ledgerId: number, config: AccountTagConfig) =>
+    request<{ success: boolean; message?: string; has_ledger_override?: boolean }>(
+      `/api/config/ledgers/${ledgerId}/account-tag-rules`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      },
+    ),
+
+  resetLedgerAccountTagRules: (ledgerId: number) =>
+    request<{ success: boolean; message?: string; config?: AccountTagConfig; has_ledger_override?: boolean }>(
+      `/api/config/ledgers/${ledgerId}/account-tag-rules/reset`,
+      { method: 'POST' },
+    ),
+
+  getLedgerDimensionReadiness: (ledgerId: number) =>
+    request<{
+      ledger_id: number
+      ready_for_structured_import: boolean
+      tag_rules_reviewed_at?: string | null
+      parse_config_ok?: boolean
+      category_count?: number
+      prior_structured_import_count?: number
+      blockers?: Array<{ code: string; message: string; action_tab?: string }>
+      warnings?: Array<{ code: string; message: string; action_tab?: string }>
+      vector_scope_note?: string
+    }>(`/api/config/ledgers/${ledgerId}/dimension-readiness`),
+
+  acknowledgeLedgerDimensionReadiness: (ledgerId: number) =>
+    request<{ success: boolean; ledger_id: number; tag_rules_reviewed_at?: string }>(
+      `/api/config/ledgers/${ledgerId}/dimension-readiness/acknowledge`,
+      { method: 'POST' },
+    ),
+
+  getStagingLlmPending: (jobId: number) =>
+    request<{
+      job_id: number
+      ledger_id: number | null
+      total: number
+      items: Array<{
+        staging_id: number
+        voucher_no?: string
+        summary?: string
+        account_code?: string
+        account_name?: string
+      }>
+    }>(`/api/import-jobs/${jobId}/staging/llm-pending`),
+
+  resolveStagingLlmTags: (
+    jobId: number,
+    payload?: { staging_ids?: number[]; batch_size?: number; dry_run?: boolean },
+  ) =>
+    request<{
+      task_id: string
+      total_rows: number
+      success_count: number
+      failed_count: number
+      resolved_rows: number
+      processing_time_ms: number
+      error_messages: string[]
+      suggested_tags: Array<{
+        staging_id: number
+        category_code: string
+        tag_value: string
+        display_name: string
+        confidence: number
+        validation_passed: boolean
+      }>
+    }>(`/api/import-jobs/${jobId}/staging/llm-resolve`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    }),
+
+  listEvolutionProposals: (params?: { status?: string; limit?: number }) => {
+    const searchParams = new URLSearchParams()
+    searchParams.set('status', params?.status ?? 'draft')
+    searchParams.set('limit', String(params?.limit ?? 200))
+    return request<{ items: EvolutionProposal[]; total: number }>(
+      `/api/parser-engine/evolution/proposals?${searchParams.toString()}`,
+    )
+  },
+
+  runEvolutionScan: () =>
+    request<{ new_proposals: number; run_id: string }>('/api/parser-engine/evolution/run', {
+      method: 'POST',
+    }),
+
+  runNightlyRegression: () =>
+    request<{ run_id: string; categories: Record<string, unknown> }>(
+      '/api/parser-engine/evolution/nightly-regression',
+      { method: 'POST' },
+    ),
+
+  batchApproveEvolutionProposals: (patchIds: number[], approvedBy = 'ui') =>
+    request<{ approved_count: number }>('/api/parser-engine/evolution/proposals/batch-approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ patch_ids: patchIds, approved_by: approvedBy }),
+    }),
+
+  batchRejectEvolutionProposals: (patchIds: number[], reason = '') =>
+    request<{ rejected_count: number }>('/api/parser-engine/evolution/proposals/batch-reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ patch_ids: patchIds, reason }),
     }),
 }

@@ -294,3 +294,70 @@ def list_project_archived_files(db: Session, project_id: int, ledger_id: int | N
             if effective_ledger_id in ledger_ids:
                 result.append(item)
     return result
+
+
+def get_evidence_lifecycle(source_file: SourceFile) -> str:
+    archive = load_archive_metadata(source_file)
+    if archive and archive.get("archive_path"):
+        return "archived"
+    evidence = _load_notes(source_file).get("evidence")
+    if isinstance(evidence, dict) and evidence.get("lifecycle"):
+        return str(evidence["lifecycle"])
+    return "inbox"
+
+
+def set_evidence_inbox_metadata(source_file: SourceFile, *, ingest_channel: str = "web") -> None:
+    notes = _load_notes(source_file)
+    notes["evidence"] = {
+        "lifecycle": "inbox",
+        "ingest_channel": ingest_channel,
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_notes(source_file, notes)
+
+
+def manual_archive_source_file(
+    db: Session,
+    source_file: SourceFile,
+    *,
+    project_id: int,
+    period_code: str,
+    archive_category: str,
+    document_folder: str | None = None,
+) -> dict[str, Any]:
+    """将收件箱文件手动归档到指定项目/期间/分类。"""
+    project = db.get(Project, project_id)
+    if not project:
+        raise ValueError("项目不存在")
+
+    ledger_id = source_file.ledger_id
+    if ledger_id is None and source_file.import_job_id:
+        job = db.get(ImportJob, source_file.import_job_id)
+        if job:
+            ledger_id = job.ledger_id
+
+    folder = document_folder or DOCUMENT_FOLDER_LABELS.get(source_file.file_type or "", "资料")
+    archive_path = build_archive_path(project.name, period_code, archive_category, folder)
+    archive = {
+        "project_id": project.id,
+        "project_name": project.name,
+        "ledger_id": ledger_id,
+        "period_code": period_code,
+        "archive_category": archive_category,
+        "archive_folder": folder,
+        "archive_path": archive_path,
+        "status": "archived",
+        "archived_at": datetime.now(timezone.utc).isoformat(),
+        "archive_mode": "manual",
+    }
+    notes = _load_notes(source_file)
+    notes["archive"] = archive
+    evidence = notes.get("evidence")
+    if isinstance(evidence, dict):
+        evidence["lifecycle"] = "archived"
+        notes["evidence"] = evidence
+    _save_notes(source_file, notes)
+    if source_file.ledger_id is None and ledger_id is not None:
+        source_file.ledger_id = ledger_id
+    db.flush()
+    return archive

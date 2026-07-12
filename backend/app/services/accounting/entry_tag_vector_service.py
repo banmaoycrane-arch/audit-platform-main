@@ -95,8 +95,10 @@ class EntryTagVectorService:
         failed_count = 0
         for tag in pending:
             entry = self.db.get(AccountingEntry, tag.entry_id)
+            ledger_id = tag.ledger_id or (entry.ledger_id if entry else None)
             text = self.tag_text(tag, entry)
             payload = {
+                "ledger_id": ledger_id,
                 "entry_id": tag.entry_id,
                 "tag_id": tag.id,
                 "category_code": tag.category.code if tag.category else tag.tag_type,
@@ -125,6 +127,7 @@ class EntryTagVectorService:
         query_text: str,
         limit: int = 10,
         category_code: str | None = None,
+        ledger_id: int | None = None,
     ) -> dict[str, Any]:
         """
         自然语言检索标签及关联凭证。
@@ -133,6 +136,7 @@ class EntryTagVectorService:
             query_text: 自然语言查询文本
             limit: 返回结果数量
             category_code: 可选的维度分类过滤
+            ledger_id: 账簿 ID（强烈建议传入，仅检索本账簿向量，避免跨公司串库）
 
         Returns:
             检索结果，包含相似度分数、标签信息、关联 entry_id
@@ -145,19 +149,32 @@ class EntryTagVectorService:
                 "message": "向量库当前不可用",
             }
 
+        if ledger_id is None:
+            return {
+                "vector_available": True,
+                "results": [],
+                "message": "缺少 ledger_id，已拒绝跨账簿向量检索以防映射串库",
+            }
+
         try:
-            raw_results = store.search(query_text, limit=limit * 2)
+            filter_payload: dict[str, Any] = {"ledger_id": ledger_id, "source": "entry_tag"}
+            raw_results = store.search(query_text, limit=limit * 2, filter_payload=filter_payload)
             results: list[dict[str, Any]] = []
             for item in raw_results:
                 payload = item.get("payload") or {}
+                if payload.get("ledger_id") != ledger_id:
+                    continue
                 if category_code and payload.get("category_code") != category_code:
                     continue
 
                 entry_id = payload.get("entry_id")
                 entry = self.db.get(AccountingEntry, entry_id) if entry_id else None
+                if entry is not None and entry.ledger_id != ledger_id:
+                    continue
                 results.append({
                     "tag_id": payload.get("tag_id"),
                     "entry_id": entry_id,
+                    "ledger_id": ledger_id,
                     "category_code": payload.get("category_code"),
                     "category_name": payload.get("category_name"),
                     "tag_value": payload.get("tag_value"),
@@ -174,6 +191,7 @@ class EntryTagVectorService:
             return {
                 "vector_available": True,
                 "query": query_text,
+                "ledger_id": ledger_id,
                 "results": results,
             }
         except Exception as e:

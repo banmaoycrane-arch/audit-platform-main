@@ -1,5 +1,8 @@
 # Checklist（路线图验证）
 
+> ⚠️ **历史验证记录**（约 2026-06）。**不得**作为当前完成依据。  
+> **代码真值**: [code-truth-status.md](../../documents/code-truth-status.md) — 666 测试用例、368 API、L6 待验收。
+
 ## 队列 1：period-close-pl-transfer
 - [x] `period_close_service.py` 含 `auto_pl_transfer` + `reverse_pl_transfer`
 - [x] API `POST /api/accounting-periods/{id}/pl-transfer` 与 `/reverse` 已挂载
@@ -44,5 +47,5 @@
 ## 总体出口
 - [x] 5 个待执行队列在本路线图 `tasks.md` 全部勾选
 - [x] 每个队列的子 spec 自身 `checklist.md` 全部勾选
-- [x] 后端 `pytest backend/tests` 全量通过（88 passed）
-- [x] 前端 `npm run lint` 通过
+- [ ] ~~后端 `pytest backend/tests` 全量通过（88 passed）~~ → **须按 666 用例重新验证**（见 code-truth-status.md）
+- [ ] 前端 `npm run lint` 通过（仍建议 CI 复验）

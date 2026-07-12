@@ -733,7 +733,7 @@ export function ParserVoucherPreview() {
               <Button
                 type="primary"
                 key="view"
-                onClick={() => navigate('/ledger/vouchers')}
+                onClick={() => navigate('/ledger/entries')}
               >
                 查看凭证列表
               </Button>,

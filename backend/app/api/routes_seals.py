@@ -30,11 +30,19 @@ from app.services.doc_parsing.execution_audit_service import create_execution_au
 from app.models.project_ledger import ProjectLedger
 from app.services.shared.ledger_management_service import user_has_ledger_access
 from app.services.shared.project_service import list_projects_by_user
-from app.services.basic_data.seal_detection_service import detect_seals
-from app.services.basic_data.seal_extraction_service import extract_seal_region
-from app.services.basic_data.seal_ocr_service import recognize_seal_text, text_items_to_dict_list
 
 router = APIRouter(prefix="/api/v1", tags=["seals"])
+
+
+def _load_seal_services() -> tuple[Any, Any, Any, Any]:
+    from app.services.basic_data.seal_detection_service import detect_seals
+    from app.services.basic_data.seal_extraction_service import extract_seal_region
+    from app.services.basic_data.seal_ocr_service import (
+        recognize_seal_text,
+        text_items_to_dict_list,
+    )
+
+    return detect_seals, extract_seal_region, recognize_seal_text, text_items_to_dict_list
 
 
 class SealReviewRequest(BaseModel):
@@ -158,6 +166,16 @@ def extract_contract_seals(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="合同源文件不存在或路径无效",
         )
+
+    try:
+        detect_seals, extract_seal_region, recognize_seal_text, text_items_to_dict_list = (
+            _load_seal_services()
+        )
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="印章识别未启用，请在服务器安装 backend[vision] 可选依赖",
+        ) from exc
 
     # 检测印章区域
     detected_seals = detect_seals(str(image_path))

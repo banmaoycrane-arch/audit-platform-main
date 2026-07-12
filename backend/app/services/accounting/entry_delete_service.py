@@ -7,7 +7,7 @@ from datetime import date
 from sqlalchemy import tuple_
 from sqlalchemy.orm import Session
 
-from app.db.models import AccountingEntry, BankReconciliationItem, BankTransaction, EntryTag
+from app.db.models import AccountingEntry, BankReconciliationItem, BankTransaction, EntryTag, Voucher
 
 
 @dataclass(frozen=True)
@@ -71,6 +71,7 @@ def delete_vouchers_transactional(
         unique_keys.append(key)
 
     entry_ids: set[int] = set()
+    voucher_ids: set[int] = set()
     vouchers_found = 0
     lines_by_key: dict[tuple[str | None, date | None], list[AccountingEntry]] = {}
 
@@ -87,9 +88,19 @@ def delete_vouchers_transactional(
             if line.post_status == "posted":
                 raise ValueError(f"凭证已结账，不能删除：{_voucher_label(key)}")
             entry_ids.add(line.id)
+            if line.voucher_id:
+                voucher_ids.add(line.voucher_id)
         vouchers_found += 1
 
     try:
+        if voucher_ids:
+            posted_vouchers = (
+                db.query(Voucher.id)
+                .filter(Voucher.id.in_(voucher_ids), Voucher.status == "posted")
+                .count()
+            )
+            if posted_vouchers:
+                raise ValueError("存在已过账凭证，不能删除")
         if entry_ids:
             db.query(BankTransaction).filter(BankTransaction.matched_entry_id.in_(entry_ids)).update(
                 {BankTransaction.matched_entry_id: None},
@@ -107,6 +118,8 @@ def delete_vouchers_transactional(
             )
         else:
             deleted_entries = 0
+        if voucher_ids:
+            db.query(Voucher).filter(Voucher.id.in_(voucher_ids)).delete(synchronize_session=False)
         db.commit()
     except Exception:
         db.rollback()

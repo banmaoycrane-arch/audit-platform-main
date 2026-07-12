@@ -6,13 +6,14 @@ EntryTag / TagCategory / TagMappingRule API 路由。
 """
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.services.accounting.entry_tag_service import (
     aggregate_tags_by_category,
+    aggregate_tags_by_category_scoped,
     create_entry_tag,
     delete_entry_tag,
     list_entry_tags,
@@ -149,28 +150,32 @@ def create_tag_category(
             is_mandatory=data.is_mandatory,
             sort_order=data.sort_order,
         )
+        db.commit()
         return {"id": category.id, "code": category.code, "name": category.name}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/categories", response_model=list[dict[str, Any]])
 def get_tag_categories(
     ledger_id: int,
     parent_id: int | None = None,
+    status: str | None = Query("active", description="active|disabled|archived|all"),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """查询标签分类列表或树。"""
+    filter_status = None if status == "all" else status
     categories: list[dict[str, Any]]
     if parent_id is not None:
-        raw_categories = list_categories(db, ledger_id, parent_id=parent_id)
+        raw_categories = list_categories(db, ledger_id, parent_id=parent_id, status=filter_status)
         categories = [{
             "id": c.id, "code": c.code, "name": c.name, "description": c.description or "",
             "parent_id": c.parent_id, "value_type": c.value_type, "source_table": c.source_table or "",
-            "is_mandatory": c.is_mandatory, "sort_order": c.sort_order, "status": c.status
+            "is_mandatory": c.is_mandatory, "is_system": c.is_system, "sort_order": c.sort_order, "status": c.status
         } for c in raw_categories]
     else:
-        categories = build_category_tree(db, ledger_id)
+        categories = build_category_tree(db, ledger_id, status=filter_status)
     return categories
 
 
@@ -213,9 +218,11 @@ def update_tag_category(
             sort_order=data.sort_order,
             status=data.status,
         )
+        db.commit()
         return {"id": category.id, "code": category.code, "name": category.name}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.delete("/categories/{category_id}")
@@ -223,9 +230,11 @@ def delete_tag_category(category_id: int, db: Session = Depends(get_db)) -> dict
     """删除标签分类。"""
     try:
         delete_category(db, category_id)
+        db.commit()
         return {"status": "deleted"}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 # ============ EntryTag 路由 ============
@@ -318,8 +327,8 @@ def batch_get_entry_tags(
             "entry_id": t.entry_id,
             "ledger_id": t.ledger_id,
             "category_id": t.category_id,
-            "category_code": t.category.category_code if t.category else None,
-            "category_name": t.category.category_name if t.category else None,
+            "category_code": t.category.code if t.category else None,
+            "category_name": t.category.name if t.category else None,
             "tag_name": t.tag_name,
             "tag_value": t.tag_value,
             "display_name": t.display_name,
@@ -393,9 +402,31 @@ def get_entry_tag_history(
 def aggregate_tags(
     ledger_id: int,
     category_code: str,
+    account_codes: str | None = Query(None, description="科目范围 JSON 数组"),
+    account_code_match: str = Query("prefix"),
+    q: str | None = Query(None, description="标签关键字"),
+    include_voucher_lines: bool = Query(
+        False,
+        description="含已选科目对应凭证中对方科目分录行上的 tag",
+    ),
+    limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """按分类聚合标签值。"""
+    """按分类聚合标签值，可选科目范围与关键字检索。"""
+    from app.services.accounting.entry_query_service import parse_account_codes
+
+    codes = parse_account_codes(account_codes)
+    if codes:
+        return aggregate_tags_by_category_scoped(
+            db,
+            ledger_id,
+            category_code,
+            account_codes=codes,
+            account_code_match=account_code_match,
+            search_q=q,
+            limit=limit,
+            include_voucher_lines=include_voucher_lines,
+        )
     return aggregate_tags_by_category(db, ledger_id, category_code)
 
 
@@ -541,9 +572,10 @@ def sync_entry_tags_vector(limit: int = 100, db: Session = Depends(get_db)) -> d
 @router.get("/vector-search", response_model=dict[str, Any])
 def search_entry_tags_vector(
     q: str,
+    ledger_id: int,
     limit: int = 10,
     category_code: str | None = None,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """通过自然语言查询标签及关联凭证。"""
-    return EntryTagVectorService(db).search(q, limit=limit, category_code=category_code)
+    """通过自然语言查询标签及关联凭证（仅限指定账簿，防止跨公司向量串库）。"""
+    return EntryTagVectorService(db).search(q, limit=limit, category_code=category_code, ledger_id=ledger_id)

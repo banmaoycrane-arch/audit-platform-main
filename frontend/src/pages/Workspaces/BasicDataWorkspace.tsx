@@ -14,7 +14,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { WorkspaceShell } from '../../components/WorkspaceShell'
 
 const functionsList = [
-  { key: 'coa', icon: <BookOutlined />, label: '会计科目', path: '/basic/coa' },
+  { key: 'coa', icon: <BookOutlined />, label: '会计科目', path: '/ledger/dimensions?tab=coa' },
   { key: 'org-units', icon: <ApartmentOutlined />, label: '组织架构', path: '/basic/org-units' },
   { key: 'personnel', icon: <UserOutlined />, label: '员工', path: '/basic/personnel' },
   { key: 'counterparties', icon: <TeamOutlined />, label: '往来单位', path: '/basic/counterparties' },

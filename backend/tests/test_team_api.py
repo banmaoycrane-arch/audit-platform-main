@@ -199,9 +199,12 @@ def test_ledger_auths_list_and_revoke(client):
     assert auths_response.status_code == 200
     auths = auths_response.json()
     assert any(auth["user_id"] == admin_id and auth["role"] == "admin" for auth in auths)
+    admin_auth = next(auth for auth in auths if auth["user_id"] == admin_id)
+    assert admin_auth["username"] == "ledger_admin"
     viewer_auth = next(auth for auth in auths if auth["user_id"] == viewer_id)
     assert viewer_auth["ledger_id"] == ledger_id
     assert viewer_auth["role"] == "viewer"
+    assert viewer_auth["username"] == "ledger_viewer"
 
     # 撤销 viewer 授权。
     revoke_response = client.delete(

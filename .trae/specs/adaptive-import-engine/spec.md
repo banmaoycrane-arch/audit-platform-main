@@ -1,4 +1,22 @@
-# 自适应文件导入引擎重构计划
+# 自适应文件导入引擎（场景 A：电子档案 / 结构化导入）
+
+```text
+Domain: D05 - 原始资料导入与解析
+Status: active-main
+Owner Spec: adaptive-import-engine（本文档）
+Depends On: document-parsing-engine（双场景总纲）, parser-dual-scenario-strategy.md
+In Scope:
+- Excel/CSV 序时账、凭证表、网银导出
+- 表头检测、模板匹配、字段别名、质量分
+- file_parser_service.parse_entries 路径
+Out of Scope:
+- PDF/扫描合同分层（场景 B → document-parsing-engine + seal）
+- 印章识别、合同深度语义
+- 正式凭证 post
+Acceptance Level: TOP3 样本集字段准确率 ≥95%（序时簿）/ ≥90%（结构化流水）
+```
+
+> 双场景总纲见 [parser-dual-scenario-strategy.md](../../documents/parser-dual-scenario-strategy.md)。
 
 ## 1. 问题分析
 

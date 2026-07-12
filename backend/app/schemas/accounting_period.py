@@ -86,3 +86,35 @@ class PeriodBatchCreateResponse(BaseModel):
     skipped_count: int
     created_periods: list[AccountingPeriodRead]
     skipped_period_codes: list[str]
+
+
+class PlTransferBatchRequest(BaseModel):
+    ledger_id: int
+    period_ids: list[int] | None = None
+    from_period_id: int | None = None
+    to_period_id: int | None = None
+    stop_on_error: bool = True
+    skip_transferred: bool = True
+
+
+class PlTransferBatchItemResult(BaseModel):
+    period_id: int
+    period_code: str
+    status: str
+    voucher_no: str | None = None
+    lines: int | None = None
+    net_profit: float | None = None
+    error: str | None = None
+    reason: str | None = None
+
+
+class PlTransferBatchResponse(BaseModel):
+    ledger_id: int
+    total: int
+    succeeded_count: int
+    failed_count: int
+    skipped_count: int
+    stopped_early: bool
+    succeeded: list[PlTransferBatchItemResult]
+    failed: list[PlTransferBatchItemResult]
+    skipped: list[PlTransferBatchItemResult]

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     ai_base_url: str = ""
     ai_api_key: str = ""
     ai_model: str = ""
+    ai_reasoning_model: str = ""
     ai_local_model_enabled: bool = True
     ai_fallback_to_rules: bool = True
     embedding_dimension: int = 384
@@ -27,6 +28,8 @@ class Settings(BaseSettings):
     super_admin_phones: str = ""
     sms_return_code_in_dev: bool = True
     cors_allow_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
+    sqlite_cache_size_mb: int = 256
+    sqlite_mmap_size_mb: int = 512
     llm_max_concurrent_models: int = 1          # 最大并发模型数（同时运行的LLM数量）
     llm_memory_limit_mb: int = 8192             # 模型内存限制（MB），超过则降级
     llm_preferred_model: str = "qwen2.5-14b"    # 优先使用的模型

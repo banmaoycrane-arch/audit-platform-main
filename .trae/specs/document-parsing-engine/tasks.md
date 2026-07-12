@@ -1,108 +1,145 @@
-# 原始文件解析引擎与数据库设计 - 任务分解
+# 原始文件解析引擎 — 任务分解（双场景总纲）
+
+> **Owner**: `document-parsing-engine`  
+> **Charter**: [parser-dual-scenario-strategy.md](../../documents/parser-dual-scenario-strategy.md)  
+> **Code Truth**: [code-truth-status.md](../../documents/code-truth-status.md)  
+> **Status**: active-main（历史 Task 1–7 见文末附录，不作为当前 Sprint）
+
+---
+
+## Sprint A — TOP3 样本托底（P0）
+
+### [ ] Task A1: 序时簿 Excel 样本基线（场景 A）
+
+- **Priority**: P0
+- **Depends On**: `adaptive-import-engine` spec
+- **Description**:
+  - 整理用户样本集 → `samples/top3/journal/`、`invoice/`、`bank/`、`contract/`
+  - 定义 TOP3 字段清单：日期、凭证号、摘要、科目、借贷、金额
+  - 跑 `file_parser_service.parse_entries` 批量回归
+- **Acceptance**:
+  - 字段准确率 **≥95%**（样本集 N≥10 家导出格式）
+  - 失败样本写入修正规则候选清单
+- **Code**: `doc_parsing/file_parser_service.py`, `routes_imports.py`
+
+### [ ] Task A2: 发票样本基线（场景 A 为主）
+
+- **Priority**: P0
+- **Depends On**: Task A1（别名表共用）
+- **Description**:
+  - OFD/XML + 结构化 PDF/Excel 样本 → `samples/invoice/`
+  - 验收：销方、购方、号码、日期、价税合计、税额
+- **Acceptance**:
+  - 结构化样本 **≥90%** 字段准确率
+  - 扫描发票（场景 B）单独统计，不阻塞 A 验收
+- **Code**: `parser_engine_dispatcher`, `parser_voucher_mapper`
+
+### [ ] Task A3: 银行流水样本基线（场景 A 为主）
+
+- **Priority**: P0
+- **Depends On**: Task A1
+- **Description**:
+  - 网银 CSV/Excel + 部分 PDF 样本 → `samples/bank/`
+  - 验收：交易日期、对方户名、摘要、借/贷、金额、余额（如有）
+- **Acceptance**:
+  - 结构化导出 **≥90%** 字段准确率
+- **Code**: `parser_engine`, `parser_voucher_mapper`
+
+### [ ] Task A4: 修正回流最小闭环（UI + API）
+
+- **Priority**: P0
+- **Depends On**: Task A1–A3 至少各 1 批失败样本
+- **Description**:
+  - 解析结果页：字段 + 来源标签（rule / llm / seal / manual）
+  - 用户改错 → POST `ParseCorrectionRule` → 下次同型文档自动加载
+  - 质量看板：按 doc_type 展示准确率、修正命中率
+- **Acceptance**:
+  - LLM 不可用时仍可改错并回流（Plan B）
+  - `routes_parse_correction.py` 端到端人工走通 1 次
+- **Code**: `routes_parse_correction.py`, `correction_loop_service`, 前端 Parser 预览页扩展
+
+---
+
+## Sprint B — 合同三层输出（P1）
+
+### [ ] Task B1: 合同台账字段（场景 B）
+
+- **Priority**: P1
+- **Depends On**: `seal-recognition-system` Layer1 可用
+- **Description**:
+  - 扫描合同样本 → 主体（印章优先）、金额、期限、关键条款摘要
+  - 写入 `Contract` + `register_ingestion`
+- **Acceptance**:
+  - 印章检出率 / 主体回填率单独验收（见 seal spec）
+- **Code**: `contract_parser_service`, `_perform_seal_recognition`
+
+### [ ] Task B2: 合同底稿合规段落
+
+- **Priority**: P1
+- **Depends On**: Task B1
+- **Description**:
+  - `contract_deep_analyzer` → 矛盾/缺失/非标条款 → workpaper 段落
+- **Acceptance**:
+  - 1 份合同样本生成可导出底稿片段（人工判定可用）
+- **Code**: `contract_deep_analyzer`, `routes_workpapers.py`
+
+### [ ] Task B3: 合同初步凭证草稿（多草稿）
+
+- **Priority**: P1
+- **Depends On**: `govern-ai-voucher-evidence-tags` Task G1
+- **Description**:
+  - 同一 `business_key` 允许多 draft（合同口径 / 发票口径 / 回款口径）
+  - **不自动 post**；预览 → 用户选一
+- **Acceptance**:
+  - 1 个 business_key 下展示 ≥2 草稿，留痕完整
+- **Code**: `parser_voucher_mapper`, `routes_parser_voucher.py`
+
+---
+
+## Sprint C — Plan B 与测试债务（P1）
+
+### [ ] Task C1: LLM 降级路径验收
+
+- **Priority**: P1
+- **Depends On**: Task A4
+- **Description**:
+  - Ollama 关闭时 RULE + 印章仍返回 ParseResult + review_flags
+  - 文档化 Plan B 行为
+- **Acceptance**:
+  - 集成测试或脚本验证降级不 500
+
+### [ ] Task C2: 修复 parser_voucher 测试失败
+
+- **Priority**: P1
+- **Depends On**: None
+- **Description**:
+  - 对齐 `test_parser_voucher_api.py` 与当前 API/schema（code-truth §四：38 failed）
+- **Acceptance**:
+  - 该模块测试全绿或明确 skip 理由
+
+---
+
+## 附录：历史 Task 1–7（数据库 / 收入准则 / 旧 API）
+
+> 以下任务 **已在代码中部分落地**，checkbox 保留考古记录；**新 Sprint 不以 DB 全表创建为阻塞项**。详细 DB 设计见 `spec.md` 附录。
 
 ## [x] Task 1: 数据库表设计与创建
-- **Priority**: P0
-- **Depends On**: None
-- **Description**: 
-  - 创建合同主表（contracts）
-  - 创建合同当事人表（contract_parties）
-  - 创建合同履约义务明细表（contract_performance_obligations）
-  - 创建发票表（invoices, invoice_items）
-  - 创建入库/出库单表（inventory_documents, inventory_items）
-  - 创建银行回单表（bank_statements）
-  - 创建企业信息表（companies, company_personnel, related_party_relations）
-  - 创建字段别名映射表（field_alias_mappings）
-- **Acceptance Criteria Addressed**: 数据库设计
-- **Test Requirements**:
-  - `programmatic` TR-1.1: 所有数据库表已创建
-  - `human-judgment` TR-1.2: 表结构符合设计规范
-- **Notes**: 参考 spec.md 中的数据库设计
+（略，见 git 历史）
 
 ## [x] Task 2: 字段别名映射引擎
-- **Priority**: P0
-- **Depends On**: Task 1
-- **Description**: 
-  - 实现精确匹配
-  - 实现模糊匹配（Levenshtein距离）
-  - 实现语义匹配（Embedding向量）
-  - 实现大模型辅助判断
-- **Acceptance Criteria Addressed**: 字段别名映射
-- **Test Requirements**:
-  - `programmatic` TR-2.1: 精确匹配准确率≥99%
-  - `programmatic` TR-2.2: 模糊匹配准确率≥90%
-  - `human-judgment` TR-2.3: 映射结果准确
+（略）
 
 ## [x] Task 3: 合同解析引擎（收入准则视角）
-- **Priority**: P0
-- **Depends On**: Task 2
-- **Description**: 
-  - 实现收入准则五步法识别
-  - 实现履约义务识别引擎
-  - 实现交易价格分摊计算
-  - 实现收入确认类型判断（时点/时段）
-- **Acceptance Criteria Addressed**: 合同解析引擎
-- **Test Requirements**:
-  - `programmatic` TR-3.1: 能正确识别履约义务
-  - `programmatic` TR-3.2: 能正确判断时段/时点履约
-  - `human-judgment` TR-3.3: 解析结果符合收入准则
+（略）
 
 ## [x] Task 4: 标签向量化存储
-- **Priority**: P1
-- **Depends On**: Task 2
-- **Description**: 
-  - 实现标签生成器（业务类型、风险、关联、时间、金额标签）
-  - 实现标签向量化索引器
-  - 实现向量检索辅助判断
-- **Acceptance Criteria Addressed**: 向量标签存储
-- **Test Requirements**:
-  - `programmatic` TR-4.1: 标签能正确向量化并存储
-  - `programmatic` TR-4.2: 向量检索返回相关结果
-  - `human-judgment` TR-4.3: 检索结果相关
+（略）
 
 ## [x] Task 5: 企业信息管理与关联方识别
-- **Priority**: P1
-- **Depends On**: Task 1
-- **Description**: 
-  - 实现企业信息查询服务
-  - 实现关联方识别引擎
-  - 实现关联方交易审计提示
-- **Acceptance Criteria Addressed**: 企业信息管理
-- **Test Requirements**:
-  - `programmatic` TR-5.1: 能正确识别母子公司关系
-  - `programmatic` TR-5.2: 能正确识别关键管理人员关联
-  - `human-judgment` TR-5.3: 关联方识别结果准确
+（略）
 
 ## [x] Task 6: API 接口开发
-- **Priority**: P1
-- **Depends On**: Task 3, Task 4, Task 5
-- **Description**: 
-  - 开发合同解析接口
-  - 开发发票解析接口
-  - 开发关联方查询接口
-  - 开发标签检索接口
-- **Acceptance Criteria Addressed**: 解析引擎 API
-- **Test Requirements**:
-  - `programmatic` TR-6.1: POST /api/parse/contract 返回解析结果
-  - `programmatic` TR-6.2: POST /api/parse/invoice 返回解析结果
-  - `human-judgment` TR-6.3: API 文档清晰
+（略 — 新路径以 `parser-engine` / `parser-voucher` 为准）
 
 ## [x] Task 7: 测试与验证
-- **Priority**: P2
-- **Depends On**: Task 6
-- **Description**: 
-  - 编写单元测试
-  - 编写集成测试
-  - 验证解析准确性
-- **Acceptance Criteria Addressed**: 测试覆盖
-- **Test Requirements**:
-  - `programmatic` TR-7.1: 单元测试覆盖率≥80%
-  - `programmatic` TR-7.2: 集成测试通过
-  - `human-judgment` TR-7.3: 测试用例覆盖主要解析场景
-
-# Task Dependencies
-- Task 2 depends on Task 1
-- Task 3 depends on Task 2
-- Task 4 depends on Task 2
-- Task 5 depends on Task 1
-- Task 6 depends on Task 3, Task 4, Task 5
-- Task 7 depends on Task 6
+（略 — TOP3 样本验收取代旧「≥80% 覆盖率」为 L6 标准）

@@ -148,7 +148,7 @@ export function VoucherEditPage() {
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         message.error(`加载凭证失败：${detail}`)
-        navigate('/ledger/vouchers')
+        navigate('/ledger/entries')
       } finally {
         setLoading(false)
         setPeriodsLoading(false)
@@ -262,7 +262,7 @@ export function VoucherEditPage() {
     try {
       await api.updateVoucher(parsedVoucherId, payload)
       message.success('凭证更新成功')
-      navigate('/ledger/vouchers')
+      navigate('/ledger/entries')
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       message.error(`更新凭证失败：${detail}`)
@@ -357,7 +357,7 @@ export function VoucherEditPage() {
         onSaveAndCopy={handleSaveAndCopy}
         onClear={handleClear}
         onNewVoucher={() => navigate('/ledger/vouchers/create')}
-        onOpenVoucherList={() => navigate('/ledger/vouchers')}
+        onOpenVoucherList={() => navigate('/ledger/entries')}
       />
     </div>
   )

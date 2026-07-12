@@ -36,8 +36,10 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-# 在模块首次加载时创建所有表
-Base.metadata.create_all(bind=engine)
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_boundary_ledger_tables():
+    """延迟建表，避免与内存库测试的 metadata 初始化冲突。"""
+    Base.metadata.create_all(bind=engine, checkfirst=True)
 
 
 @pytest.fixture(scope="function")

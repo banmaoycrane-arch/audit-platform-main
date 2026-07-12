@@ -20,6 +20,8 @@ from app.schemas.accounting_period import (
     SnapshotCreateRequest,
     PeriodBatchCreateRequest,
     PeriodBatchCreateResponse,
+    PlTransferBatchRequest,
+    PlTransferBatchResponse,
 )
 from app.services.accounting.accounting_period_service import AccountingPeriodService
 from app.services.accounting import period_close_service
@@ -202,6 +204,8 @@ def create_snapshots(
     db: Session = Depends(get_db),
 ) -> PeriodSnapshotResponse:
     period = _ensure_period_exists(db, period_id)
+    if period.status == "closed":
+        raise HTTPException(status_code=400, detail="已结账期间不可重新生成科目余额表快照，请先反结账")
     service = AccountingPeriodService(db)
     try:
         snapshots = service.generate_period_snapshots(period_id, dimensions=payload.dimensions if payload else None)
@@ -270,6 +274,28 @@ def reopen_period(
     return _period_response(db, period)
 
 
+@router.post("/batch/pl-transfer", response_model=PlTransferBatchResponse)
+def batch_pl_transfer(payload: PlTransferBatchRequest, db: Session = Depends(get_db)) -> PlTransferBatchResponse:
+    """批量 / 跨期间连续损益结转。支持 period_ids 勾选，或 from_period_id + to_period_id 区间。"""
+    if not payload.period_ids and (payload.from_period_id is None or payload.to_period_id is None):
+        raise HTTPException(status_code=400, detail="请提供 period_ids，或同时提供 from_period_id 与 to_period_id")
+    try:
+        result = period_close_service.batch_pl_transfer(
+            db,
+            payload.ledger_id,
+            period_ids=payload.period_ids,
+            from_period_id=payload.from_period_id,
+            to_period_id=payload.to_period_id,
+            stop_on_error=payload.stop_on_error,
+            skip_transferred=payload.skip_transferred,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return PlTransferBatchResponse(**result)
+
+
 @router.post("/{period_id}/pl-transfer")
 def pl_transfer(period_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     period = db.get(AccountingPeriod, period_id)
@@ -296,6 +322,26 @@ def pl_transfer_reverse(period_id: int, db: Session = Depends(get_db)) -> dict[s
         raise HTTPException(status_code=404, detail=str(exc))
     except PermissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/{period_id}/pl-transfer/reconcile")
+def reconcile_pl_transfer_status(
+    period_id: int,
+    auto_fix: bool = False,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """校验期间损益结转状态；可选将不一致的 pl_transferred 恢复为 open。"""
+    period = db.get(AccountingPeriod, period_id)
+    if not period:
+        raise HTTPException(status_code=404, detail="会计期间不存在")
+    if period.ledger_id is None:
+        raise HTTPException(status_code=400, detail="期间未关联账簿")
+    from app.services.accounting.period_pl_health_service import reconcile_period_pl_status
+
+    try:
+        return reconcile_period_pl_status(db, period.ledger_id, period_id, auto_fix=auto_fix)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.post("/batch-create", response_model=PeriodBatchCreateResponse)

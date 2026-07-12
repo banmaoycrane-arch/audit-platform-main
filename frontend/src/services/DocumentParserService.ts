@@ -3,7 +3,7 @@
  *
  * 模块功能：凭证录入 Step2 的文档解析闭环微服务
  * 业务场景：在 AI 生成凭证、人工录入、序时簿导入等入口中，统一处理原始凭证文件的上传、解析、错误处理和结果交付。
- * 政策依据：项目统一解析引擎 API（/api/parser-engine/*、/api/import-jobs/*）
+ * 政策依据：资料解析中心 API（/api/import-jobs/*、场景 B /api/parser-engine/*）
  * 输入数据：原始凭证文件（PDF/图片/Excel/CSV）、导入任务 ID、文档类型辅助信息
  * 输出结果：解析结果对象，包含文件信息、识别摘要、风险线索、语义标签、归档上下文等
  * 创建日期：2026-07-03
@@ -95,7 +95,7 @@ export interface CreateImportJobParams {
  * 文档解析闭环微服务。
  *
  * 财务含义：原始凭证（发票、银行回单、合同等）不直接生成正式会计分录，
- * 而是先通过统一解析引擎生成“解析草稿”和“模块台账登记证据”，
+ * 而是先通过「原始资料解析与登记」（资料解析中心 · 场景 B）生成解析草稿与模块台账证据，
  * 后续由人工复核确认后再进入凭证生成流程，符合 AI 不绕过人工复核的原则。
  */
 export class DocumentParserService {
@@ -151,7 +151,7 @@ export class DocumentParserService {
   }
 
   /**
-   * 调用统一解析引擎解析单个已上传文件。
+   * 调用原始资料解析（场景 B）解析单个已上传文件。
    *
    * @param jobId 导入任务 ID
    * @param fileId 文件 ID
@@ -167,7 +167,7 @@ export class DocumentParserService {
    * 业务逻辑：
    * 1. 若未提供 jobId，则先创建导入任务；
    * 2. 上传文件；
-   * 3. 调用统一解析引擎解析；
+   * 3. 调用资料解析中心（场景 B）解析；
    * 4. 处理解析结果和错误；
    * 5. 返回标准化解析摘要。
    *
@@ -219,7 +219,7 @@ export class DocumentParserService {
       // 步骤 2：上传文件
       const uploadedFile = await this.uploadFile(jobId, file, documentTypeHints)
 
-      // 步骤 3：调用统一解析引擎
+      // 步骤 3：原始资料解析（场景 B）
       const parsedFile = await this.parseFileWithEngine(jobId, uploadedFile.id)
 
       // 步骤 4：标准化解析结果
@@ -228,9 +228,9 @@ export class DocumentParserService {
 
       if (summary.errorMessage) {
         result.hasErrors = true
-        this.notifyWarning(`${file.name} 已进入统一解析草稿，但存在解析提示：${summary.errorMessage}`)
+        this.notifyWarning(`${file.name} 已进入解析草稿，但存在解析提示：${summary.errorMessage}`)
       } else {
-        this.notifySuccess(`${file.name} 已由统一解析引擎完成解析`)
+        this.notifySuccess(`${file.name} 已完成原始资料解析与登记`)
       }
 
       if (this.options.onSuccess) {
@@ -334,8 +334,8 @@ export class DocumentParserService {
       semanticTags: moduleRegs.map(key => `module:${key}`),
       riskHints: [],
       registerSummary: parserResult.document_type
-        ? `统一解析引擎识别：${parserResult.document_type}`
-        : '统一解析引擎已处理',
+        ? `原始资料解析识别：${parserResult.document_type}`
+        : '原始资料解析已完成',
       archivePath: file.archive_path || null,
       archiveCategory: file.archive_category || null,
       projectName: file.project_name || null,

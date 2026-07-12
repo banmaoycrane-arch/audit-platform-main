@@ -365,3 +365,151 @@ class ContractDeepAnalyzer:
             missing_elements,
             non_standard_clauses,
             ambiguous_expressions,
+        )
+        risk_score = min(100.0, len(all_risk_items) * 8.0)
+        overall = RiskLevel.INFO
+        if risk_score >= 60:
+            overall = RiskLevel.CRITICAL
+        elif risk_score >= 40:
+            overall = RiskLevel.HIGH
+        elif risk_score >= 20:
+            overall = RiskLevel.MEDIUM
+        elif risk_score >= 8:
+            overall = RiskLevel.LOW
+
+        return ContractDeepAnalysisResult(
+            overall_risk_level=overall,
+            risk_score=risk_score,
+            analysis_summary=f"识别风险项 {len(all_risk_items)} 条；缺失要素 {len(missing_elements)} 项",
+            contradictions=contradictions,
+            missing_elements=missing_elements,
+            non_standard_clauses=non_standard_clauses,
+            ambiguous_expressions=ambiguous_expressions,
+            all_risk_items=all_risk_items,
+            accounting_notes="请结合合同标的、付款与涉税条款复核收入/成本确认时点",
+            revenue_recognition_considerations="关注可变对价、背靠背付款及履约义务拆分",
+            provision_requirements="关注违约金与或有事项披露",
+            total_clauses_analyzed=max(1, len(raw_text.split("\n"))),
+            risk_clauses_found=len(all_risk_items),
+        )
+
+    def _detect_contradictions(self, raw_text: str) -> list[ClauseContradiction]:
+        import re
+
+        results: list[ClauseContradiction] = []
+        for pattern_a, pattern_b, ctype, desc, level in self.contradiction_patterns:
+            if re.search(pattern_a, raw_text) and re.search(pattern_b, raw_text):
+                results.append(
+                    ClauseContradiction(
+                        clause_a=pattern_a,
+                        clause_b=pattern_b,
+                        contradiction_type=ctype,
+                        description=desc,
+                        risk_level=level,
+                    )
+                )
+        return results
+
+    def _detect_missing_elements(self, parsed_data: dict[str, Any]) -> list[MissingElement]:
+        missing: list[MissingElement] = []
+        for _cat, elements in self.required_elements.items():
+            for field_key, label, importance in elements:
+                value = parsed_data.get(field_key)
+                if value is None or (isinstance(value, str) and not value.strip()):
+                    missing.append(
+                        MissingElement(
+                            element_name=label,
+                            element_category=_cat,
+                            importance=importance,
+                            description=f"结构化解析未提取到「{label}」",
+                            suggested_action="人工补录或增强解析规则/LLM 提取",
+                        )
+                    )
+        return missing
+
+    def _detect_non_standard_clauses(self, raw_text: str) -> list[NonStandardClause]:
+        import re
+
+        results: list[NonStandardClause] = []
+        for pattern, clause_type, risk_desc, level, accounting in self.non_standard_patterns:
+            match = re.search(pattern, raw_text)
+            if match:
+                results.append(
+                    NonStandardClause(
+                        clause_text=match.group(0)[:200],
+                        clause_type=clause_type,
+                        deviation_from_standard="偏离常见标准合同表述",
+                        risk_description=risk_desc,
+                        risk_level=level,
+                        accounting_treatment=accounting,
+                    )
+                )
+        return results
+
+    def _detect_ambiguity(self, raw_text: str) -> list[AmbiguousExpression]:
+        import re
+
+        results: list[AmbiguousExpression] = []
+        for pattern, amb_type, interpretations, recommendation in self.ambiguity_patterns:
+            match = re.search(pattern, raw_text)
+            if match:
+                results.append(
+                    AmbiguousExpression(
+                        expression=match.group(0),
+                        ambiguity_type=amb_type,
+                        possible_interpretations=list(interpretations),
+                        recommended_clarification=recommendation,
+                    )
+                )
+        return results
+
+    def _consolidate_risk_items(
+        self,
+        contradictions: list[ClauseContradiction],
+        missing_elements: list[MissingElement],
+        non_standard_clauses: list[NonStandardClause],
+        ambiguous_expressions: list[AmbiguousExpression],
+    ) -> list[ContractRiskItem]:
+        items: list[ContractRiskItem] = []
+        for c in contradictions:
+            items.append(
+                ContractRiskItem(
+                    risk_level=c.risk_level,
+                    risk_category=RiskCategory.CONTRADICTION,
+                    title=c.contradiction_type,
+                    description=c.description,
+                    clause_reference=f"{c.clause_a} vs {c.clause_b}",
+                )
+            )
+        for m in missing_elements:
+            level = RiskLevel.CRITICAL if m.importance == "critical" else RiskLevel.HIGH
+            items.append(
+                ContractRiskItem(
+                    risk_level=level,
+                    risk_category=RiskCategory.MISSING_ELEMENT,
+                    title=m.element_name,
+                    description=m.description,
+                    recommendation=m.suggested_action,
+                )
+            )
+        for n in non_standard_clauses:
+            items.append(
+                ContractRiskItem(
+                    risk_level=n.risk_level,
+                    risk_category=RiskCategory.NON_STANDARD,
+                    title=n.clause_type,
+                    description=n.risk_description,
+                    accounting_impact=n.accounting_treatment,
+                )
+            )
+        for a in ambiguous_expressions:
+            items.append(
+                ContractRiskItem(
+                    risk_level=RiskLevel.MEDIUM,
+                    risk_category=RiskCategory.AMBIGUITY,
+                    title=a.ambiguity_type,
+                    description=a.expression,
+                    recommendation=a.recommended_clarification,
+                )
+            )
+        return items

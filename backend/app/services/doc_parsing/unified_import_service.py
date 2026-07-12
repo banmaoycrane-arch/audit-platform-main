@@ -210,15 +210,12 @@ def get_unified_import_result(
 
     if is_day_book_source_type(job.source_type):
         try:
-            day_result = process_day_book_import(db, job)
-            day_book_report = day_result.report
-        except Exception:
-            pass
+            from app.services.accounting.period_detection_service import suggest_period_for_job
 
-        try:
             period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
         except Exception:
-            pass
+            period_suggestion = None
+        day_book_report = None
 
     source_files = db.query(SourceFile).filter(
         SourceFile.import_job_id == job_id

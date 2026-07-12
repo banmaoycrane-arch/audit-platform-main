@@ -32,6 +32,12 @@ mandatory_hierarchical_accounts:
   - "2211.01.07"   # 非货币性福利
   - "2211.01.08"   # 辞退福利
   - "2211.01.09"   # 股份支付
+  # 所有者权益 - 保留二级明细（资产负债表 / 权益变动表勾稽，不做 Tag 向量化）
+  - "4001"         # 实收资本及下级
+  - "4002"         # 资本公积及下级（资本溢价、其他资本公积等）
+  - "4101"         # 盈余公积及下级（法定盈余公积、任意盈余公积等）
+  - "4103"         # 本年利润
+  - "4104"         # 利润分配及下级
 
 # 强制保留层级的科目名称关键词（兜底匹配）
 mandatory_hierarchical_keywords:
@@ -42,10 +48,22 @@ mandatory_hierarchical_keywords:
   - "进项税额转出"
   - "已交税金"
   - "应付职工薪酬"
+  - "实收资本"
+  - "资本公积"
+  - "盈余公积"
+  - "法定盈余公积"
+  - "任意盈余公积"
+  - "资本溢价"
+  - "其他资本公积"
+  - "本年利润"
+  - "利润分配"
+  - "未分配利润"
 
 # 一级科目代码到Tag类别的映射
 # 当该科目下级段作为辅助核算维度时，优先使用此分类
 account_code_tag_category:
+  "1001": "bank_account"    # 库存现金 -> 银行账户（户名/账号）
+  "1002": "bank_account"    # 银行存款 -> 银行账户
   "1122": "customer"          # 应收账款 -> 客户
   "1123": "customer"          # 预付账款 -> 客户/供应商
   "2202": "supplier"          # 应付账款 -> 供应商
@@ -58,11 +76,15 @@ account_code_tag_category:
   "5101": "cost_element"      # 制造费用 -> 成本要素
   "5401": "cost_element"      # 主营业务成本 -> 成本要素
   "6001": "product"           # 主营业务收入 -> 产品
-  "6051": "product"           # 其他业务收入 -> 产品/项目
+  "6051": "service"           # 其他业务收入 -> 服务（与 product 区分）
   "6601": "expense_type"      # 销售费用 -> 费用类型
   "6602": "expense_type"      # 管理费用 -> 费用类型
   "6603": "expense_type"      # 财务费用 -> 费用类型
   "6403": "tax_type"          # 营业税金及附加 -> 税费类型
+  "1601": "fixed_asset_class" # 固定资产 -> 资产类别（下级明细见 structured 规则）
+  "1602": "fixed_asset_class" # 累计折旧
+  "1604": "cip_category"      # 在建工程
+  "2001": "loan_channel"      # 短期借款
 
 # 科目名称关键词到Tag类别的映射（当科目代码未知时使用）
 account_name_tag_category:
@@ -80,12 +102,16 @@ account_name_tag_category:
   "制造费用": "cost_element"
   "主营业务成本": "cost_element"
   "主营业务收入": "product"
-  "其他业务收入": "product"
+  "其他业务收入": "service"
   "销售费用": "expense_type"
   "管理费用": "expense_type"
   "财务费用": "expense_type"
   "研发费用": "expense_type"
   "税金及附加": "tax_type"
+  "固定资产": "fixed_asset_class"
+  "累计折旧": "fixed_asset_class"
+  "在建工程": "cip_category"
+  "短期借款": "loan_channel"
 
 # 常见辅助核算维度关键词（用于从摘要中补充识别）
 # 注意：每个类别内的关键词按长度降序排列，优先匹配更长的词
@@ -111,6 +137,13 @@ auxiliary_keywords:
     - "工程"
     - "课题"
     - "合同"
+  service:
+    - "技术服务"
+    - "咨询服务"
+    - "劳务"
+    - "服务"
+    - "维修"
+    - "租赁"
   region:
     - "北京"
     - "上海"

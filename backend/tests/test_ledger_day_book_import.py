@@ -8,7 +8,9 @@ from app.services.doc_parsing.import_routing_service import (
     should_persist_structured_entries,
 )
 from app.services.accounting.period_detection_service import (
+    apply_import_period_mapping,
     build_month_period_suggestion,
+    detect_distinct_months,
     detect_dominant_month,
 )
 
@@ -41,6 +43,11 @@ def test_detect_dominant_month_from_voucher_dates():
         ]
     )
     assert dominant == date(2026, 1, 1)
+
+
+def test_detect_distinct_months_from_voucher_dates():
+    months = detect_distinct_months(["2026-01-03", "2026-02-01", date(2026, 3, 15)])
+    assert months == [date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1)]
 
 
 def test_build_month_period_suggestion():

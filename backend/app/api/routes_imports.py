@@ -1,20 +1,30 @@
-from typing import Any
+from typing import Any, Literal
 from decimal import Decimal
 import json
+from datetime import date
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
 from app.models.user import User
-from app.db.models import ImportJob, SourceFile
+from app.db.models import ImportJob, SourceFile, StagingAccountingEntry
 from app.models.project import Project
 from app.models.project_ledger import ProjectLedger
 from app.models.ledger import Ledger
 from app.models.team import Team
 from app.models.user_ledger_auth import UserLedgerAuth
 from app.db.session import SessionLocal, get_db
-from app.schemas.import_job import AuditScopeUpdate, DayBookReportRead, ImportJobCreate, ImportJobRead
+from app.schemas.import_job import (
+    AuditScopeUpdate,
+    DayBookReportRead,
+    ImportJobCleanupPayload,
+    ImportJobCreate,
+    ImportJobRead,
+    ParseOptionsUpdate,
+)
 from app.services.doc_parsing.import_service import (
     attach_file,
     create_import_job,
@@ -25,10 +35,40 @@ from app.services.doc_parsing.import_service import (
     _is_source_file,
 )
 from app.services.shared.project_service import get_or_create_unknown_project
+from app.services.shared.ledger_context_service import resolve_import_job_ledger_id
 from app.services.audit.audit_day_book_service import DayBookReport, process_day_book_import
 from app.services.accounting.entry_generation_service import _normalize_evidence_type
-from app.services.doc_parsing.import_routing_service import get_import_output_path, is_day_book_source_type, AI_EVIDENCE_SOURCE_TYPES
-from app.services.accounting.period_detection_service import suggest_period_for_job
+from app.services.doc_parsing.import_routing_service import (
+    get_import_output_path,
+    is_day_book_source_type,
+    is_structured_source_type,
+    AI_EVIDENCE_SOURCE_TYPES,
+)
+from app.services.doc_parsing.structured_format_detection_service import detect_structured_file_format
+from app.services.audit.structured_import_service import (
+    apply_compliance_spot_check,
+    apply_compliance_random_sample,
+    build_dimension_pending_queue,
+    build_staging_dimension_registry,
+    bulk_update_dimension_display_name,
+    batch_update_preview_review,
+    cancel_structured_import,
+    confirm_structured_import,
+    list_preview_entries,
+    get_preview_voucher_review_stats,
+    list_preview_vouchers,
+    get_preview_voucher_lines,
+    review_all_preview_entries,
+    update_preview_entry,
+)
+from app.services.audit.compliance_review_service import (
+    iter_staging_compliance_review,
+    review_staging_compliance,
+)
+from app.services.accounting.period_detection_service import (
+    apply_import_period_mapping,
+    suggest_period_for_job,
+)
 from app.services.doc_parsing.parser_engine.unified_parser_service import (
     get_latest_source_file,
     mark_missing_source_file,
@@ -46,6 +86,14 @@ _day_book_reports: dict[int, DayBookReport] = {}
 
 
 AUDIT_SOURCE_TYPES = {"audit_day_book"}
+
+
+class ApplyPeriodMappingPayload(BaseModel):
+    period_mapping_mode: Literal["preserve_source", "unify_target"]
+    period_mode: Literal["adaptive", "fixed"] | None = None
+    period_id: int | None = None
+    period_start_date: date | None = None
+    period_end_date: date | None = None
 
 
 def _requires_audit_project_context(source_type: str | None, audit_scope_type: str | None = None, project_id: int | None = None) -> bool:
@@ -243,6 +291,94 @@ def list_jobs(ledger_id: int | None = None, db: Session = Depends(get_db)) -> li
     return query.all()
 
 
+@router.get("/cleanup-summary")
+def import_jobs_cleanup_summary(
+    ledger_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services.audit.import_job_cleanup_service import get_import_job_cleanup_summary
+
+    return get_import_job_cleanup_summary(db, ledger_id=ledger_id)
+
+
+@router.post("/cleanup")
+def import_jobs_cleanup(
+    payload: ImportJobCleanupPayload,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services.audit.import_job_cleanup_service import bulk_purge_import_jobs
+
+    return bulk_purge_import_jobs(
+        db,
+        ledger_id=payload.ledger_id,
+        job_ids=payload.job_ids,
+        statuses=payload.statuses,
+        keep_job_ids=payload.keep_job_ids,
+        stuck_only=payload.stuck_only,
+        delete_files=payload.delete_files,
+    )
+
+
+@router.post("/detect-format")
+def detect_import_file_format(
+    file: UploadFile = File(...),
+    charset: str | None = Form(None),
+    delimiter: str | None = Form(None),
+) -> dict[str, Any]:
+    """上传前检测结构化文件编码、分隔符与表头预览（不创建导入任务）。"""
+    import os
+    import tempfile
+
+    from app.services.doc_parsing.structured_parse_options import parse_options_from_mapping
+
+    suffix = os.path.splitext(file.filename or "")[1].lower() or ".csv"
+    parse_options = parse_options_from_mapping({"charset": charset, "delimiter": delimiter})
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+            tmp_file.write(file.file.read())
+            temp_path = tmp_file.name
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"文件保存失败: {exc}") from exc
+
+    try:
+        result = detect_structured_file_format(temp_path, parse_options=parse_options)
+        result["filename"] = file.filename
+        result["parse_options"] = {"charset": charset or "auto", "delimiter": delimiter or "auto"}
+        return result
+    finally:
+        try:
+            os.unlink(temp_path)
+        except Exception:
+            pass
+
+
+@router.patch("/{job_id}/parse-options", response_model=ImportJobRead)
+def update_import_job_parse_options(
+    job_id: int,
+    payload: ParseOptionsUpdate,
+    db: Session = Depends(get_db),
+) -> ImportJob:
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.services.doc_parsing.structured_parse_options import (
+        parse_options_from_mapping,
+        parse_options_to_mapping,
+    )
+
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    draft_data = dict(job.draft_data or {})
+    draft_data["parse_options"] = parse_options_to_mapping(
+        parse_options_from_mapping(payload.model_dump())
+    )
+    job.draft_data = draft_data
+    flag_modified(job, "draft_data")
+    db.commit()
+    db.refresh(job)
+    return job
+
+
 @router.get("/{job_id}", response_model=ImportJobRead)
 def get_job(job_id: int, db: Session = Depends(get_db)) -> ImportJob:
     job = db.get(ImportJob, job_id)
@@ -394,10 +530,11 @@ def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict[str, An
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")
     _ensure_job_project_ledger_context(db, job)
+    resolve_import_job_ledger_id(db, job)
     source_file = get_latest_source_file(db, job_id)
     if not source_file:
         raise HTTPException(status_code=400, detail="导入任务尚未上传文件")
-    if is_day_book_source_type(job.source_type):
+    if is_day_book_source_type(job.source_type) or is_structured_source_type(job.source_type):
         try:
             report = process_import_job(db, job)
         except Exception as exc:
@@ -407,7 +544,13 @@ def process_job_sync(job_id: int, db: Session = Depends(get_db)) -> dict[str, An
         _import_reports[job.id] = summary
         if report.day_book_report is not None:
             _day_book_reports[job.id] = report.day_book_report
-        job.status = "completed"
+        if report.failed_files == 0 and report.error_message is None:
+            job.status = "preview"
+            job.entry_count = report.total_entries
+        else:
+            job.status = "failed"
+        if report.error_message:
+            job.error_message = report.error_message
         db.commit()
         db.refresh(job)
         return {
@@ -643,6 +786,7 @@ def get_day_book_report(job_id: int, db: Session = Depends(get_db)) -> DayBookRe
             unbalanced_vouchers=[
                 {
                     "voucher_no": v.voucher_no,
+                    "voucher_date": v.voucher_date,
                     "debit_total": str(v.debit_total),
                     "credit_total": str(v.credit_total),
                     "difference": str(v.difference),
@@ -724,7 +868,505 @@ def get_period_suggestion(job_id: int, db: Session = Depends(get_db)) -> dict[st
     return suggest_period_for_job(db, job_id, job.organization_id)
 
 
+@router.post("/{job_id}/apply-period-mapping")
+def apply_period_mapping(
+    job_id: int,
+    payload: ApplyPeriodMappingPayload,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """为结构化导入任务分配会计期间（序时簿等多期间场景）。"""
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    if not is_day_book_source_type(job.source_type or ""):
+        raise HTTPException(status_code=400, detail="仅结构化序时簿导入任务支持期间映射")
+    try:
+        return apply_import_period_mapping(
+            db,
+            job,
+            period_mapping_mode=payload.period_mapping_mode,
+            period_mode=payload.period_mode,
+            period_id=payload.period_id,
+            period_start_date=payload.period_start_date,
+            period_end_date=payload.period_end_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/{job_id}/files")
 def list_files(job_id: int, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     files = db.query(SourceFile).filter(SourceFile.import_job_id == job_id).all()
     return [_source_file_response(item) for item in files]
+
+
+class PreviewEntryPatch(BaseModel):
+    summary: str | None = None
+    account_code: str | None = None
+    account_name: str | None = None
+    debit_amount: float | None = None
+    credit_amount: float | None = None
+    counterparty: str | None = None
+    review_status: str | None = None
+    tag_updates: list[dict[str, Any]] | None = None
+    sync_to_master: bool = False
+
+
+class DimensionDisplayNamePayload(BaseModel):
+    account_code: str
+    category_code: str
+    tag_value: str
+    display_name: str
+    source_sub_code: str | None = None
+    name_standardized: bool = True
+    sync_to_master: bool = False
+
+
+class StagingLlmResolvePayload(BaseModel):
+    staging_ids: list[int] | None = None
+    batch_size: int = Field(default=20, ge=1, le=50)
+    dry_run: bool = False
+
+
+class SpotCheckPayload(BaseModel):
+    amount_threshold: float
+
+
+class RandomSamplePayload(BaseModel):
+    sample_rate: float | None = Field(default=None, ge=0.01, le=1.0)
+    sample_count: int | None = Field(default=None, ge=1)
+    seed: int | None = None
+
+
+class ComplianceReviewPayload(BaseModel):
+    mode: Literal["each", "spot", "random", "skip"] = "each"
+    voucher_nos: list[str] | None = None
+    group_keys: list[str] | None = None
+    use_llm: bool = True
+
+
+class PreviewReviewBatchPayload(BaseModel):
+    entry_ids: list[int]
+    review_status: str
+
+
+class PreviewReviewAllPayload(BaseModel):
+    review_status: str = "verified"
+
+
+def _staging_entry_payload(row: StagingAccountingEntry) -> dict[str, Any]:
+    original_row = row.original_row or {}
+    return {
+        "id": row.id,
+        "voucher_no": row.voucher_no,
+        "voucher_date": row.voucher_date.isoformat() if row.voucher_date else None,
+        "summary": row.summary,
+        "account_code": row.account_code,
+        "account_name": row.account_name,
+        "resolved_account_code": row.resolved_account_code,
+        "resolved_account_name": row.resolved_account_name,
+        "entry_tags_payload": row.entry_tags_payload or [],
+        "debit_amount": float(row.debit_amount or 0),
+        "credit_amount": float(row.credit_amount or 0),
+        "counterparty": row.counterparty,
+        "entry_line_no": row.entry_line_no,
+        "review_status": row.review_status,
+        "source_preparer_name": row.source_preparer_name,
+        "cross_reviewed_by_user_id": row.cross_reviewed_by_user_id,
+        "cross_reviewed_at": row.cross_reviewed_at.isoformat() if row.cross_reviewed_at else None,
+        "compliance_hint": row.compliance_hint,
+        "compliance_severity": row.compliance_severity,
+        "spot_check_flag": row.spot_check_flag,
+        "requires_llm_resolution": bool(original_row.get("_requires_llm_resolution")),
+    }
+
+
+@router.get("/{job_id}/preview-voucher-stats")
+def get_preview_voucher_stats(
+    job_id: int,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    return get_preview_voucher_review_stats(db, job_id)
+
+
+@router.get("/{job_id}/preview-vouchers")
+def get_preview_vouchers(
+    job_id: int,
+    review_filter: Literal[
+        "all",
+        "pending",
+        "verified",
+        "unbalanced",
+        "spot_check",
+        "compliance_pending",
+        "compliance_reviewed",
+    ] = "all",
+    search: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    items, total, review_stats = list_preview_vouchers(
+        db,
+        job_id,
+        review_filter=review_filter,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "review_stats": review_stats,
+    }
+
+
+@router.get("/{job_id}/preview-vouchers/{group_key}/lines")
+def get_preview_voucher_lines_route(
+    job_id: int,
+    group_key: str,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    rows = get_preview_voucher_lines(db, job_id, group_key)
+    if rows is None:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+    from app.services.audit.voucher_signature_service import build_staging_signature_payload
+
+    return {
+        "group_key": group_key,
+        "signature": build_staging_signature_payload(db, rows),
+        "items": [_staging_entry_payload(row) for row in rows],
+    }
+
+
+@router.get("/{job_id}/preview-entries")
+def get_preview_entries(
+    job_id: int,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    rows, total, review_stats = list_preview_entries(db, job_id, limit=limit, offset=offset)
+    return {
+        "items": [_staging_entry_payload(row) for row in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "review_stats": review_stats,
+    }
+
+
+@router.patch("/{job_id}/preview-entries/{staging_id}")
+def patch_preview_entry(
+    job_id: int,
+    staging_id: int,
+    payload: PreviewEntryPatch,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    try:
+        row, master_sync = update_preview_entry(
+            db,
+            job_id,
+            staging_id,
+            payload.model_dump(exclude_unset=True),
+            reviewed_by_user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not row:
+        raise HTTPException(status_code=404, detail="草稿分录不存在")
+    return {
+        "id": row.id,
+        "updated": True,
+        "entry": _staging_entry_payload(row),
+        "master_sync": master_sync,
+    }
+
+
+@router.post("/{job_id}/dimension-registry/update-display-name")
+def update_dimension_display_name(
+    job_id: int,
+    payload: DimensionDisplayNamePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    try:
+        return bulk_update_dimension_display_name(
+            db,
+            job_id,
+            account_code=payload.account_code,
+            category_code=payload.category_code,
+            tag_value=payload.tag_value,
+            display_name=payload.display_name,
+            source_sub_code=payload.source_sub_code,
+            name_standardized=payload.name_standardized,
+            sync_to_master=payload.sync_to_master,
+            mapped_by_user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{job_id}/preview-entries/review-batch")
+def batch_review_preview_entries(
+    job_id: int,
+    payload: PreviewReviewBatchPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    return batch_update_preview_review(
+        db,
+        job_id,
+        payload.entry_ids,
+        payload.review_status,
+        reviewed_by_user_id=current_user.id,
+    )
+
+
+@router.post("/{job_id}/preview-entries/review-all")
+def review_all_preview_entries_route(
+    job_id: int,
+    payload: PreviewReviewAllPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    return review_all_preview_entries(
+        db,
+        job_id,
+        payload.review_status,
+        reviewed_by_user_id=current_user.id,
+    )
+
+
+@router.post("/{job_id}/confirm")
+def confirm_import_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    result = confirm_structured_import(db, job, approved_by_user_id=current_user.id)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error_message or "确认入账失败")
+    job.status = "completed"
+    job.entry_count = result.entries_created
+    db.commit()
+    db.refresh(job)
+    return {
+        "job": ImportJobRead.model_validate(job).model_dump(mode="json"),
+        "entries_created": result.entries_created,
+    }
+
+
+@router.post("/{job_id}/cancel")
+def cancel_import_job(job_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    cancel_structured_import(db, job)
+    db.refresh(job)
+    return {"job": ImportJobRead.model_validate(job).model_dump(mode="json"), "cancelled": True}
+
+
+@router.post("/{job_id}/compliance-spot-check")
+def compliance_spot_check(
+    job_id: int,
+    payload: SpotCheckPayload,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    return apply_compliance_spot_check(db, job_id, Decimal(str(payload.amount_threshold)))
+
+
+@router.get("/{job_id}/dimension-registry")
+def get_dimension_registry(job_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    try:
+        return build_staging_dimension_registry(db, job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{job_id}/dimension-pending-queue")
+def get_dimension_pending_queue(job_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    try:
+        return build_dimension_pending_queue(db, job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{job_id}/staging/llm-pending")
+def get_staging_llm_pending(
+    job_id: int,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services.doc_parsing.staging_llm_tag_resolution_service import StagingLlmTagResolutionService
+
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    service = StagingLlmTagResolutionService(db, ledger_id=job.ledger_id)
+    rows = service.list_pending_rows(job_id, limit=limit)
+    return {
+        "job_id": job_id,
+        "ledger_id": job.ledger_id,
+        "total": len(rows),
+        "items": [
+            {
+                "staging_id": row.id,
+                "voucher_no": row.voucher_no,
+                "summary": row.summary,
+                "account_code": row.resolved_account_code or row.account_code,
+                "account_name": row.resolved_account_name or row.account_name,
+                "requires_llm_resolution": True,
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/{job_id}/staging/llm-resolve")
+def resolve_staging_llm_tags(
+    job_id: int,
+    payload: StagingLlmResolvePayload,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services.doc_parsing.staging_llm_tag_resolution_service import StagingLlmTagResolutionService
+
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    service = StagingLlmTagResolutionService(db, ledger_id=job.ledger_id)
+    result = service.batch_resolve(
+        job_id,
+        staging_ids=payload.staging_ids,
+        batch_size=payload.batch_size,
+        dry_run=payload.dry_run,
+    )
+    return {
+        "task_id": result.task_id,
+        "total_rows": result.total_rows,
+        "success_count": result.success_count,
+        "failed_count": result.failed_count,
+        "resolved_rows": result.resolved_rows,
+        "processing_time_ms": result.processing_time_ms,
+        "error_messages": result.error_messages,
+        "suggested_tags": [
+            {
+                "staging_id": item.entry_id,
+                "category_code": item.category_code,
+                "tag_value": item.tag_value,
+                "display_name": item.display_name,
+                "confidence": item.confidence,
+                "validation_passed": item.validation_passed,
+                "validation_reason": item.validation_reason,
+            }
+            for item in result.suggested_tags
+        ],
+    }
+
+
+@router.post("/{job_id}/compliance-random-sample")
+def compliance_random_sample(
+    job_id: int,
+    payload: RandomSamplePayload,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    if payload.sample_rate is None and payload.sample_count is None:
+        raise HTTPException(status_code=400, detail="请指定 sample_rate 或 sample_count")
+    return apply_compliance_random_sample(
+        db,
+        job_id,
+        sample_rate=payload.sample_rate,
+        sample_count=payload.sample_count,
+        seed=payload.seed,
+    )
+
+
+@router.post("/{job_id}/preview-entries/compliance-review")
+def compliance_review(
+    job_id: int,
+    payload: ComplianceReviewPayload,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+    return review_staging_compliance(
+        db,
+        job_id,
+        mode=payload.mode,
+        voucher_nos=payload.voucher_nos,
+        group_keys=payload.group_keys,
+        use_llm=payload.use_llm,
+    )
+
+
+@router.post("/{job_id}/preview-entries/compliance-review/stream")
+def compliance_review_stream(
+    job_id: int,
+    payload: ComplianceReviewPayload,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """SSE 流式合规审查：实时推送本地大模型思索/回复过程。"""
+    job = db.get(ImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导入任务不存在")
+
+    def event_stream():
+        for event in iter_staging_compliance_review(
+            db,
+            job_id,
+            mode=payload.mode,
+            voucher_nos=payload.voucher_nos,
+            group_keys=payload.group_keys,
+            use_llm=payload.use_llm,
+        ):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

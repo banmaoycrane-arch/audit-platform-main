@@ -143,6 +143,7 @@ def _seed(TestingSessionLocal):
                     debit_amount=debit,
                     credit_amount=credit,
                     entry_line_no=1,
+                    post_status="posted",
                 )
             )
         db.commit()

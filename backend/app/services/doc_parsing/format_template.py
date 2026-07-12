@@ -6,6 +6,16 @@
 
 from typing import Any
 
+# 表头禁止映射到 counterparty 的关键词（避免「存货单位」误匹配「单位」）
+_COUNTERPARTY_HEADER_BLOCKLIST = frozenset({
+    "存货单位",
+    "计量单位",
+    "单位",
+    "部门名称",
+    "人员名称",
+    "项目名称",
+})
+
 # 标准会计分录字段定义
 STANDARD_FIELDS = {
     "voucher_no": "凭证号",
@@ -16,6 +26,9 @@ STANDARD_FIELDS = {
     "debit_amount": "借方金额",
     "credit_amount": "贷方金额",
     "counterparty": "往来单位",
+    "entry_line_no": "分录行号",
+    "measurement_unit": "计量单位",
+    "source_preparer_name": "制单人",
 }
 
 # 预定义格式模板
@@ -24,13 +37,16 @@ ACCOUNTING_TEMPLATES: dict[str, dict[str, Any]] = {
         "priority": 100,
         "fields": {
             "voucher_no": ["凭证号", "凭证编号", "编号", "单据号"],
-            "voucher_date": ["凭证日期", "记账日期", "日期", "业务日期", "制单日期"],
+            "voucher_date": ["凭证日期", "记账日期", "日期", "业务日期", "制单日期", "时间", "业务时间", "记账时间"],
             "summary": ["摘要", "说明", "描述", "交易描述", "事由"],
             "account_code": ["科目编码", "科目代码", "科目号", "会计科目编码"],
             "account_name": ["科目", "科目名称", "会计科目", "账户名称", "会计科目名称"],
             "debit_amount": ["借方金额", "借方", "借发生额", "借方发生额", " debit"],
             "credit_amount": ["贷方金额", "贷方", "贷发生额", "贷方发生额", "credit"],
-            "counterparty": ["往来单位", "供应商", "客户", "对方单位", "交易对方", "单位"],
+            "counterparty": ["往来单位", "往来户名称", "供应商", "客户", "对方单位", "交易对方"],
+            "entry_line_no": ["凭证行号", "分录号", "行号", "分录序号"],
+            "measurement_unit": ["存货单位", "计量单位", "单位"],
+            "source_preparer_name": ["制单人", "制表人", "经办人", "录入人", "编制人"],
         },
         "required": ["summary"],
         "optional": ["voucher_no", "voucher_date", "account_code", "debit_amount", "credit_amount", "counterparty"],
@@ -53,7 +69,8 @@ ACCOUNTING_TEMPLATES: dict[str, dict[str, Any]] = {
     "金蝶K3标准": {
         "priority": 80,
         "fields": {
-            "voucher_no": ["凭证字", "凭证号", "编号", "凭证编号"],
+            "voucher_type": ["凭证字", "凭证字号", "voucher_type", "voucher_word"],
+            "voucher_no": ["凭证号", "凭证编号", "编号", "单据号"],
             "voucher_date": ["日期", "记账日期", "凭证日期"],
             "summary": ["科目", "科目名称", "摘要"],
             "account_code": ["科目代码", "科目编码"],
@@ -63,7 +80,7 @@ ACCOUNTING_TEMPLATES: dict[str, dict[str, Any]] = {
             "counterparty": ["往来单位", "供应商", "客户"],
         },
         "required": ["summary"],
-        "optional": ["voucher_no", "voucher_date", "account_code", "counterparty"],
+        "optional": ["voucher_type", "voucher_no", "voucher_date", "account_code", "counterparty"],
     },
     "用友U8标准": {
         "priority": 80,
@@ -154,6 +171,13 @@ def match_header(header: str, template: dict[str, Any] | None = None) -> str | N
         标准字段名或 None
     """
     normalized = normalize_header(header)
+
+    # 禁止误映射（如存货单位 → counterparty）
+    header_stripped = str(header).strip()
+    if header_stripped in _COUNTERPARTY_HEADER_BLOCKLIST:
+        if header_stripped in ("存货单位", "计量单位", "单位"):
+            return "measurement_unit"
+        return None
     index = get_alias_index()
 
     # 精确匹配

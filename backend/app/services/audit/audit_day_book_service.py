@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -36,13 +37,19 @@ from app.db.models import (
     ExecutionAuditLog,
     ImportJob,
     SourceFile,
+    StagingAccountingEntry,
     TagCategory,
     Voucher,
 )
+from app.services.accounting.period_detection_service import resolve_voucher_period_id
 from app.services.shared.data_validator import generate_quality_report
 from app.services.accounting.entry_tags_service import build_semantic_text, generate_entry_tags
 from app.services.accounting.entry_tag_vector_service import EntryTagVectorService
-from app.services.doc_parsing.file_parser_service import ParseResult, parse_entries
+from app.services.doc_parsing.file_parser_service import (
+    ParseResult,
+    build_parse_diagnostics,
+    parse_structured_accounting_entries,
+)
 from app.services.doc_parsing.tag_category_service import get_or_create_category
 from app.storage.local_storage import resolve_storage_path
 from app.services.shared.logic_check_service import (
@@ -51,6 +58,7 @@ from app.services.shared.logic_check_service import (
     generate_batch_report,
 )
 from app.services.audit.risk_case_library import enhance_entry_with_risk_analysis
+from app.services.doc_parsing.import_routing_service import get_import_mode
 from app.services.doc_parsing.tagging_service import suggest_tags, suggest_voucher_type
 from app.services.doc_parsing.vector_store_service import chunk_hash, chunk_text, safe_vector_store
 from app.core.config import get_settings
@@ -59,7 +67,7 @@ from app.db.models import DocumentChunk
 
 
 # 会计凭证文件类型
-ACCOUNTING_FILE_TYPES = {".xlsx", ".xls", ".csv"}
+ACCOUNTING_FILE_TYPES = {".xlsx", ".xls", ".csv", ".tsv"}
 
 
 @dataclass
@@ -70,6 +78,7 @@ class UnbalancedVoucher:
     credit_total: Decimal
     difference: Decimal
     entry_count: int
+    voucher_date: str | None = None
 
 
 @dataclass
@@ -252,6 +261,84 @@ def _validate_voucher_balance(
     return is_balanced, total_debit, total_credit, difference
 
 
+def _group_entries_for_day_book_report(
+    all_entries: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """按 parse_group_key（凭证号+日期+顺序）分组，避免续行解析错误导致整表合并。"""
+    from app.services.doc_parsing.voucher_no_resolution import entry_parse_group_key
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for idx, entry_data in enumerate(all_entries):
+        group_key = entry_parse_group_key(entry_data, idx)
+        groups.setdefault(group_key, []).append(entry_data)
+    return groups
+
+
+def _assign_entry_line_numbers(all_entries: list[dict[str, Any]]) -> None:
+    from app.services.doc_parsing.voucher_no_resolution import assign_parse_group_keys
+
+    if any(entry.get("parse_group_key") for entry in all_entries):
+        line_counter: dict[str, int] = {}
+        for entry in all_entries:
+            group_key = str(entry.get("parse_group_key") or "")
+            line_counter[group_key] = line_counter.get(group_key, 0) + 1
+            entry["entry_line_no"] = line_counter[group_key]
+        return
+    assign_parse_group_keys(all_entries)
+
+
+def _build_day_book_report(all_entries: list[dict[str, Any]]) -> DayBookReport:
+    voucher_groups = _group_entries_for_day_book_report(all_entries)
+
+    unbalanced_vouchers: list[UnbalancedVoucher] = []
+    for group_key, entries in voucher_groups.items():
+        if group_key.startswith("__no_voucher__") or group_key.startswith("__seq_"):
+            continue
+        is_balanced, debit_total, credit_total, difference = _validate_voucher_balance(entries)
+        if not is_balanced:
+            first = entries[0]
+            voucher_no = first.get("voucher_no") or group_key.split("|", 1)[0]
+            voucher_date = first.get("voucher_date")
+            date_text = voucher_date.isoformat() if hasattr(voucher_date, "isoformat") else (
+                str(voucher_date) if voucher_date else None
+            )
+            unbalanced_vouchers.append(
+                UnbalancedVoucher(
+                    voucher_no=voucher_no,
+                    voucher_date=date_text,
+                    debit_total=debit_total,
+                    credit_total=credit_total,
+                    difference=difference,
+                    entry_count=len(entries),
+                )
+            )
+
+    voucher_nos_for_skip = [
+        entries[0].get("voucher_no")
+        for entries in voucher_groups.values()
+        if entries and entries[0].get("voucher_no") and not str(entries[0].get("voucher_no")).startswith("__")
+    ]
+    missing_voucher_nos = _detect_voucher_number_skips([v for v in voucher_nos_for_skip if v])
+    total_vouchers = len(voucher_groups)
+    skip_count = len(missing_voucher_nos)
+    unbalanced_count = len(unbalanced_vouchers)
+    completeness_score = 100.0
+    if total_vouchers > 0:
+        skip_penalty = min(skip_count * 2, 20)
+        balance_penalty = min(unbalanced_count * 5, 30)
+        completeness_score = max(0.0, 100.0 - skip_penalty - balance_penalty)
+
+    return DayBookReport(
+        total_vouchers=total_vouchers,
+        total_entries=len(all_entries),
+        skip_count=skip_count,
+        unbalanced_count=unbalanced_count,
+        completeness_score=round(completeness_score, 2),
+        missing_voucher_nos=missing_voucher_nos,
+        unbalanced_vouchers=unbalanced_vouchers,
+    )
+
+
 def _index_text(db: Session, organization_id: int, source_type: str, source_id: int, text: str, payload: dict[str, Any]) -> None:
     """索引文本到向量存储（复用 import_service 中的逻辑）"""
     store = safe_vector_store()
@@ -276,13 +363,18 @@ def _index_text(db: Session, organization_id: int, source_type: str, source_id: 
                 pass
 
 
-def _entry_duplicate_key(entry_data: dict[str, Any]) -> tuple[str, str, str, str, str, str, str, str]:
-    """生成分录去重口径，防止同一任务重复解析、重复上传同一序时簿。"""
+def _entry_duplicate_key(entry_data: dict[str, Any]) -> tuple[str, ...]:
+    """生成分录去重口径，防止同一任务重复解析、重复上传同一序时簿。
+
+    须包含凭证内行号：同一凭证可出现多笔相同科目/摘要/金额的借方或贷方分录。
+    """
     voucher_date = entry_data.get("voucher_date")
     voucher_date_text = voucher_date.isoformat() if voucher_date and hasattr(voucher_date, "isoformat") else str(voucher_date or "")
     return (
         str(entry_data.get("voucher_no") or "").strip(),
         voucher_date_text,
+        str(entry_data.get("parse_group_key") or "").strip(),
+        str(entry_data.get("entry_line_no") or "").strip(),
         str(entry_data.get("summary") or "").strip(),
         str(entry_data.get("account_code") or "").strip(),
         str(entry_data.get("account_name") or "").strip(),
@@ -292,7 +384,7 @@ def _entry_duplicate_key(entry_data: dict[str, Any]) -> tuple[str, str, str, str
     )
 
 
-def build_accounting_entry_duplicate_key(entry_data: dict[str, Any]) -> tuple[str, str, str, str, str, str, str, str]:
+def build_accounting_entry_duplicate_key(entry_data: dict[str, Any]) -> tuple[str, ...]:
     """供其他导入链路复用的分录去重口径。"""
     return _entry_duplicate_key(entry_data)
 
@@ -348,6 +440,8 @@ def _ensure_tag_categories(
         1. 查询已存在的分类。
         2. 对缺失分类按默认配置自动创建。
     """
+    from app.config.tag_category_constants import DEFAULT_CATEGORY_META
+
     existing = (
         db.query(TagCategory)
         .filter(
@@ -358,30 +452,21 @@ def _ensure_tag_categories(
     )
     categories = {cat.code: cat for cat in existing}
 
-    # 默认分类名称映射
-    default_names: dict[str, str] = {
-        "customer": "客户",
-        "supplier": "供应商",
-        "counterparty_object": "往来对象",
-        "product": "产品/项目",
-        "material": "材料",
-        "cost_element": "成本要素",
-        "expense_type": "费用类型",
-        "department": "部门",
-        "project": "项目",
-        "region": "区域",
-        "tax_type": "税费类型",
-    }
+    # 默认分类名称映射（自定义维度可在维度分类页扩展，code 使用 snake_case）
+    default_meta: dict[str, dict[str, Any]] = dict(DEFAULT_CATEGORY_META)
 
     for code in category_codes:
         if code in categories:
             continue
+        meta = default_meta.get(code, {})
         category = get_or_create_category(
             db,
             ledger_id=ledger_id,
             code=code,
-            name=default_names.get(code, code),
-            value_type="text",
+            name=meta.get("name", code),
+            value_type=meta.get("value_type", "text"),
+            source_table=meta.get("source_table"),
+            description=meta.get("description"),
             is_system=True,
         )
         categories[code] = category
@@ -450,22 +535,10 @@ def _build_entry_tags_for_import(
     return tag_mappings
 
 
-def _existing_entry_duplicate_keys(db: Session, job_id: int) -> set[tuple[str, str, str, str, str, str, str, str]]:
-    """读取当前导入任务已落库分录的去重口径。"""
-    existing_rows = (
-        db.query(
-            AccountingEntry.voucher_no,
-            AccountingEntry.voucher_date,
-            AccountingEntry.summary,
-            AccountingEntry.account_code,
-            AccountingEntry.account_name,
-            AccountingEntry.debit_amount,
-            AccountingEntry.credit_amount,
-            AccountingEntry.counterparty,
-        )
-        .filter(AccountingEntry.import_job_id == job_id)
-        .all()
-    )
+def _entry_rows_to_duplicate_keys(
+    rows: list[Any],
+) -> set[tuple[str, ...]]:
+    """将分录查询结果转换为去重口径集合。"""
     return {
         _entry_duplicate_key(
             {
@@ -479,8 +552,53 @@ def _existing_entry_duplicate_keys(db: Session, job_id: int) -> set[tuple[str, s
                 "counterparty": row.counterparty,
             }
         )
-        for row in existing_rows
+        for row in rows
     }
+
+
+def _accounting_entry_identity_columns():
+    return (
+        AccountingEntry.voucher_no,
+        AccountingEntry.voucher_date,
+        AccountingEntry.summary,
+        AccountingEntry.account_code,
+        AccountingEntry.account_name,
+        AccountingEntry.debit_amount,
+        AccountingEntry.credit_amount,
+        AccountingEntry.counterparty,
+    )
+
+
+def _existing_entry_duplicate_keys(db: Session, job_id: int) -> set[tuple[str, ...]]:
+    """读取当前导入任务已落库分录的去重口径。"""
+    existing_rows = (
+        db.query(*_accounting_entry_identity_columns())
+        .filter(AccountingEntry.import_job_id == job_id)
+        .all()
+    )
+    return _entry_rows_to_duplicate_keys(existing_rows)
+
+
+def _existing_ledger_entry_duplicate_keys(
+    db: Session, ledger_id: int
+) -> set[tuple[str, ...]]:
+    """读取账簿已落库分录的去重口径，防止同一账簿重复导入时再次插入。"""
+    existing_rows = (
+        db.query(*_accounting_entry_identity_columns())
+        .filter(AccountingEntry.ledger_id == ledger_id)
+        .all()
+    )
+    return _entry_rows_to_duplicate_keys(existing_rows)
+
+
+def _existing_ledger_voucher_no_to_id(db: Session, ledger_id: int) -> dict[str, int]:
+    """读取账簿已有凭证号到凭证 ID 的映射，避免违反 ledger_id + voucher_no 唯一约束。"""
+    rows = (
+        db.query(Voucher.voucher_no, Voucher.id)
+        .filter(Voucher.ledger_id == ledger_id)
+        .all()
+    )
+    return {row.voucher_no: row.id for row in rows if row.voucher_no}
 
 
 def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingResult:
@@ -531,6 +649,8 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
                 report=None,
             )
         existing_keys = _existing_entry_duplicate_keys(db, job.id)
+        if job.ledger_id is not None:
+            existing_keys |= _existing_ledger_entry_duplicate_keys(db, job.ledger_id)
 
         # 获取任务关联的源文件
         files = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
@@ -538,17 +658,17 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
         all_entries: list[dict[str, Any]] = []
         total_created = 0
         last_parse_diagnostics: dict[str, Any] | None = None
+        total_parsed_entries = 0
 
         for source_file in files:
             file_type = source_file.file_type.lower()
-            if file_type not in {"xlsx", "xls", "csv"}:
+            if file_type not in {"xlsx", "xls", "csv", "tsv"}:
                 continue
 
-            # 解析文件
-            parse_result = parse_entries(resolve_storage_path(source_file.storage_path))
+            # 统一结构化解析引擎（自适应模板 + evolution 规则 + 规则引擎回退）
+            parse_result = parse_structured_accounting_entries(resolve_storage_path(source_file.storage_path), db=db)
+            total_parsed_entries += len(parse_result.entries)
             if not parse_result.entries:
-                from app.services.doc_parsing.file_parser_service import build_parse_diagnostics
-
                 last_parse_diagnostics = build_parse_diagnostics(parse_result)
             for parsed_entry in parse_result.entries:
                 duplicate_key = _entry_duplicate_key(parsed_entry)
@@ -559,36 +679,38 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
                 all_entries.append(parsed_entry)
 
         if not all_entries:
-            from app.services.doc_parsing.file_parser_service import build_parse_diagnostics
-
+            if total_parsed_entries > 0:
+                return DayBookProcessingResult(
+                    success=False,
+                    error_message="解析到的分录均已存在于当前账套/任务中，未新增分录。如需全量重导请更换账套或清理已有分录。",
+                    parse_diagnostics=last_parse_diagnostics,
+                )
+            if job.ledger_id is not None:
+                ledger_entry_count = (
+                    db.query(AccountingEntry)
+                    .filter(AccountingEntry.ledger_id == job.ledger_id)
+                    .count()
+                )
+                if ledger_entry_count > 0:
+                    return DayBookProcessingResult(
+                        success=True,
+                        entries_created=0,
+                        report=None,
+                    )
             return DayBookProcessingResult(
                 success=False,
                 error_message="未解析到有效分录数据，请检查表头列名是否包含凭证号、日期、摘要、科目、借贷金额",
                 parse_diagnostics=last_parse_diagnostics,
             )
 
-        # 按 voucher_no 分组
-        voucher_groups: dict[str, list[dict[str, Any]]] = {}
-        for idx, entry_data in enumerate(all_entries):
-            voucher_no = entry_data.get("voucher_no") or f"__no_voucher__:{idx}"
-            if voucher_no not in voucher_groups:
-                voucher_groups[voucher_no] = []
-            voucher_groups[voucher_no].append(entry_data)
-
-        # 为每个凭证组分配连续行号
-        voucher_line_counter: dict[str, int] = {}
-        for voucher_no in voucher_groups:
-            voucher_line_counter[voucher_no] = 0
+        # 按 parse_group_key 分组并分配分录行号（续行文件按顺序推理行号）
+        _assign_entry_line_numbers(all_entries)
 
         # 准备逻辑校验数据
         entries_for_check: list[dict[str, Any]] = []
         voucher_types: list[str | None] = []
 
         for entry_data in all_entries:
-            voucher_no = entry_data.get("voucher_no") or f"__no_voucher__:{all_entries.index(entry_data)}"
-            voucher_line_counter[voucher_no] += 1
-            entry_data["entry_line_no"] = voucher_line_counter[voucher_no]
-
             # 提取凭证字用于逻辑校验
             class MockEntry:
                 def __init__(self, d: dict[str, Any]) -> None:
@@ -629,49 +751,13 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
         # 生成校验报告
         logic_report = generate_batch_report(logic_check_results)
 
-        # 逐凭证校验借贷平衡
-        unbalanced_vouchers: list[UnbalancedVoucher] = []
-        for voucher_no, entries in voucher_groups.items():
-            if voucher_no.startswith("__no_voucher__"):
-                continue  # 跳过无凭证号的分录
-            is_balanced, debit_total, credit_total, difference = _validate_voucher_balance(entries)
-            if not is_balanced:
-                unbalanced_vouchers.append(
-                    UnbalancedVoucher(
-                        voucher_no=voucher_no,
-                        debit_total=debit_total,
-                        credit_total=credit_total,
-                        difference=difference,
-                        entry_count=len(entries),
-                    )
-                )
-
-        # 检测跳号
-        all_voucher_nos = [v for v in voucher_groups.keys() if not v.startswith("__no_voucher__")]
-        missing_voucher_nos = _detect_voucher_number_skips(all_voucher_nos)
-
-        # 计算完整性评分
-        total_vouchers = len(voucher_groups)
-        skip_count = len(missing_voucher_nos)
-        unbalanced_count = len(unbalanced_vouchers)
-
-        completeness_score = 100.0
-        if total_vouchers > 0:
-            # 跳号扣分：每个跳号扣 2 分，最多扣 20 分
-            skip_penalty = min(skip_count * 2, 20)
-            # 不平衡扣分：每个不平衡凭证扣 5 分，最多扣 30 分
-            balance_penalty = min(unbalanced_count * 5, 30)
-            completeness_score = max(0.0, 100.0 - skip_penalty - balance_penalty)
-
-        day_book_report = DayBookReport(
-            total_vouchers=total_vouchers,
-            total_entries=len(all_entries),
-            skip_count=skip_count,
-            unbalanced_count=unbalanced_count,
-            completeness_score=round(completeness_score, 2),
-            missing_voucher_nos=missing_voucher_nos,
-            unbalanced_vouchers=unbalanced_vouchers,
-        )
+        day_book_report = _build_day_book_report(all_entries)
+        unbalanced_vouchers = day_book_report.unbalanced_vouchers
+        missing_voucher_nos = day_book_report.missing_voucher_nos
+        total_vouchers = day_book_report.total_vouchers
+        skip_count = day_book_report.skip_count
+        unbalanced_count = day_book_report.unbalanced_count
+        completeness_score = day_book_report.completeness_score
 
         import uuid
         trace_id = str(uuid.uuid4())
@@ -698,9 +784,16 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
             )
         )
 
-        voucher_no_to_id: dict[str, int] = {}
+        existing_voucher_no_to_id = (
+            _existing_ledger_voucher_no_to_id(db, job.ledger_id)
+            if job.ledger_id is not None
+            else {}
+        )
+        voucher_no_to_id: dict[str, int] = dict(existing_voucher_no_to_id)
         for voucher_no, entries in voucher_groups.items():
             if voucher_no.startswith("__no_voucher__"):
+                continue
+            if voucher_no in existing_voucher_no_to_id:
                 continue
 
             first_entry = entries[0]
@@ -919,3 +1012,483 @@ def process_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingRes
             success=False,
             error_message=str(exc),
         )
+
+
+def _existing_staging_duplicate_keys(db: Session, job_id: int) -> set[tuple[str, ...]]:
+    rows = (
+        db.query(StagingAccountingEntry)
+        .filter(StagingAccountingEntry.import_job_id == job_id)
+        .all()
+    )
+    keys: set[tuple[str, ...]] = set()
+    for row in rows:
+        keys.add(
+            _entry_duplicate_key(
+                {
+                    "voucher_no": row.voucher_no,
+                    "voucher_date": row.voucher_date,
+                    "summary": row.summary,
+                    "account_code": row.account_code,
+                    "account_name": row.account_name,
+                    "debit_amount": row.debit_amount,
+                    "credit_amount": row.credit_amount,
+                    "counterparty": row.counterparty,
+                }
+            )
+        )
+    return keys
+
+
+def _staging_row_from_entry_data(
+    job: ImportJob,
+    entry_data: dict[str, Any],
+    *,
+    parse_diagnostics: dict[str, Any] | None,
+) -> StagingAccountingEntry:
+    from app.services.audit.voucher_signature_service import extract_source_preparer_name
+
+    import_mode = get_import_mode(job.source_type)
+    original_row = dict(entry_data.get("original_row") or {})
+    if entry_data.get("requires_llm_resolution"):
+        original_row["_requires_llm_resolution"] = True
+    preparer_name = extract_source_preparer_name(entry_data)
+    return StagingAccountingEntry(
+        import_job_id=job.id,
+        organization_id=job.organization_id,
+        ledger_id=job.ledger_id,
+        project_id=job.project_id,
+        entity_org_id=job.organization_id,
+        import_mode=import_mode,
+        source_type=job.source_type,
+        voucher_no=entry_data.get("voucher_no"),
+        voucher_date=entry_data.get("voucher_date"),
+        summary=entry_data.get("summary", ""),
+        account_code=entry_data.get("account_code"),
+        account_name=entry_data.get("account_name"),
+        resolved_account_code=entry_data.get("resolved_account_code"),
+        resolved_account_name=entry_data.get("resolved_account_name"),
+        debit_amount=_amount_to_decimal(entry_data.get("debit_amount", 0)),
+        credit_amount=_amount_to_decimal(entry_data.get("credit_amount", 0)),
+        counterparty=entry_data.get("counterparty"),
+        entry_line_no=entry_data.get("entry_line_no", 1),
+        source_file_id=entry_data.get("source_file_id"),
+        original_row=original_row,
+        normalized_text=entry_data.get("normalized_text", ""),
+        entry_tags_payload=entry_data.get("suggested_tags"),
+        parse_diagnostics=parse_diagnostics,
+        source_preparer_name=preparer_name,
+        review_status="draft",
+    )
+
+
+def _parse_day_book_entries_from_job(
+    db: Session,
+    job: ImportJob,
+) -> tuple[list[dict[str, Any]], DayBookReport | None, dict[str, Any] | None, str | None]:
+    """解析源文件为分录列表，并生成序时簿检测报告（不落库）。"""
+    files = db.query(SourceFile).filter(SourceFile.import_job_id == job.id).all()
+    all_entries: list[dict[str, Any]] = []
+    last_parse_diagnostics: dict[str, Any] | None = None
+    total_parsed_entries = 0
+    existing_keys = _existing_staging_duplicate_keys(db, job.id)
+
+    from app.services.doc_parsing.structured_parse_options import (
+        parse_options_from_job_draft,
+        reset_parse_options,
+        set_parse_options,
+    )
+    from app.services.doc_parsing.parse_context import reset_parse_context, set_parse_context
+
+    parse_options = parse_options_from_job_draft(job.draft_data)
+    options_token = set_parse_options(parse_options)
+    context_tokens = set_parse_context(db=db, ledger_id=job.ledger_id)
+    try:
+        for source_file in files:
+            file_type = source_file.file_type.lower()
+            if file_type not in {"xlsx", "xls", "csv", "tsv"}:
+                continue
+            parse_result = parse_structured_accounting_entries(
+                resolve_storage_path(source_file.storage_path),
+                db=db,
+                parse_options=parse_options,
+            )
+            total_parsed_entries += len(parse_result.entries)
+            if not parse_result.entries:
+                last_parse_diagnostics = build_parse_diagnostics(parse_result)
+            for parsed_entry in parse_result.entries:
+                duplicate_key = _entry_duplicate_key(parsed_entry)
+                if duplicate_key in existing_keys:
+                    continue
+                existing_keys.add(duplicate_key)
+                parsed_entry["source_file_id"] = source_file.id
+                all_entries.append(parsed_entry)
+    finally:
+        reset_parse_options(options_token)
+        reset_parse_context(*context_tokens)
+
+    if not all_entries:
+        if total_parsed_entries > 0:
+            return [], None, last_parse_diagnostics, None
+        return (
+            [],
+            None,
+            last_parse_diagnostics,
+            "未解析到有效分录数据，请检查表头列名是否包含凭证号、日期、摘要、科目、借贷金额",
+        )
+
+    _assign_entry_line_numbers(all_entries)
+    day_book_report = _build_day_book_report(all_entries)
+    return all_entries, day_book_report, last_parse_diagnostics, None
+
+
+def _day_book_report_from_entry_dicts(all_entries: list[dict[str, Any]]) -> DayBookReport:
+    return _build_day_book_report(all_entries)
+
+
+def preview_day_book_import(db: Session, job: ImportJob) -> DayBookProcessingResult:
+    """规则解析并写入 staging 草稿，不入正式账套。"""
+    try:
+        if job.ledger_id:
+            from app.services.doc_parsing.dimension_readiness_service import assess_ledger_dimension_readiness
+
+            readiness = assess_ledger_dimension_readiness(db, job.ledger_id)
+            if not readiness.get("ready_for_structured_import"):
+                blockers = readiness.get("blockers") or []
+                message = blockers[0].get("message") if blockers else "请先审阅本账簿 tag 规则与维度分类"
+                return DayBookProcessingResult(success=False, entries_created=0, error_message=message)
+
+        existing_staging_count = (
+            db.query(StagingAccountingEntry)
+            .filter(StagingAccountingEntry.import_job_id == job.id)
+            .count()
+        )
+        if existing_staging_count > 0:
+            staging_rows = (
+                db.query(StagingAccountingEntry)
+                .filter(StagingAccountingEntry.import_job_id == job.id)
+                .order_by(
+                    StagingAccountingEntry.voucher_no,
+                    StagingAccountingEntry.entry_line_no,
+                )
+                .all()
+            )
+            entry_dicts = [
+                {
+                    "voucher_no": row.voucher_no,
+                    "voucher_date": row.voucher_date,
+                    "debit_amount": row.debit_amount,
+                    "credit_amount": row.credit_amount,
+                    "entry_line_no": row.entry_line_no,
+                }
+                for row in staging_rows
+            ]
+            return DayBookProcessingResult(
+                success=True,
+                entries_created=existing_staging_count,
+                report=_day_book_report_from_entry_dicts(entry_dicts),
+            )
+
+        all_entries, day_book_report, parse_diagnostics, parse_error = _parse_day_book_entries_from_job(db, job)
+        if parse_error:
+            return DayBookProcessingResult(
+                success=False,
+                error_message=parse_error,
+                parse_diagnostics=parse_diagnostics,
+            )
+
+        for entry_data in all_entries:
+            db.add(
+                _staging_row_from_entry_data(
+                    job,
+                    entry_data,
+                    parse_diagnostics=parse_diagnostics,
+                )
+            )
+        db.commit()
+
+        try:
+            from app.services.audit.vectorize_staging_service import vectorize_staging_job
+
+            vectorize_staging_job(db, job.id)
+        except Exception:
+            pass
+
+        return DayBookProcessingResult(
+            success=True,
+            entries_created=len(all_entries),
+            report=day_book_report,
+        )
+    except Exception as exc:
+        db.rollback()
+        return DayBookProcessingResult(success=False, error_message=str(exc))
+
+
+def confirm_day_book_import(
+    db: Session,
+    job: ImportJob,
+    *,
+    approved_by_user_id: int | None = None,
+) -> DayBookProcessingResult:
+    """将 staging 草稿确认入账，生成未审核凭证分录。"""
+    try:
+        staging_rows = (
+            db.query(StagingAccountingEntry)
+            .filter(StagingAccountingEntry.import_job_id == job.id)
+            .order_by(
+                StagingAccountingEntry.voucher_no,
+                StagingAccountingEntry.entry_line_no,
+            )
+            .all()
+        )
+        if not staging_rows:
+            return DayBookProcessingResult(
+                success=False,
+                error_message="没有可确认的草稿分录，请先上传并解析文件",
+            )
+
+        from app.services.audit.staging_review_service import (
+            VERIFIED_REVIEW_STATUSES,
+            group_staging_rows,
+            validate_staging_ready_for_confirm,
+        )
+        from app.services.audit.voucher_signature_service import (
+            signature_from_staging_group,
+            stamp_voucher_signatures,
+        )
+        from datetime import datetime, timezone
+
+        validation_error = validate_staging_ready_for_confirm(staging_rows)
+        if validation_error:
+            return DayBookProcessingResult(success=False, error_message=validation_error)
+
+        staging_groups = group_staging_rows(staging_rows)
+        voucher_signatures = {
+            key: signature_from_staging_group(group) for key, group in staging_groups.items()
+        }
+        approved_at = datetime.now(timezone.utc) if approved_by_user_id else None
+
+        ledger_id = job.ledger_id
+        if ledger_id is None:
+            import_mode = get_import_mode(job.source_type)
+            if import_mode == "B1":
+                if not job.project_id:
+                    return DayBookProcessingResult(
+                        success=False,
+                        error_message="审计凭证导入需要指定 project_id",
+                    )
+                from app.services.audit.working_ledger_service import get_or_create_working_ledger
+
+                working_ledger = get_or_create_working_ledger(
+                    db,
+                    project_id=job.project_id,
+                    entity_org_id=job.organization_id,
+                )
+                ledger_id = working_ledger.id
+                job.ledger_id = ledger_id
+                db.flush()
+            else:
+                return DayBookProcessingResult(
+                    success=False,
+                    error_message="确认入账需要指定账套（ledger_id）",
+                )
+
+        all_entries: list[dict[str, Any]] = []
+        from app.services.audit.dimension_sync_service import enrich_tags_from_master
+
+        for row in staging_rows:
+            base_code = row.resolved_account_code or row.account_code or ""
+            enriched_tags = enrich_tags_from_master(
+                db,
+                ledger_id,
+                row.entry_tags_payload,
+                account_code=base_code,
+            )
+            all_entries.append(
+                {
+                    "voucher_no": row.voucher_no,
+                    "voucher_date": row.voucher_date,
+                    "summary": row.summary,
+                    "account_code": row.account_code,
+                    "account_name": row.account_name,
+                    "resolved_account_code": row.resolved_account_code,
+                    "resolved_account_name": row.resolved_account_name,
+                    "debit_amount": row.debit_amount,
+                    "credit_amount": row.credit_amount,
+                    "counterparty": row.counterparty,
+                    "entry_line_no": row.entry_line_no,
+                    "source_file_id": row.source_file_id,
+                    "original_row": row.original_row or {},
+                    "normalized_text": row.normalized_text or "",
+                    "suggested_tags": enriched_tags,
+                    "requires_llm_resolution": bool((row.original_row or {}).get("_requires_llm_resolution")),
+                    "review_status": row.review_status,
+                }
+            )
+
+        voucher_groups: dict[str, list[dict[str, Any]]] = {}
+        for idx, entry_data in enumerate(all_entries):
+            voucher_no = entry_data.get("voucher_no") or f"__no_voucher__:{idx}"
+            voucher_groups.setdefault(voucher_no, []).append(entry_data)
+
+        unbalanced_vouchers: list[UnbalancedVoucher] = []
+        for voucher_no, entries in voucher_groups.items():
+            if voucher_no.startswith("__no_voucher__"):
+                continue
+            is_balanced, debit_total, credit_total, difference = _validate_voucher_balance(entries)
+            if not is_balanced:
+                unbalanced_vouchers.append(
+                    UnbalancedVoucher(
+                        voucher_no=voucher_no,
+                        debit_total=debit_total,
+                        credit_total=credit_total,
+                        difference=difference,
+                        entry_count=len(entries),
+                    )
+                )
+
+        existing_ledger_keys: set[tuple[str, ...]] = set()
+        if ledger_id is not None:
+            existing_ledger_keys = _existing_ledger_entry_duplicate_keys(db, ledger_id)
+
+        entries_to_create: list[dict[str, Any]] = []
+        for entry_data in all_entries:
+            dup_key = _entry_duplicate_key(entry_data)
+            if dup_key in existing_ledger_keys:
+                continue
+            existing_ledger_keys.add(dup_key)
+            entries_to_create.append(entry_data)
+
+        if not entries_to_create:
+            db.query(StagingAccountingEntry).filter(
+                StagingAccountingEntry.import_job_id == job.id
+            ).delete(synchronize_session=False)
+            db.commit()
+            return DayBookProcessingResult(
+                success=True,
+                entries_created=0,
+                report=None,
+            )
+
+        voucher_groups = {}
+        for idx, entry_data in enumerate(entries_to_create):
+            voucher_no = entry_data.get("voucher_no") or f"__no_voucher__:{idx}"
+            voucher_groups.setdefault(voucher_no, []).append(entry_data)
+
+        existing_voucher_no_to_id = _existing_ledger_voucher_no_to_id(db, ledger_id)
+        voucher_no_to_id: dict[str, int] = dict(existing_voucher_no_to_id)
+
+        for voucher_no, entries in voucher_groups.items():
+            if voucher_no.startswith("__no_voucher__") or voucher_no in existing_voucher_no_to_id:
+                continue
+            first_entry = entries[0]
+            voucher_debit_total = sum(
+                Decimal(str(e.get("debit_amount", "0"))) for e in entries if e.get("debit_amount")
+            ) or Decimal("0")
+            voucher_credit_total = sum(
+                Decimal(str(e.get("credit_amount", "0"))) for e in entries if e.get("credit_amount")
+            ) or Decimal("0")
+            voucher = Voucher(
+                organization_id=job.organization_id,
+                ledger_id=ledger_id,
+                voucher_no=voucher_no,
+                voucher_date=first_entry.get("voucher_date"),
+                summary=(first_entry.get("summary") or "")[:200],
+                total_debit=voucher_debit_total,
+                total_credit=voucher_credit_total,
+                import_job_id=job.id,
+                status="pending",
+                source_type="import",
+                period_id=resolve_voucher_period_id(job, first_entry.get("voucher_date")),
+            )
+            sig_key = f"{voucher_no}|{(first_entry.get('voucher_date').isoformat() if first_entry.get('voucher_date') else '')}"
+            sig = voucher_signatures.get(sig_key) or {}
+            stamp_voucher_signatures(
+                voucher,
+                source_preparer_name=sig.get("source_preparer_name"),
+                cross_reviewed_by_user_id=sig.get("cross_reviewed_by_user_id"),
+                cross_reviewed_at=sig.get("cross_reviewed_at"),
+                approved_by_user_id=approved_by_user_id,
+                approved_at=approved_at,
+            )
+            db.add(voucher)
+
+        db.flush()
+
+        for voucher in db.query(Voucher).filter(Voucher.import_job_id == job.id).all():
+            voucher_no_to_id[voucher.voucher_no] = voucher.id
+
+        entry_objects: list[AccountingEntry] = []
+        for entry_data in entries_to_create:
+            voucher_no = entry_data.get("voucher_no") or ""
+            counterparty_name = entry_data.get("counterparty")
+            counterparty_id = _resolve_counterparty(db, counterparty_name)
+            entry = AccountingEntry(
+                organization_id=job.organization_id,
+                ledger_id=ledger_id,
+                voucher_id=voucher_no_to_id.get(voucher_no),
+                import_job_id=job.id,
+                source_file_id=entry_data.get("source_file_id"),
+                entry_source="auto",
+                voucher_no=entry_data.get("voucher_no"),
+                voucher_date=entry_data.get("voucher_date"),
+                summary=entry_data.get("summary", ""),
+                account_code=entry_data.get("account_code"),
+                account_name=entry_data.get("account_name"),
+                resolved_account_code=entry_data.get("resolved_account_code"),
+                resolved_account_name=entry_data.get("resolved_account_name"),
+                debit_amount=_amount_to_decimal(entry_data.get("debit_amount", 0)),
+                credit_amount=_amount_to_decimal(entry_data.get("credit_amount", 0)),
+                counterparty=entry_data.get("counterparty"),
+                counterparty_id=counterparty_id,
+                original_row=entry_data.get("original_row", {}),
+                normalized_text=entry_data.get("normalized_text", ""),
+                entry_line_no=entry_data.get("entry_line_no", 1),
+                review_status=(
+                    entry_data.get("review_status")
+                    if entry_data.get("review_status") in VERIFIED_REVIEW_STATUSES
+                    else "verified"
+                ),
+                post_status="draft",
+                requires_llm_resolution=bool(entry_data.get("requires_llm_resolution")),
+            )
+            entry_objects.append(entry)
+            db.add(entry)
+
+        db.flush()
+        tag_mappings = _build_entry_tags_for_import(db, entry_objects, entries_to_create)
+        if tag_mappings:
+            db.bulk_insert_mappings(EntryTag, tag_mappings)
+
+        from app.services.audit.structured_import_service import create_bank_name_control_findings
+
+        create_bank_name_control_findings(db, job, staging_rows)
+
+        db.query(StagingAccountingEntry).filter(
+            StagingAccountingEntry.import_job_id == job.id
+        ).delete(synchronize_session=False)
+
+        db.commit()
+
+        try:
+            vector_service = EntryTagVectorService(db)
+            vector_service.sync_pending(limit=200)
+        except Exception:
+            pass
+
+        return DayBookProcessingResult(
+            success=True,
+            entries_created=len(entry_objects),
+            report=None,
+        )
+    except Exception as exc:
+        db.rollback()
+        return DayBookProcessingResult(success=False, error_message=str(exc))
+
+
+def cancel_day_book_import(db: Session, job: ImportJob) -> None:
+    db.query(StagingAccountingEntry).filter(
+        StagingAccountingEntry.import_job_id == job.id
+    ).delete(synchronize_session=False)
+    job.status = "cancelled"
+    db.commit()
+

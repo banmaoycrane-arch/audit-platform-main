@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.db.models import AccountingEntry, AccountingPeriod, ImportJob, Organization
+from app.db.models import AccountingEntry, AccountingPeriod, ImportJob, Organization, SourceFile
 from app.models.ledger import Ledger
 
 
@@ -58,3 +58,39 @@ def resolve_or_create_organization_for_ledger(
     db.add(organization)
     db.flush()
     return organization.id
+
+
+def resolve_import_job_ledger_id(db: Session, job: ImportJob) -> int | None:
+    """补全导入任务的账簿 ID：优先 job，其次源文件，再查同组织历史任务。"""
+    if job.ledger_id is not None:
+        return job.ledger_id
+
+    source_file = (
+        db.query(SourceFile)
+        .filter(SourceFile.import_job_id == job.id, SourceFile.ledger_id.isnot(None))
+        .order_by(SourceFile.id.desc())
+        .first()
+    )
+    if source_file and source_file.ledger_id:
+        job.ledger_id = source_file.ledger_id
+        db.add(job)
+        db.flush()
+        return job.ledger_id
+
+    peer = (
+        db.query(ImportJob)
+        .filter(
+            ImportJob.organization_id == job.organization_id,
+            ImportJob.ledger_id.isnot(None),
+            ImportJob.id != job.id,
+        )
+        .order_by(ImportJob.id.desc())
+        .first()
+    )
+    if peer and peer.ledger_id:
+        job.ledger_id = peer.ledger_id
+        db.add(job)
+        db.flush()
+        return peer.ledger_id
+
+    return None

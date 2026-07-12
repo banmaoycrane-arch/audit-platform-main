@@ -19,13 +19,15 @@ import {
   Typography,
   message,
   Empty,
+  Alert,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { DeleteOutlined, EditOutlined, FileSearchOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EditOutlined, FileSearchOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, CheckOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   api,
+  VOUCHER_QUERY_PAGE_MAX,
   type AccountingEntry,
   type AccountingPeriod,
   type VoucherCard,
@@ -151,6 +153,17 @@ const VOUCHER_LINE_COLUMNS: ColumnsType<AccountingEntry> = [
     align: 'right',
     render: (v: number) => (v > 0 ? formatMoney(v) : '-'),
   },
+  {
+    title: '证据',
+    key: 'evidence',
+    width: 100,
+    render: (_, row) =>
+      row.source_file_id ? (
+        <Link to={`/ledger/files?fileId=${row.source_file_id}`}>查看原件</Link>
+      ) : (
+        '-'
+      ),
+  },
 ]
 
 const DEFAULT_FILTER_VALUES: FilterFormValues = {
@@ -163,6 +176,8 @@ type VoucherCardViewProps = {
   voucher: VoucherCard
   selected: boolean
   deleting: boolean
+  reviewing: boolean
+  wizardMode: boolean
   linesExpanded: boolean
   linesLoading: boolean
   lines: AccountingEntry[] | undefined
@@ -170,6 +185,7 @@ type VoucherCardViewProps = {
   onToggleLines: (voucher: VoucherCard) => void
   onEdit: (voucher: VoucherCard) => void
   onPost: (voucher: VoucherCard) => void
+  onReview: (voucher: VoucherCard) => void
   onDelete: (voucher: VoucherCard) => void
 }
 
@@ -177,6 +193,8 @@ const VoucherCardView = memo(function VoucherCardView({
   voucher,
   selected,
   deleting,
+  reviewing,
+  wizardMode,
   linesExpanded,
   linesLoading,
   lines,
@@ -184,6 +202,7 @@ const VoucherCardView = memo(function VoucherCardView({
   onToggleLines,
   onEdit,
   onPost,
+  onReview,
   onDelete,
 }: VoucherCardViewProps) {
   const selectionKey = voucherSelectionKey(voucher)
@@ -207,10 +226,27 @@ const VoucherCardView = memo(function VoucherCardView({
           <Text type="secondary">{voucher.line_count} 行</Text>
           <Text>借 {formatMoney(voucher.debit_total)}</Text>
           <Text>贷 {formatMoney(voucher.credit_total)}</Text>
+          {voucher.status === 'pending' && (
+            <Tag color="orange">待审核</Tag>
+          )}
+          {voucher.status === 'posted' && (
+            <Tag color="green">已审核</Tag>
+          )}
           <Button size="small" loading={linesLoading} onClick={() => onToggleLines(voucher)}>
             {linesExpanded ? '收起分录' : '展开分录'}
           </Button>
-          {voucher.status === 'draft' && (
+          {wizardMode && voucher.status === 'pending' && (
+            <Button
+              size="small"
+              type="primary"
+              icon={<CheckOutlined />}
+              loading={reviewing}
+              onClick={() => onReview(voucher)}
+            >
+              审核
+            </Button>
+          )}
+          {!wizardMode && voucher.status === 'draft' && (
             <Button size="small" icon={<EditOutlined />} onClick={() => onEdit(voucher)}>
               编辑凭证
             </Button>
@@ -220,6 +256,7 @@ const VoucherCardView = memo(function VoucherCardView({
               入账
             </Button>
           )}
+          {!wizardMode && (
           <Button
             danger
             size="small"
@@ -229,6 +266,7 @@ const VoucherCardView = memo(function VoucherCardView({
           >
             删除凭证
           </Button>
+          )}
         </Space>
       }
     >
@@ -255,6 +293,11 @@ const VoucherCardView = memo(function VoucherCardView({
 export function VoucherQueryPage() {
   const { currentLedgerId } = useAuthStore()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const wizardJobId = Number(searchParams.get('jobId') || 0)
+  const wizardMode = searchParams.get('fromWizard') === '1' && wizardJobId > 0
+  const wizardReviewStatus = searchParams.get('review_status') || 'pending'
+  const step5Path = searchParams.get('stepPath') || '/ledger/vouchers/step/5'
   const [form] = Form.useForm<FilterFormValues>()
   const dateMode = Form.useWatch('date_mode', form) || 'day'
   const filterMode = Form.useWatch('filter_mode', form) || 'line'
@@ -266,11 +309,13 @@ export function VoucherQueryPage() {
   const [deletingKey, setDeletingKey] = useState<string | null>(null)
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(6)
+  const [pageSize, setPageSize] = useState(50)
   const [appliedFilters, setAppliedFilters] = useState<VoucherQueryFilterState | null>(null)
   const [expandedLineKeys, setExpandedLineKeys] = useState<Set<string>>(new Set())
   const [linesCache, setLinesCache] = useState<Record<string, AccountingEntry[]>>({})
   const [linesLoadingKeys, setLinesLoadingKeys] = useState<Set<string>>(new Set())
+  const [reviewing, setReviewing] = useState(false)
+  const [reviewingKey, setReviewingKey] = useState<string | null>(null)
 
   useEffect(() => {
     if (!currentLedgerId) {
@@ -285,15 +330,23 @@ export function VoucherQueryPage() {
       return
     }
     api.listAccountingPeriods(undefined, currentLedgerId).then(setPeriods).catch(() => setPeriods([]))
-    setAppliedFilters(null)
-    setVouchers([])
-    setTotal(0)
     setPage(1)
     setSelectedKeys(new Set())
     setExpandedLineKeys(new Set())
     setLinesCache({})
     setLinesLoadingKeys(new Set())
-  }, [currentLedgerId])
+    if (wizardMode) {
+      setAppliedFilters({
+        filter_mode: 'line',
+        import_job_id: wizardJobId,
+        review_status: wizardReviewStatus,
+      })
+    } else {
+      setAppliedFilters(null)
+      setVouchers([])
+      setTotal(0)
+    }
+  }, [currentLedgerId, wizardMode, wizardJobId, wizardReviewStatus])
 
   const loadVouchers = useCallback(async () => {
     if (!currentLedgerId || appliedFilters === null) {
@@ -337,6 +390,10 @@ export function VoucherQueryPage() {
   }, [loadVouchers])
 
   const pageKeys = useMemo(() => vouchers.map(voucherSelectionKey), [vouchers])
+  const pageEntryLineCount = useMemo(
+    () => vouchers.reduce((sum, voucher) => sum + voucher.line_count, 0),
+    [vouchers],
+  )
   const allPageSelected = pageKeys.length > 0 && pageKeys.every((key) => selectedKeys.has(key))
   const somePageSelected = pageKeys.some((key) => selectedKeys.has(key))
 
@@ -515,6 +572,58 @@ export function VoucherQueryPage() {
     }
   }
 
+  const handleReviewOne = async (voucher: VoucherCard) => {
+    if (!voucher.voucher_id) {
+      message.warning('该凭证缺少 ID，无法审核')
+      return
+    }
+    const key = voucherSelectionKey(voucher)
+    setReviewing(true)
+    setReviewingKey(key)
+    try {
+      await api.reviewVoucher(voucher.voucher_id)
+      message.success('凭证审核通过')
+      await loadVouchers()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '审核失败')
+    } finally {
+      setReviewing(false)
+      setReviewingKey(null)
+    }
+  }
+
+  const handleBatchReview = async () => {
+    const targets = vouchers.filter(
+      (voucher) => selectedKeys.has(voucherSelectionKey(voucher)) && voucher.status === 'pending' && voucher.voucher_id,
+    )
+    if (targets.length === 0) {
+      message.warning('请先勾选待审核凭证')
+      return
+    }
+    setReviewing(true)
+    try {
+      await api.reviewVouchersBatch(targets.map((item) => item.voucher_id!))
+      message.success(`已审核 ${targets.length} 张凭证`)
+      setSelectedKeys(new Set())
+      await loadVouchers()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '批量审核失败')
+    } finally {
+      setReviewing(false)
+    }
+  }
+
+  const pendingCount = useMemo(
+    () => vouchers.filter((voucher) => voucher.status === 'pending').length,
+    [vouchers],
+  )
+  const allReviewedInWizard = wizardMode && appliedFilters !== null && total === 0 && !loading
+
+  const handleContinueWizard = () => {
+    if (!wizardJobId) return
+    navigate(`${step5Path}?jobId=${wizardJobId}`)
+  }
+
   if (!currentLedgerId) {
     return (
       <div style={{ padding: 24 }}>
@@ -530,9 +639,33 @@ export function VoucherQueryPage() {
         <FileSearchOutlined /> 凭证查询
       </Title>
       <Paragraph type="secondary">
-        请先设置查询条件并点击「查询」；页面不会自动加载全部凭证。结果以卡片形式分页展示，分录明细默认收起，需查看时再展开。
+        {wizardMode
+          ? '来自导入向导：请审核本批未审核凭证，全部完成后可继续导出步骤。'
+          : `请先设置查询条件并点击「查询」；页面不会自动加载全部凭证。结果以卡片形式分页展示，单页最多 ${VOUCHER_QUERY_PAGE_MAX} 张凭证，分录明细默认收起，需查看时再展开。`}
       </Paragraph>
 
+      {wizardMode && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          title={`导入向导 · 任务 #${wizardJobId}`}
+          description={
+            allReviewedInWizard
+              ? '本批凭证已全部审核完成，可继续向导下一步。'
+              : `当前筛选：导入任务 #${wizardJobId}，复核状态「${wizardReviewStatus}」。本页待审核 ${pendingCount} 张，共 ${total} 张。`
+          }
+          action={
+            allReviewedInWizard ? (
+              <Button type="primary" onClick={handleContinueWizard}>
+                继续向导 → Step 5
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
+
+      {!wizardMode && (
       <Card size="small" title="查询条件" style={{ marginBottom: 16 }}>
         <Form
           form={form}
@@ -653,6 +786,7 @@ export function VoucherQueryPage() {
           </Space>
         </Form>
       </Card>
+      )}
 
       {appliedFilters !== null && (
         <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -666,8 +800,32 @@ export function VoucherQueryPage() {
               全选本页
             </Checkbox>
             <Text type="secondary">共找到 {total} 张凭证</Text>
+            <Text type="secondary">本页 {vouchers.length} 张（单页最多 {VOUCHER_QUERY_PAGE_MAX} 张）</Text>
+            {pageEntryLineCount > 0 && (
+              <Text type="secondary">本页共 {pageEntryLineCount} 行分录</Text>
+            )}
             {selectedKeys.size > 0 && <Text>已选 {selectedKeys.size} 张</Text>}
           </Space>
+          <Space>
+            {wizardMode && (
+              <>
+                <Button
+                  type="primary"
+                  icon={<CheckOutlined />}
+                  disabled={selectedKeys.size === 0}
+                  loading={reviewing}
+                  onClick={() => void handleBatchReview()}
+                >
+                  批量审核
+                </Button>
+                {allReviewedInWizard && (
+                  <Button type="primary" onClick={handleContinueWizard}>
+                    继续向导 → Step 5
+                  </Button>
+                )}
+              </>
+            )}
+            {!wizardMode && (
           <Button
             danger
             icon={<DeleteOutlined />}
@@ -677,6 +835,8 @@ export function VoucherQueryPage() {
           >
             删除选中凭证
           </Button>
+            )}
+          </Space>
         </div>
       )}
 
@@ -696,6 +856,8 @@ export function VoucherQueryPage() {
                 voucher={voucher}
                 selected={selectedKeys.has(key)}
                 deleting={deleting && deletingKey === key}
+                reviewing={reviewing && reviewingKey === key}
+                wizardMode={wizardMode}
                 linesExpanded={expandedLineKeys.has(key)}
                 linesLoading={linesLoadingKeys.has(key)}
                 lines={linesCache[key]}
@@ -703,6 +865,7 @@ export function VoucherQueryPage() {
                 onToggleLines={toggleLineDetails}
                 onEdit={handleEditOne}
                 onPost={handlePostOne}
+                onReview={handleReviewOne}
                 onDelete={handleDeleteOne}
               />
             )
@@ -717,11 +880,15 @@ export function VoucherQueryPage() {
             pageSize={pageSize}
             total={total}
             showSizeChanger
-            pageSizeOptions={['6', '10', '20', '50']}
+            pageSizeOptions={['10', '20', '50', '100', '200', '500']}
             showTotal={(t) => `共 ${t} 张凭证`}
             onChange={(p, size) => {
               setPage(p)
-              setPageSize(Math.min(size, 50))
+              setPageSize(Math.min(size, VOUCHER_QUERY_PAGE_MAX))
+            }}
+            onShowSizeChange={(_p, size) => {
+              setPage(1)
+              setPageSize(Math.min(size, VOUCHER_QUERY_PAGE_MAX))
             }}
           />
         </div>

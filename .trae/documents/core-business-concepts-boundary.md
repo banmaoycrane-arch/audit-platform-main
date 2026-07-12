@@ -118,6 +118,15 @@ Register 是业务台账，不等于会计账簿。
 3. Register 到 AccountingEntry 之间需要规则、人工确认或 AI 草稿复核。
 4. Register 模块不得绕过账簿权限直接写正式凭证。
 
+### Register 与 Tag / 向量层（v0.3）
+
+业务台账与分录、Tag 的关系见 [tag-vs-account-hierarchy.md §1.1–§1.2](../../backend/docs/tag-vs-account-hierarchy.md)。
+
+1. **Register 只存模块核心登记字段**（如资产卡片号、发票号码、合同编号）；部门、项目、资产类别等**共用 EntryTag**，作为台账的辅助语义层，避免每模块重复建表。
+2. **Tag / 向量体系对全平台开放**（固定资产、税务、进销存、合同、银行等），`ledger_id` 下共享 `TagCategory` 与向量 collection。
+3. Register 可与 **分录 + Tag 双向映射**（从序时簿派生卡片、从卡片生成折旧凭证等），但**金额、科目、借贷仍以 `AccountingEntry` 为准**（§1.1 底线）。
+4. 新模块禁止另起炉灶做平行标签字典或平行向量库，除非 §1.2 检查清单书面例外。
+
 ### Register 子类型边界（v0.2）
 
 功能模块台账（Register）按**业务事实类型**拆分，禁止混登：

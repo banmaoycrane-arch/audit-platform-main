@@ -8,10 +8,31 @@ from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.global_settings import GlobalSettings
 from app.models.user import User
-from app.services.doc_parsing.parser_engine.config_service import get_runtime_parser_engine_config
+from app.services.doc_parsing.parser_engine.config_service import (
+    get_runtime_parser_engine_config,
+    normalize_parser_engine_config,
+)
+from app.models.ledger import Ledger
+from app.services.shared import ledger_management_service
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/config", tags=["config"])
+
+
+def _require_ledger_access(db: Session, current_user: User, ledger_id: int) -> Ledger:
+    """确认账簿存在且当前用户有权访问，避免 FK/脏数据导致 500。"""
+    ledger = db.query(Ledger).filter(Ledger.id == ledger_id).first()
+    if ledger is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": f"账簿 {ledger_id} 不存在，请重新选择账簿"},
+        )
+    if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
+        raise HTTPException(
+            status_code=403,
+            detail={"message": f"无权访问账簿 {ledger_id}，请联系账簿管理员授权"},
+        )
+    return ledger
 
 
 def _mask_api_key(value: str | None) -> str | None:
@@ -33,6 +54,7 @@ class ParserEngineConfig(BaseModel):
     ai_provider: str
     ai_base_url: str
     ai_model: str
+    ai_reasoning_model: str = ""
     ai_api_key: str | None = None
     ai_local_model_enabled: bool
     ai_fallback_to_rules: bool
@@ -68,46 +90,8 @@ class TestConnectionRequest(BaseModel):
 
 @router.get("/parser-engine", response_model=ParserEngineConfig)
 def get_parser_engine_config(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
-    """获取当前解析引擎配置"""
-    settings = get_settings()
-    
-    db_config = db.query(GlobalSettings).filter(
-        GlobalSettings.settings_key == "parser_engine"
-    ).first()
-    
-    if db_config and db_config.settings_value:
-        return _mask_parser_engine_config(db_config.settings_value)
-    
-    return _mask_parser_engine_config({
-        "ai_provider": settings.ai_provider,
-        "ai_base_url": settings.ai_base_url,
-        "ai_model": settings.ai_model,
-        "ai_api_key": settings.ai_api_key or None,
-        "ai_local_model_enabled": settings.ai_local_model_enabled,
-        "ai_fallback_to_rules": settings.ai_fallback_to_rules,
-        
-        "llm_max_concurrent_models": settings.llm_max_concurrent_models,
-        "llm_memory_limit_mb": settings.llm_memory_limit_mb,
-        "llm_preferred_model": settings.llm_preferred_model,
-        "llm_fallback_model": settings.llm_fallback_model,
-        "llm_timeout_seconds": settings.llm_timeout_seconds,
-        
-        "llm_enable_parallel_parsing": settings.llm_enable_parallel_parsing,
-        "llm_parallel_timeout_seconds": settings.llm_parallel_timeout_seconds,
-        
-        "llm_result_selection_mode": settings.llm_result_selection_mode,
-        "llm_confidence_threshold_auto": settings.llm_confidence_threshold_auto,
-        "llm_confidence_threshold_user": settings.llm_confidence_threshold_user,
-        
-        "llm_multi_engine_enabled": settings.llm_multi_engine_enabled,
-        "llm_comparison_mode": settings.llm_comparison_mode,
-        "llm_comparison_strategy": settings.llm_comparison_strategy,
-        "llm_comparison_engines": settings.llm_comparison_engines,
-        "llm_engine_weights": settings.llm_engine_weights,
-        "llm_agreement_threshold": settings.llm_agreement_threshold,
-        "llm_save_all_results": settings.llm_save_all_results,
-        "llm_knowledge_base": settings.llm_knowledge_base or None,
-    })
+    """获取当前解析引擎配置（含解析模型与推理模型）。"""
+    return _mask_parser_engine_config(get_runtime_parser_engine_config(db))
 
 
 @router.post("/parser-engine/test-connection")
@@ -450,7 +434,14 @@ def save_parser_engine_config(config: ParserEngineConfig, db: Session = Depends(
         GlobalSettings.settings_key == "parser_engine"
     ).first()
     
-    config_dict = {**get_runtime_parser_engine_config(db), **config.model_dump()}
+    config_dict = normalize_parser_engine_config(
+        {
+            **get_runtime_parser_engine_config(db),
+            **config.model_dump(),
+            "ai_reasoning_model": (config.ai_reasoning_model or "").strip(),
+            "ai_model": (config.ai_model or "").strip(),
+        }
+    )
     
     if db_config:
         db_config.settings_value = config_dict
@@ -532,7 +523,7 @@ def save_account_tag_rules(config: AccountTagConfigRequest, db: Session = Depend
 @router.post("/account-tag-rules/reset")
 def reset_account_tag_rules(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     """重置科目与标签解析规则配置为默认值（从YAML文件加载）"""
-    from app.config.account_tag_config import load_account_tag_config_from_file, save_account_tag_config_to_db, CONFIG_KEY
+    from app.config.account_tag_config import load_account_tag_config_from_file, CONFIG_KEY
     from app.models.global_settings import GlobalSettings
 
     config = load_account_tag_config_from_file()
@@ -555,4 +546,124 @@ def reset_account_tag_rules(db: Session = Depends(get_db), current_user: User = 
             "account_name_tag_category": config.account_name_tag_category,
             "auxiliary_keywords": config.auxiliary_keywords,
         },
+    }
+
+
+def _account_tag_config_payload(config) -> dict[str, Any]:
+    return {
+        "version": config.version,
+        "mandatory_hierarchical_accounts": list(config.mandatory_hierarchical_accounts),
+        "mandatory_hierarchical_keywords": list(config.mandatory_hierarchical_keywords),
+        "account_code_tag_category": config.account_code_tag_category,
+        "account_name_tag_category": config.account_name_tag_category,
+        "auxiliary_keywords": config.auxiliary_keywords,
+    }
+
+
+@router.get("/ledgers/{ledger_id}/account-tag-rules")
+def get_ledger_account_tag_rules(
+    ledger_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """获取账簿级解析映射（平台默认 + 账簿覆盖合并后的有效配置）。"""
+    from app.config.account_tag_config import (
+        load_account_tag_config,
+        load_ledger_account_tag_override,
+    )
+
+    config = load_account_tag_config(db, ledger_id=ledger_id)
+    override = load_ledger_account_tag_override(db, ledger_id)
+    return {
+        "success": True,
+        "scope": "ledger",
+        "ledger_id": ledger_id,
+        "has_ledger_override": override is not None,
+        "config": _account_tag_config_payload(config),
+        "ledger_override": override,
+    }
+
+
+@router.post("/ledgers/{ledger_id}/account-tag-rules")
+def save_ledger_account_tag_rules(
+    ledger_id: int,
+    config: AccountTagConfigRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """保存账簿级解析映射覆盖（不影响平台全局默认）。"""
+    from app.config.account_tag_config import AccountTagConfig, save_ledger_account_tag_override
+
+    account_tag_config = AccountTagConfig(
+        version=config.version,
+        mandatory_hierarchical_accounts=set(config.mandatory_hierarchical_accounts),
+        mandatory_hierarchical_keywords=set(config.mandatory_hierarchical_keywords),
+        account_code_tag_category=config.account_code_tag_category,
+        account_name_tag_category=config.account_name_tag_category,
+        auxiliary_keywords=config.auxiliary_keywords,
+    )
+    save_ledger_account_tag_override(db, ledger_id, account_tag_config)
+    from app.services.doc_parsing.dimension_readiness_service import acknowledge_tag_rules_reviewed
+
+    acknowledge_tag_rules_reviewed(db, ledger_id, reviewed_by=current_user.id)
+    db.commit()
+    return {
+        "success": True,
+        "message": "账簿级解析映射已保存，本账簿下一批导入将优先使用此配置。",
+        "config": _account_tag_config_payload(account_tag_config),
+        "has_ledger_override": True,
+    }
+
+
+@router.get("/ledgers/{ledger_id}/dimension-readiness")
+def get_ledger_dimension_readiness(
+    ledger_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """评估本账簿是否已完成 tag 规则审阅，可否进行序时簿结构化导入。"""
+    from app.services.doc_parsing.dimension_readiness_service import assess_ledger_dimension_readiness
+
+    _require_ledger_access(db, current_user, ledger_id)
+    return assess_ledger_dimension_readiness(db, ledger_id)
+
+
+@router.post("/ledgers/{ledger_id}/dimension-readiness/acknowledge")
+def acknowledge_ledger_dimension_readiness(
+    ledger_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """确认本账簿 tag 规则与维度分类已审阅，允许结构化导入。"""
+    from app.services.doc_parsing.dimension_readiness_service import acknowledge_tag_rules_reviewed
+
+    _require_ledger_access(db, current_user, ledger_id)
+    try:
+        result = acknowledge_tag_rules_reviewed(db, ledger_id, reviewed_by=current_user.id)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"确认维度规则审阅失败：{exc}"},
+        ) from exc
+    return {"success": True, **result}
+
+
+@router.post("/ledgers/{ledger_id}/account-tag-rules/reset")
+def reset_ledger_account_tag_rules(
+    ledger_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """清除账簿级解析映射覆盖，恢复使用平台默认。"""
+    from app.config.account_tag_config import clear_ledger_account_tag_override, load_account_tag_config
+
+    clear_ledger_account_tag_override(db, ledger_id)
+    config = load_account_tag_config(db, ledger_id=ledger_id)
+    return {
+        "success": True,
+        "message": "已清除账簿级覆盖，恢复使用平台默认解析映射。",
+        "config": _account_tag_config_payload(config),
+        "has_ledger_override": False,
     }

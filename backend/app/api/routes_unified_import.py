@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-模块功能：统一导入 API 路由
-业务场景：为记账和审计两条主线提供统一的导入入口 API
-政策依据：符合《企业会计准则》和审计准则对导入流程的要求
-输入数据：导入模式、组织ID、账簿ID、项目ID（审计模式）、文件
-输出结果：导入任务、处理报告、期间推荐、检测报告
-创建日期：2026-07-02
-更新记录：
-    2026-07-02  初始创建，实现统一导入 API 端点
+模块功能：统一导入 API 路由（已废弃）
+
+.. deprecated:: 2026-07-06
+    请改用主路径 ``/api/import-jobs``（IMP-A）。
+    本模块保留只读兼容，将在后续版本移除。
+    治理依据：development-convergence-charter.md S1-1。
 """
 from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -26,7 +24,11 @@ from app.services.doc_parsing.import_service import resolve_storage_path  # type
 from app.services.doc_parsing.import_routing_service import is_day_book_source_type
 
 
-router = APIRouter(prefix="/api/unified-import", tags=["统一导入"])
+router = APIRouter(
+    prefix="/api/unified-import",
+    tags=["统一导入（deprecated → 请用 /api/import-jobs）"],
+    deprecated=True,
+)
 
 
 @router.post("/jobs")

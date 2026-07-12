@@ -140,6 +140,8 @@ def _finding_to_dict(finding: AuditFinding) -> dict[str, Any]:
     return {
         "id": finding.finding_uuid,
         "db_id": finding.id,
+        "job_id": finding.job_id,
+        "ledger_id": finding.ledger_id,
         "finding_type": finding.finding_type,
         "severity": finding.severity,
         "business_type": finding.business_type or "",
@@ -153,6 +155,7 @@ def _finding_to_dict(finding: AuditFinding) -> dict[str, Any]:
         "recommendation": finding.recommendation or "",
         "metadata": dict(finding.finding_metadata or {}),
         "status": finding.status,
+        "created_at": finding.created_at.isoformat() if finding.created_at else None,
     }
 
 
@@ -205,6 +208,28 @@ def run_audit_tests(job_id: int, db: Session = Depends(get_db)) -> dict[str, Any
     db.commit()
 
     return payload
+
+
+@router.get("/findings/search")
+def search_audit_findings(
+    ledger_id: int | None = None,
+    job_id: int | None = None,
+    finding_type: str | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """按账簿/任务/类型筛选审计发现（含内控缺陷）。"""
+    query = db.query(AuditFinding)
+    if ledger_id is not None:
+        query = query.filter(AuditFinding.ledger_id == ledger_id)
+    if job_id is not None:
+        query = query.filter(AuditFinding.job_id == job_id)
+    if finding_type:
+        query = query.filter(AuditFinding.finding_type == finding_type)
+    if status:
+        query = query.filter(AuditFinding.status == status)
+    findings = query.order_by(AuditFinding.created_at.desc()).all()
+    return [_finding_to_dict(item) for item in findings]
 
 
 @router.get("/{job_id}/report")

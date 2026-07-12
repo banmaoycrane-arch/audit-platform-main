@@ -181,7 +181,7 @@ def closed_loop_accounts(db_session, test_ledger, test_period):
 class TestAccountingPeriodCloseLoop:
     """会计期间闭环测试。"""
 
-    def test_close_period_without_pl_transfer_fails(
+    def test_close_period_auto_ensures_pl_transfer(
         self,
         db_session,
         test_ledger,
@@ -190,14 +190,15 @@ class TestAccountingPeriodCloseLoop:
         auth_headers,
         closed_loop_accounts,
     ):
-        """测试未结转损益时拒绝结账。"""
+        """未手工结转时，结账应自动尝试损益结转而非提示先点结转按钮。"""
         close_response = client.post(
             f"/api/accounting-periods/{test_period.id}/close",
-            json={"operator": "test_accountant", "reason": "未结转直接结账"},
+            json={"operator": "test_accountant", "reason": "自动校验后结账"},
             headers=auth_headers,
         )
-        assert close_response.status_code == 400
-        assert "尚未结转损益" in close_response.json()["detail"]
+        detail = close_response.json().get("detail", "")
+        assert "尚未结转损益" not in detail
+        assert "请先执行损益结转" not in detail
 
     def test_full_period_close_loop(
         self,

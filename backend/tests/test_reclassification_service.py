@@ -67,6 +67,41 @@ def test_classify_counterparty_balance_reclassifies_by_positive_or_negative_bala
     assert result["reason"]
 
 
+def test_negative_receivable_includes_cas_basis_and_audit_risks():
+    result = classify_counterparty_balance("1122", Decimal("-1000.00"))
+
+    assert result["reclassified"] is True
+    assert result["standard_basis"]
+    assert "CAS30" in result["standard_basis"]
+    assert result["audit_assertion_risks"]
+    assertions = {item["assertion"] for item in result["audit_assertion_risks"]}
+    assert "列报与披露" in assertions
+
+
+def test_build_reclassification_summary_groups_assertion_risks():
+    from app.services.accounting.reclassification_service import build_reclassification_summary
+
+    summary = build_reclassification_summary(
+        [
+            {
+                "from_account_code": "1122",
+                "from_account_name": "应收账款",
+                "to_account_code": "2203",
+                "to_account_name": "预收账款",
+                "amount": "500.00",
+                "balance_direction": "negative",
+                "reason": "测试",
+            }
+        ]
+    )
+
+    assert summary["applied"] is True
+    assert summary["adjustment_count"] == 1
+    assert summary["items"][0]["standard_basis"]
+    assert summary["assertion_risk_summary"]
+    assert summary["assertion_risk_summary"][0]["related_accounts"] == ["1122"]
+
+
 def test_zero_balance_keeps_original_account_without_reclassification():
     """
     功能描述：验证零余额不触发往来重分类

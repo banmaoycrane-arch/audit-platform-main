@@ -69,6 +69,14 @@ class Ledger(Base):
         Date, nullable=True,
         comment="账簿会计时间线起点；创建时默认当天，可自定义对齐历史建账",
     )
+    is_working: Mapped[bool] = mapped_column(
+        Boolean, default=False,
+        comment="是否为审计工作底稿账套（与正式账套隔离）",
+    )
+    project_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("projects.id"), nullable=True,
+        comment="审计工作底稿账套关联的项目 ID",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

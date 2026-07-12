@@ -204,7 +204,7 @@ export function DraftPage() {
         title={
           <span>
             <ExclamationCircleOutlined style={{ color: '#faad14', marginRight: 8 }} />
-            凭证导入草稿 - {isProcessing ? '解析中' : archiveResult?.archived ? '已自动归档' : hasParserEngineResult ? '统一解析结果待复核' : '待处理'}
+            凭证导入草稿 - {isProcessing ? '解析中' : archiveResult?.archived ? '已自动归档' : hasParserEngineResult ? '原始资料解析结果待复核' : '待处理'}
           </span>
         }
         extra={
@@ -216,7 +216,7 @@ export function DraftPage() {
       >
         <Result
           status={isProcessing ? 'info' : archiveResult?.archived ? 'success' : hasParserEngineResult ? 'success' : 'warning'}
-          title={isProcessing ? '文件上传成功，正在解析中...' : archiveResult?.archived ? '文件已自动复核通过并归档' : hasParserEngineResult ? '文件已由统一解析引擎完成解析' : '文件上传成功，等待处理'}
+          title={isProcessing ? '文件上传成功，正在解析中...' : archiveResult?.archived ? '文件已自动复核通过并归档' : hasParserEngineResult ? '原始资料解析已完成，待复核' : '文件上传成功，等待处理'}
           subTitle={
             <div>
               <p>{draftData.error_message || (isProcessing ? '系统正在处理文件，请稍候...' : archiveResult?.archived ? `已归档到 ${archiveResult.target}，记录编号：${archiveResult.record_id}` : hasParserEngineResult ? '本页直接展示解析引擎管理页面同源输出；自动复核通过后会归档到对应业务台账。' : '系统处理异常，请检查文件格式后重试')}</p>
@@ -323,7 +323,7 @@ export function DraftPage() {
       )}
 
       {hasParserEngineResult && parserEngineResult && (
-        <Card title="统一解析引擎结果" style={{ marginTop: 16 }}>
+        <Card title="原始资料解析结果（场景 B）" style={{ marginTop: 16 }}>
           <Alert
             message="本结果来自解析引擎管理的通用兼容引擎"
             description="凭证草稿页不再另起一套文件解析逻辑；这里展示的是 parser-engine 同源输出。正式凭证生成前，请按会计口径复核字段、金额、往来单位和业务类型。"

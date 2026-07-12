@@ -1,9 +1,15 @@
 # 财务向量审计系统 - 引擎架构设计文档
 
-> 文档编号：DOC-ENGINE-ARCH-001
-> 版本：v1.0
-> 适用范围：导入解析引擎、规则引擎、向量引擎及维度（Tag）配置机制
-> 最后更新：2026-07-01
+> 文档编号：DOC-ENGINE-ARCH-001  
+> 版本：v1.1  
+> 适用范围：导入解析引擎、规则引擎、向量引擎及维度（Tag）配置机制  
+> 最后更新：2026-07-06  
+> **DDD 四层与双场景对照**：见 [.trae/documents/ddd-layer-architecture-map.md](../../.trae/documents/ddd-layer-architecture-map.md)  
+> **双场景总纲（场景 A/B）**：见 [.trae/documents/parser-dual-scenario-strategy.md](../../.trae/documents/parser-dual-scenario-strategy.md)
+
+---
+
+> **v1.1 说明**：下文「单一导入解析引擎」叙述为 **v1.0 历史视角**。现行代码已拆为 **场景 A（自适应结构化导入）** 与 **场景 B（原始资料分层解析 + Dispatcher）** 两条主链，调度入口见 `routes_imports.py` 与 `import_routing_service.py`。阅读时请对照上述两篇文档。
 
 ---
 
@@ -36,7 +42,7 @@
 
 ## 一、概述
 
-本项目采用**“一级科目 + 维度（Tag）+ 向量语义”**的核心财务数据模型。传统财务软件中的二级科目、辅助核算项目被取消，统一由 Tag 体系承载。维度数据不仅用于管理分析、口径切换和内部考核指标，还通过向量化技术支撑尽调风险识别与自动预警分析。
+本项目采用**“一级科目 + 维度（Tag）+ 向量语义”**的核心财务数据模型。传统财务软件中的二级科目、辅助核算项目被取消，统一由 Tag 体系承载。**Tag / 向量层对固定资产、税务、进销存等全部业务模块开放**；各模块业务台账（Register）只保留核心登记数据，分析语义共用 EntryTag，避免模块间数据孤岛（详见 [tag-vs-account-hierarchy.md §1.2](./tag-vs-account-hierarchy.md)）。
 
 本系统由三大引擎协同工作：
 
@@ -106,7 +112,10 @@ graph TD
 
 ## 四、维度（Tag）配置机制
 
-> 注：本系统中的“维度”特指替代传统二级科目和辅助核算项目的 Tag 体系，用于口径切换、内部考核指标管理和自动预警分析。
+> 注：本系统中的“维度”特指替代传统二级科目和辅助核算项目的 Tag 体系，用于口径切换、内部考核指标管理和自动预警分析。  
+> **Tag 与明细科目何时拆分、三类维护粒度（实体档案 / 共享 Tag / 法定明细）、多分录 Tag 与自定义口径**，见 [tag-vs-account-hierarchy.md](./tag-vs-account-hierarchy.md)。  
+> **不可变底线**：金额/科目/借贷仅在 `AccountingEntry`（分录）；Tag 经 `entry_id` 关联、不替代分录；序时簿最小颗粒度为分录行，非 `entities` 表——详见该文档 §1.1。  
+> **跨模块共享**：Tag/向量层全平台开放；Register 存核心、Tag 补语义——详见 §1.2。
 
 ### 4.1 维度定义规范
 

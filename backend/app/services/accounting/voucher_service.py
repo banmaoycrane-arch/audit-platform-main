@@ -617,9 +617,19 @@ def update_voucher_status(
                 from app.services.shared.transaction_service import TransactionError
                 raise TransactionError(f"凭证状态更新事务失败：{e}") from e
 
-        return _execute_with_retry()
+        voucher = _execute_with_retry()
     else:
-        return _execute()
+        voucher = _execute()
+
+    if status == VoucherStatus.POSTED:
+        try:
+            from app.services.accounting.period_pl_health_service import try_sync_pl_status_after_post
+
+            try_sync_pl_status_after_post(db, voucher.ledger_id, voucher.id)
+        except Exception:
+            pass
+
+    return voucher
 
 
 def delete_voucher(

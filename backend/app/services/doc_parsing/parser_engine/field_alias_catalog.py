@@ -38,6 +38,9 @@ _CONTRACT_FIELD_ALIASES: dict[str, list[str]] = {
     "contract_term": ["term", "duration", "合同期限", "合同有效期", "履行期限"],
     "payment_terms": ["payment_method", "payment_schedule", "付款方式", "付款条件", "结算方式"],
     "project_name": ["project", "工程名称", "项目名"],
+    "contract_subject_matter": ["标的物", "标的", "合同标的", "服务内容", "货物名称"],
+    "key_clauses": ["主要条款", "关键条款", "合同条款"],
+    "tax_clause": ["涉税条款", "税务条款", "发票约定", "税率约定", "开票约定"],
 }
 
 
@@ -54,6 +57,11 @@ _INVOICE_FIELD_ALIASES: dict[str, list[str]] = {
     "amount_excl_tax": ["不含税金额", "金额", "货款"],
     "tax_amount": ["税额", "税金"],
     "tax_rate": ["税率"],
+    "tax_item": ["税目", "税收分类", "税收分类编码", "货物或应税劳务名称"],
+    "specification": ["规格型号", "规格", "型号"],
+    "unit": ["单位", "计量单位"],
+    "quantity": ["数量"],
+    "unit_price": ["单价", "不含税单价"],
 }
 
 
@@ -63,7 +71,9 @@ _INVOICE_FIELD_ALIASES: dict[str, list[str]] = {
 _BANK_FIELD_ALIASES: dict[str, list[str]] = {
     "transaction_date": ["交易日期", "日期", "入账日期"],
     "transaction_amount": ["交易金额", "发生额", "金额"],
-    "counterparty_name": ["对方户名", "对方名称", "交易对手", "往来单位", "客户名称", "供应商名称"],
+    "counterparty_name": ["对方户名", "对方名称", "对方单位", "交易对手", "往来单位", "客户名称", "供应商名称"],
+    "counterparty_bank": ["对方银行", "对方开户行", "对方行名", "收款行行名", "付款行行名"],
+    "counterparty_account_no": ["对方账号", "对方账户", "收款人账号", "付款人账号"],
     "bank_name": ["银行名称", "开户行"],
     "account_no": ["账号", "银行账号"],
     "debit_amount": ["debit", "借方金额", "借方"],

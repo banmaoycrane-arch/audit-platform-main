@@ -25,10 +25,10 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import desc, func
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, desc, func, or_
+from sqlalchemy.orm import Session, joinedload
 
-from app.db.models import EntryTag, TagCategory, TagHistory
+from app.db.models import AccountingEntry, EntryTag, TagCategory, TagHistory
 from app.services.doc_parsing.tag_category_service import get_category_by_code
 
 
@@ -50,7 +50,7 @@ def list_entry_tags(
     """
     查询分录标签列表，支持按分录、账簿、分类过滤。
     """
-    query = db.query(EntryTag)
+    query = db.query(EntryTag).options(joinedload(EntryTag.category))
     if entry_id is not None:
         query = query.filter(EntryTag.entry_id == entry_id)
     if entry_ids:
@@ -247,6 +247,109 @@ def list_tag_history(
     if ledger_id is not None:
         query = query.filter(TagHistory.ledger_id == ledger_id)
     return query.order_by(desc(TagHistory.created_at)).all()
+
+
+def aggregate_tags_by_category_scoped(
+    db: Session,
+    ledger_id: int,
+    category_code: str,
+    *,
+    account_codes: list[str] | None = None,
+    account_code_match: str = "prefix",
+    search_q: str | None = None,
+    limit: int = 200,
+    include_voucher_lines: bool = False,
+) -> list[dict[str, Any]]:
+    """在科目范围内聚合标签，支持关键字检索。include_voucher_lines 时含同凭证对方科目行上的 tag。"""
+    from app.services.accounting.entry_query_service import _apply_account_codes_filter
+
+    category = get_category_by_code(db, ledger_id, category_code)
+    if category is None:
+        return []
+
+    if include_voucher_lines and account_codes:
+        voucher_keys_sq = (
+            db.query(AccountingEntry.voucher_no, AccountingEntry.voucher_date)
+            .filter(
+                AccountingEntry.ledger_id == ledger_id,
+                AccountingEntry.voucher_no.isnot(None),
+                AccountingEntry.voucher_no != "",
+            )
+        )
+        voucher_keys_sq = _apply_account_codes_filter(
+            voucher_keys_sq,
+            account_codes,
+            account_code_match,
+            column=AccountingEntry.account_code,
+        )
+        voucher_keys_sq = voucher_keys_sq.distinct().subquery()
+
+        query = (
+            db.query(
+                EntryTag.tag_value,
+                EntryTag.display_name,
+                func.count(EntryTag.id).label("count"),
+                func.avg(EntryTag.weight).label("avg_weight"),
+            )
+            .join(AccountingEntry, AccountingEntry.id == EntryTag.entry_id)
+            .join(
+                voucher_keys_sq,
+                and_(
+                    AccountingEntry.voucher_no == voucher_keys_sq.c.voucher_no,
+                    AccountingEntry.voucher_date == voucher_keys_sq.c.voucher_date,
+                ),
+            )
+            .filter(
+                EntryTag.ledger_id == ledger_id,
+                EntryTag.category_id == category.id,
+                AccountingEntry.ledger_id == ledger_id,
+            )
+        )
+    else:
+        query = (
+            db.query(
+                EntryTag.tag_value,
+                EntryTag.display_name,
+                func.count(EntryTag.id).label("count"),
+                func.avg(EntryTag.weight).label("avg_weight"),
+            )
+            .join(AccountingEntry, AccountingEntry.id == EntryTag.entry_id)
+            .filter(
+                EntryTag.ledger_id == ledger_id,
+                EntryTag.category_id == category.id,
+                AccountingEntry.ledger_id == ledger_id,
+            )
+        )
+        if account_codes:
+            query = _apply_account_codes_filter(
+                query,
+                account_codes,
+                account_code_match,
+                column=AccountingEntry.account_code,
+            )
+    if search_q and search_q.strip():
+        keyword = f"%{search_q.strip()}%"
+        query = query.filter(
+            or_(
+                EntryTag.tag_value.like(keyword),
+                EntryTag.display_name.like(keyword),
+            )
+        )
+    rows = (
+        query.group_by(EntryTag.tag_value, EntryTag.display_name)
+        .order_by(desc("count"))
+        .limit(max(1, min(limit, 500)))
+        .all()
+    )
+    return [
+        {
+            "tag_value": row.tag_value,
+            "display_name": row.display_name or row.tag_value,
+            "count": row.count,
+            "avg_weight": round(row.avg_weight or 0.0, 4),
+        }
+        for row in rows
+    ]
 
 
 def aggregate_tags_by_category(

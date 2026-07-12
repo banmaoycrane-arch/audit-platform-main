@@ -112,8 +112,9 @@ Acceptance Level:
 
 | Spec | 状态 | 角色 | 说明 |
 |---|---|---|---|
-| adaptive-import-engine | active-main | 主规格 | 通用导入引擎、字段映射、质量报告 |
-| document-parsing-engine | mixed-needs-split | 架构型规格 | 文档解析范围过大，需拆成文件解析、收入准则、关联方、标签等子域 |
+| adaptive-import-engine | active-main | 场景 A 主规格 | Excel/CSV 序时簿、表头自适应、模板；见 parser-dual-scenario-strategy |
+| document-parsing-engine | active-main | D05 双场景总纲 | 场景 A/B、分层、修正回流、殊途同归；附录 DB 草案为 historical |
+| parser-dual-scenario-strategy.md | planning | Spec 重构 charter | 不新增域；指导 document-parsing-engine 重构 |
 | add-ledger-files-customer-context-coa-presets | mixed-needs-split | 混合规格 | 账簿文件、客户上下文、行业科目模板混合 |
 
 边界规则：导入解析域负责把资料变成结构化信息和质量报告，不直接决定正式入账、不直接修改导航、不重复定义审计测试规则。
@@ -167,7 +168,7 @@ Acceptance Level:
 | verify-ai-evidence-draft-flow | active-increment | 验证增量 | AI evidence/draft 流程验证 |
 | summary-library | active-increment | 摘要辅助 | 摘要模板、风险线索 |
 | entity-semantic-mapping | active-increment | 语义依赖 | 主体语义映射依赖 |
-| document-parsing-engine | mixed-needs-split | 文档标签相关 | DocumentTag 与解析混合，需拆分 |
+| document-parsing-engine | active-main | D05 总纲 | 双场景解析；DocumentTag 见 document-tags 增量 |
 
 边界规则：AI/向量只能生成建议、草稿、标签、风险提示；正式凭证、结账、报表必须由确定性规则和人工确认控制。
 
@@ -225,9 +226,11 @@ Acceptance Level:
 | project-review-plan.md | planning | 项目评审 | 计划类文档 |
 | frontend-api-fix-plan.md | planning | 前端 API 修复计划 | 计划类文档 |
 | api-boundary-governance-plan.md | planning | API 边界治理 | 后端 368 端点盘点、重叠识别与收敛路线 |
+| code-truth-status.md | planning | **代码真值状态** | ★ 完成度/L 级/待办唯一真值来源（2026-07-05） |
+| parser-dual-scenario-strategy.md | planning | 解析双场景 Spec 重构 | D05 总纲重构 charter，非新需求域 |
 | environment-recognition-plan.md | planning | 环境识别计划 | 计划类文档 |
 
-边界规则：计划/复盘/路线图不得直接当作业务完成依据。业务完成度必须回到对应 active-main 或 active-increment 规格核验。
+边界规则：计划/复盘/路线图不得直接当作业务完成依据。**项目状态以 [code-truth-status.md](code-truth-status.md) 与代码为准**；业务完成度须回到对应 active-main 或 active-increment 规格核验，且不得与 code-truth-status 冲突。
 
 ## 最高风险重复造车清单
 
@@ -274,6 +277,7 @@ Acceptance Level:
 ### 5. API 导入 / 解析 / 凭证
 
 - 治理计划：`api-boundary-governance-plan.md`
+- **解析总纲**：`parser-dual-scenario-strategy.md` + `document-parsing-engine`（场景 A/B，非新 spec）
 - 主路径（建议）：`import-jobs` → `parser-engine` → `parser-voucher`；凭证以 `/api/vouchers` 为准
 - 不再追加：`/api/unified-import`、`/api/parse/{type}` 的新业务能力
 - 依赖：`module-refactoring-plan.md`（服务层重构须遵循 API 主路径）

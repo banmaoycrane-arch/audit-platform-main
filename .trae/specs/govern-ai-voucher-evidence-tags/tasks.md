@@ -50,3 +50,18 @@
 - Task 4 can start after Task 1, but full validation depends on Task 2
 - Task 5 can start after Task 1
 - Task 6 depends on Task 2-5
+
+---
+
+## Task G1：多草稿同一 business_key（解析域增量）
+
+> Charter: [parser-dual-scenario-strategy.md](../../documents/parser-dual-scenario-strategy.md) §5.3  
+> Owner 联调: `document-parsing-engine` Task B3, `routes_parser_voucher.py`
+
+- [ ] G1.1 数据模型：`business_key`、`source_document_ids`、`draft_role`（contract / invoice / payment 等）
+- [ ] G1.2 同一 business_key 下可创建 ≥2 条 parser-voucher draft，不自动 post
+- [ ] G1.3 前端预览页提示「多来源指向同一业务」并支持选一或合并
+- [ ] G1.4 审计留痕：用户选择口径、拒绝口径、合并动作写入日志
+- [ ] G1.5 与证据充分性规则联调：单来源不足时仍可为 draft，但带 review_flags
+
+**Acceptance**: 1 个合同样本 + 1 张发票 + 1 笔流水 → 同 business_key 下 3 草稿可选，人工选一 post。

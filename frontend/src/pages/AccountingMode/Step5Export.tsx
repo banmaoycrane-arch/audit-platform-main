@@ -4,6 +4,10 @@ import { DownloadOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import { api } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
+import { clearLedgerImportResume } from '../../utils/importJobContext'
+import { parseContentDispositionFilename } from '../../utils/downloadFilename'
+import { useAuthStore } from '../../stores/authStore'
+import { Step5CompletionGuide } from '../../components/ledger/Step5CompletionGuide'
 
 const { Title } = Typography
 
@@ -12,10 +16,12 @@ type ExportFormat = 'xlsx' | 'csv' | 'json'
 export function Step5Export() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { currentLedgerId } = useAuthStore()
   const stepPath = (step: number) => location.pathname.startsWith('/ledger/vouchers/step/') ? `/ledger/vouchers/step/${step}` : `/accounting/step/${step}`
   const [searchParams] = useSearchParams()
   const jobId = Number(searchParams.get('jobId') || 0)
   const periodId = Number(searchParams.get('periodId') || 0)
+  const inputMode = searchParams.get('inputMode')
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [exporting, setExporting] = useState(false)
   const [exported, setExported] = useState(false)
@@ -24,7 +30,25 @@ export function Step5Export() {
   const prevParams = new URLSearchParams()
   if (jobId) prevParams.set('jobId', String(jobId))
   if (periodId) prevParams.set('periodId', String(periodId))
+  if (inputMode) prevParams.set('inputMode', inputMode)
   const prevQuery = prevParams.toString()
+
+  const ensureImportConfirmed = async () => {
+    const job = await api.getImportJob(jobId)
+    if (job.status !== 'preview') return
+    try {
+      const result = await api.confirmImport(jobId)
+      if (result.entries_created > 0) {
+        message.info(`已自动确认入账 ${result.entries_created} 条分录`)
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      if (detail.includes('没有可确认的草稿分录')) {
+        return
+      }
+      throw error
+    }
+  }
 
   const handleExport = async () => {
     if (!jobId) {
@@ -33,18 +57,20 @@ export function Step5Export() {
     }
     setExporting(true)
     try {
+      await ensureImportConfirmed()
       await api.postImportJobEntries(jobId)
-      const blob = await api.exportImportJob(jobId, exportFormat)
+      const { blob, contentDisposition } = await api.exportImportJob(jobId, exportFormat)
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `job_${jobId}_entries.${exportFormat}`
+      link.download = parseContentDispositionFilename(contentDisposition) || `ledger_job${jobId}_entries.${exportFormat}`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
       message.success('确认入账与账簿导出成功')
       setExported(true)
+      if (currentLedgerId) clearLedgerImportResume(currentLedgerId)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       message.error(`导出失败：${detail}`)
@@ -68,7 +94,7 @@ export function Step5Export() {
         style={{ marginBottom: '32px' }}
       />
 
-      <FlowNav prev="/accounting/step/4" style={{ marginBottom: '16px' }} />
+      <FlowNav prev={prevQuery ? `${stepPath(4)}?${prevQuery}` : stepPath(4)} style={{ marginBottom: '16px' }} />
 
       <Title level={4}>确认入账与导出</Title>
 
@@ -85,7 +111,7 @@ export function Step5Export() {
       {exported && (
         <Alert
           title="确认入账与导出成功"
-          description="已复核凭证文件已生成并下载，请检查您的下载文件夹。"
+          description="已复核凭证文件已生成并下载。请按下方引导继续月结与报表核对。"
           type="success"
           showIcon
           style={{ marginBottom: '16px' }}
@@ -148,13 +174,23 @@ export function Step5Export() {
         </Space>
       </Card>
 
+      {exported && jobId > 0 && (
+        <Step5CompletionGuide jobId={jobId} periodId={periodId || undefined} />
+      )}
+
       <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
         <Button onClick={() => navigate(prevQuery ? `${stepPath(4)}?${prevQuery}` : stepPath(4))}>
           上一步
         </Button>
-        <Button onClick={() => navigate('/')}>
-          返回首页
-        </Button>
+        {exported ? (
+          <Button type="primary" onClick={() => navigate('/ledger/workspace')}>
+            返回总账工作台
+          </Button>
+        ) : (
+          <Button onClick={() => navigate('/ledger/workspace')}>
+            返回总账工作台
+          </Button>
+        )}
       </div>
     </div>
   )

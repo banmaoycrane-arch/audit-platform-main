@@ -29,7 +29,7 @@ const MODE_OPTIONS = [
     description: '从原始资料自动生成会计分录，支持凭证复核与调整，最终导出标准账簿。适用于企业日常记账、财务外包、代理记账等场景。',
     features: ['发票/银行流水/合同智能识别', '自动生成会计分录', '凭证复核与调整', '标准账簿导出'],
     actionLabel: '开始记账',
-    route: '/accounting/step/1',
+    route: '/ledger/vouchers/step/1',
     color: 'blue',
     stats: [
       { label: '待复核凭证', icon: FileTextOutlined, key: 'voucher_count' },
@@ -210,7 +210,7 @@ export function UnifiedEntryPage() {
         </Title>
         <Row gutter={16}>
           <Col xs={8} sm={4}>
-            <Button block onClick={() => navigate('/ledger/vouchers')}>
+            <Button block onClick={() => navigate('/ledger/entries')}>
               <FileTextOutlined style={{ marginRight: '8px' }} />
               凭证查询
             </Button>

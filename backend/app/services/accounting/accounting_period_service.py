@@ -6,11 +6,12 @@ from uuid import uuid4
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.db.models import AccountingEntry, AccountingPeriod, PeriodCloseLog, PeriodSnapshot
+from app.db.models import AccountingEntry, AccountingPeriod, OpeningBalance, PeriodCloseLog, PeriodSnapshot
 
 
 DEFAULT_SNAPSHOT_DIMENSIONS = ["account", "entity", "period_total"]
 SUPPORTED_SNAPSHOT_DIMENSIONS = set(DEFAULT_SNAPSHOT_DIMENSIONS)
+FROZEN_TRIAL_BALANCE_VERSION = 1
 
 
 class AccountingPeriodService:
@@ -61,12 +62,64 @@ class AccountingPeriodService:
         )
 
     def get_latest_snapshot_version(self, period_id: int) -> int:
+        period = self.db.get(AccountingPeriod, period_id)
+        if period and period.status == "closed":
+            has_snapshot = (
+                self.db.query(PeriodSnapshot.id)
+                .filter(
+                    PeriodSnapshot.period_id == period_id,
+                    PeriodSnapshot.dimension_type == "account",
+                    PeriodSnapshot.snapshot_status == "valid",
+                    PeriodSnapshot.snapshot_version == FROZEN_TRIAL_BALANCE_VERSION,
+                )
+                .first()
+            )
+            return FROZEN_TRIAL_BALANCE_VERSION if has_snapshot else 0
         version = (
             self.db.query(func.max(PeriodSnapshot.snapshot_version))
             .filter(PeriodSnapshot.period_id == period_id)
             .scalar()
         )
         return int(version or 0)
+
+    def _purge_period_snapshots(self, period_id: int) -> None:
+        self.db.query(PeriodSnapshot).filter(PeriodSnapshot.period_id == period_id).delete(synchronize_session=False)
+
+    def _create_close_snapshots(self, period_id: int) -> list[PeriodSnapshot]:
+        """结账事务内：清除旧快照并固化唯一科目余额表（版本恒为 1）。"""
+        period = self.db.get(AccountingPeriod, period_id)
+        if not period:
+            raise ValueError(f"Accounting period {period_id} not found")
+
+        self._purge_period_snapshots(period_id)
+        source_scope = self._build_source_scope(period)
+        generation_params = {
+            "dimensions": ["account", "period_total"],
+            "currency": "CNY",
+            "single_currency": True,
+            "foreign_currency_conversion": False,
+            "snapshot_basis": "trial_balance",
+            "single_version": True,
+        }
+        snapshots = self._build_account_snapshots(
+            period,
+            FROZEN_TRIAL_BALANCE_VERSION,
+            source_scope,
+            generation_params,
+        )
+        if period.ledger_id is not None and not snapshots:
+            raise ValueError("结账快照生成失败：科目余额表无有效科目行，请检查科目表与分录")
+        snapshots.append(
+            self._build_period_total_snapshot(
+                period,
+                FROZEN_TRIAL_BALANCE_VERSION,
+                source_scope,
+                generation_params,
+            )
+        )
+        self.db.add_all(snapshots)
+        self.db.flush()
+        return snapshots
 
     def invalidate_period_snapshots(self, period_id: int, commit: bool = True) -> None:
         snapshots = (
@@ -95,10 +148,11 @@ class AccountingPeriodService:
         period = self.db.get(AccountingPeriod, period_id)
         if not period:
             raise ValueError(f"Accounting period {period_id} not found")
+        if period.status == "closed":
+            raise ValueError("已结账期间不可重新生成科目余额表快照，请先反结账")
 
         selected_dimensions = self._normalize_dimensions(dimensions)
-        new_version = self.get_latest_snapshot_version(period_id) + 1
-        self.invalidate_period_snapshots(period_id, commit=commit)
+        self._purge_period_snapshots(period_id)
 
         source_scope = self._build_source_scope(period)
         generation_params = {
@@ -107,16 +161,38 @@ class AccountingPeriodService:
             "single_currency": True,
             "foreign_currency_conversion": False,
             "amount_basis": "debit_amount_minus_credit_amount",
+            "single_version": True,
         }
 
         snapshots: list[PeriodSnapshot] = []
         for dimension in selected_dimensions:
             if dimension == "account":
-                snapshots.extend(self._build_account_snapshots(period, new_version, source_scope, generation_params))
+                snapshots.extend(
+                    self._build_account_snapshots(
+                        period,
+                        FROZEN_TRIAL_BALANCE_VERSION,
+                        source_scope,
+                        generation_params,
+                    )
+                )
             elif dimension == "entity":
-                snapshots.extend(self._build_entity_snapshots(period, new_version, source_scope, generation_params))
+                snapshots.extend(
+                    self._build_entity_snapshots(
+                        period,
+                        FROZEN_TRIAL_BALANCE_VERSION,
+                        source_scope,
+                        generation_params,
+                    )
+                )
             elif dimension == "period_total":
-                snapshots.append(self._build_period_total_snapshot(period, new_version, source_scope, generation_params))
+                snapshots.append(
+                    self._build_period_total_snapshot(
+                        period,
+                        FROZEN_TRIAL_BALANCE_VERSION,
+                        source_scope,
+                        generation_params,
+                    )
+                )
 
         self.db.add_all(snapshots)
         if commit:
@@ -139,14 +215,18 @@ class AccountingPeriodService:
         if period.status == "closed":
             raise ValueError(f"Accounting period {period_id} is already closed")
 
-        # 结账前必须先完成损益结转，并再次校验资产负债表平衡
-        if period.status != "pl_transferred":
-            raise ValueError(
-                f"会计期间 {period.period_code} 尚未结转损益，请先执行损益结转再结账"
-            )
+        effective_ledger_id = period.ledger_id
+
+        old_status = period.status
+
+        # 结账前自动校验损益结转：导入已结转则直接通过，否则尝试自动生成结转凭证
+        if period.status in {"open", "reopened"}:
+            from app.services.accounting import period_close_service
+
+            period_close_service.ensure_pl_transfer_ready(self.db, effective_ledger_id, period_id)
+            self.db.refresh(period)
 
         from app.services.accounting import financial_statements_service
-        effective_ledger_id = period.ledger_id
         balance_sheet = financial_statements_service.balance_sheet(self.db, effective_ledger_id, period_id)
         if not balance_sheet.get("is_balanced"):
             raise ValueError(
@@ -155,11 +235,10 @@ class AccountingPeriodService:
                 f"请先排查凭证、期初余额及结转分录后再结账"
             )
 
-        old_status = period.status
         transaction_id = f"period-close-{uuid4()}"
         try:
-            snapshots = self.generate_period_snapshots(period_id, commit=False)
-            snapshot_version = snapshots[0].snapshot_version if snapshots else self.get_latest_snapshot_version(period_id)
+            snapshots = self._create_close_snapshots(period_id)
+            self._carry_forward_opening_balances(period, snapshots)
             period.status = "closed"
             period.closed_at = datetime.now(timezone.utc)
             period.updated_at = period.closed_at
@@ -174,7 +253,7 @@ class AccountingPeriodService:
                     reason=reason,
                     old_status=old_status,
                     new_status="closed",
-                    snapshot_version=snapshot_version,
+                    snapshot_version=FROZEN_TRIAL_BALANCE_VERSION,
                 )
             )
             self.db.commit()
@@ -200,7 +279,7 @@ class AccountingPeriodService:
         transaction_id = f"period-reopen-{uuid4()}"
         try:
             snapshot_version = self.get_latest_snapshot_version(period_id)
-            self.invalidate_period_snapshots(period_id, commit=False)
+            self._purge_period_snapshots(period_id)
 
             now = datetime.now(timezone.utc)
             period.status = "reopened"
@@ -265,10 +344,22 @@ class AccountingPeriodService:
             "period_code": period.period_code,
             "start_date": period.start_date.isoformat(),
             "end_date": period.end_date.isoformat(),
+            "as_of_date": period.end_date.isoformat(),
+            "fiscal_year_start": date(period.end_date.year, 1, 1).isoformat(),
+            "snapshot_basis": "trial_balance",
+            "single_version": True,
             "source_table": "accounting_entries",
             "date_field": "voucher_date",
             "currency": "CNY",
         }
+
+    @staticmethod
+    def _closing_amount_from_trial_row(row: dict[str, Any]) -> Decimal:
+        closing_debit = Decimal(str(row["closing_debit"]))
+        closing_credit = Decimal(str(row["closing_credit"]))
+        if row.get("direction") == "debit":
+            return closing_debit - closing_credit
+        return closing_credit - closing_debit
 
     def _format_period_summary(self, period_id: int, dimension_type: str, source: str, items: list[dict[str, Any]]) -> dict[str, Any]:
         return {
@@ -386,6 +477,41 @@ class AccountingPeriodService:
         source_scope: dict[str, Any],
         generation_params: dict[str, Any],
     ) -> list[PeriodSnapshot]:
+        if period.ledger_id is not None:
+            from app.services.accounting import financial_statements_service
+
+            report = financial_statements_service.trial_balance_report(
+                self.db,
+                period.ledger_id,
+                period.id,
+                as_of_date=period.end_date,
+            )
+            trial_rows = [row for row in report.get("rows", []) if not row.get("_rollup_meta")]
+            row_keys = financial_statements_service._trial_balance_row_keys()
+            trial_generation_params = {
+                **generation_params,
+                "snapshot_basis": "trial_balance",
+                "trial_balance_totals": report.get("totals"),
+                "fiscal_year_start": report.get("fiscal_year_start"),
+            }
+            return [
+                self._build_snapshot(
+                    period=period,
+                    snapshot_version=snapshot_version,
+                    dimension_type="account",
+                    dimension_code=row["account_code"],
+                    dimension_name=row["account_name"],
+                    amount=self._closing_amount_from_trial_row(row),
+                    source_scope={
+                        **source_scope,
+                        "trial_balance_row": {key: row[key] for key in row_keys if key in row},
+                    },
+                    generation_params=trial_generation_params,
+                )
+                for row in trial_rows
+                if financial_statements_service._trial_balance_row_has_activity(row)
+            ]
+
         rows = (
             self._period_entries_query(period)
             .with_entities(
@@ -409,6 +535,70 @@ class AccountingPeriodService:
             )
             for account_code, account_name, amount in rows
         ]
+
+    def _carry_forward_opening_balances(
+        self,
+        period: AccountingPeriod,
+        snapshots: list[PeriodSnapshot],
+    ) -> None:
+        if period.ledger_id is None:
+            return
+
+        next_period = (
+            self.db.query(AccountingPeriod)
+            .filter(
+                AccountingPeriod.organization_id == period.organization_id,
+                AccountingPeriod.ledger_id == period.ledger_id,
+                AccountingPeriod.start_date > period.end_date,
+            )
+            .order_by(AccountingPeriod.start_date.asc())
+            .first()
+        )
+        if not next_period:
+            return
+
+        carry_note = f"承接自已结账期间 {period.period_code} 科目余额表期末列"
+        for snapshot in snapshots:
+            if snapshot.dimension_type != "account":
+                continue
+            trial_row = (snapshot.source_scope or {}).get("trial_balance_row")
+            if trial_row:
+                closing_debit = Decimal(str(trial_row["closing_debit"]))
+                closing_credit = Decimal(str(trial_row["closing_credit"]))
+                account_code = trial_row["account_code"]
+            else:
+                closing_debit = Decimal(str(snapshot.amount)) if snapshot.amount >= 0 else Decimal("0")
+                closing_credit = -Decimal(str(snapshot.amount)) if snapshot.amount < 0 else Decimal("0")
+                account_code = snapshot.dimension_code or ""
+            if closing_debit == 0 and closing_credit == 0:
+                continue
+
+            record = (
+                self.db.query(OpeningBalance)
+                .filter(
+                    OpeningBalance.organization_id == period.organization_id,
+                    OpeningBalance.period_id == next_period.id,
+                    OpeningBalance.account_code == account_code,
+                )
+                .first()
+            )
+            if record:
+                record.ledger_id = period.ledger_id
+                record.debit_balance = closing_debit
+                record.credit_balance = closing_credit
+                record.notes = carry_note
+            else:
+                self.db.add(
+                    OpeningBalance(
+                        organization_id=period.organization_id,
+                        ledger_id=period.ledger_id,
+                        period_id=next_period.id,
+                        account_code=account_code,
+                        debit_balance=closing_debit,
+                        credit_balance=closing_credit,
+                        notes=carry_note,
+                    )
+                )
 
     def _build_entity_snapshots(
         self,

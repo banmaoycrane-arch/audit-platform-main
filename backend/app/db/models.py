@@ -376,6 +376,11 @@ class Voucher(Base):
     posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     posted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    source_preparer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    cross_reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    cross_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    approved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -1018,6 +1023,8 @@ class ChartOfAccounts(Base):
     account_category: Mapped[str | None] = mapped_column(String(40), nullable=True)
     account_subcategory: Mapped[str | None] = mapped_column(String(40), nullable=True)
     equity_subcategory: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    balance_sheet_item: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    cash_flow_item: Mapped[str | None] = mapped_column(String(60), nullable=True)
     include_in_dividend_base: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_terminal: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[str] = mapped_column(String(20), default="active")  # active/disabled/archived
@@ -1887,6 +1894,7 @@ class BankAccount(Base):
     account_no: Mapped[str] = mapped_column(String(100))
     account_name: Mapped[str] = mapped_column(String(200))
     coa_account_code: Mapped[str] = mapped_column(String(40), default="1002")
+    source_sub_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     current_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -2275,6 +2283,212 @@ class AuditMilestone(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+# ==================== 结构化导入 Staging 表（草稿复核阶段） ====================
+
+
+class StagingAccountingEntry(Base):
+    """序时簿/日记账/凭证结构化导入草稿分录。"""
+
+    __tablename__ = "staging_accounting_entries"
+    __table_args__ = (
+        Index(
+            "ix_staging_accounting_entries_job_voucher",
+            "import_job_id",
+            "voucher_no",
+            "voucher_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    entity_org_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True)
+    import_mode: Mapped[str] = mapped_column(String(8), default="A")
+    source_type: Mapped[str] = mapped_column(String(40), default="ledger_day_book")
+    voucher_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    voucher_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    resolved_account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    resolved_account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    debit_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    credit_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    counterparty: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)
+    entry_line_no: Mapped[int] = mapped_column(Integer, default=1)
+    source_file_id: Mapped[int | None] = mapped_column(ForeignKey("source_files.id"), nullable=True)
+    original_row: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    normalized_text: Mapped[str] = mapped_column(Text, default="")
+    entry_tags_payload: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+    review_status: Mapped[str] = mapped_column(String(20), default="draft")
+    source_preparer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    cross_reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    cross_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    compliance_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compliance_severity: Mapped[str] = mapped_column(String(16), default="info")
+    spot_check_flag: Mapped[bool] = mapped_column(Boolean, default=False)
+    vector_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    parse_diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class StagingAccountBalance(Base):
+    """科目余额表/余额表结构化导入草稿。"""
+
+    __tablename__ = "staging_account_balances"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    entity_org_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True)
+    import_mode: Mapped[str] = mapped_column(String(8), default="B2")
+    source_type: Mapped[str] = mapped_column(String(40), default="audit_balance_sheet")
+    account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    period_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    opening_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    debit_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    credit_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    closing_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(20), default="draft")
+    compliance_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compliance_severity: Mapped[str] = mapped_column(String(16), default="info")
+    spot_check_flag: Mapped[bool] = mapped_column(Boolean, default=False)
+    vector_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    parse_diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class StagingGeneralLedgerLine(Base):
+    """明细账结构化导入草稿。"""
+
+    __tablename__ = "staging_general_ledger_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    entity_org_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True)
+    import_mode: Mapped[str] = mapped_column(String(8), default="B2")
+    source_type: Mapped[str] = mapped_column(String(40), default="audit_general_ledger")
+    account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    voucher_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    voucher_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    debit: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    credit: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    running_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(20), default="draft")
+    compliance_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compliance_severity: Mapped[str] = mapped_column(String(16), default="info")
+    spot_check_flag: Mapped[bool] = mapped_column(Boolean, default=False)
+    vector_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    parse_diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class StagingGeneralLedgerSummary(Base):
+    """总账结构化导入草稿。"""
+
+    __tablename__ = "staging_general_ledger_summary"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"), index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    entity_org_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True)
+    import_mode: Mapped[str] = mapped_column(String(8), default="B2")
+    source_type: Mapped[str] = mapped_column(String(40), default="audit_general_ledger_summary")
+    account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    period_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    opening_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    debit_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    credit_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    closing_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(20), default="draft")
+    compliance_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compliance_severity: Mapped[str] = mapped_column(String(16), default="info")
+    spot_check_flag: Mapped[bool] = mapped_column(Boolean, default=False)
+    vector_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    parse_diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ==================== 审计域快照表（审计模式 B2，不进正式账套） ====================
+
+
+class AuditAccountBalance(Base):
+    __tablename__ = "audit_account_balances"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    entity_org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True)
+    account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    period_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_periods.id"), nullable=True)
+    opening_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    debit_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    credit_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    closing_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(20), default="pending")
+    post_status: Mapped[str] = mapped_column(String(20), default="draft")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuditGeneralLedgerLine(Base):
+    __tablename__ = "audit_general_ledger_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    entity_org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True)
+    account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    voucher_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    voucher_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    debit: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    credit: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    running_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(20), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuditGeneralLedgerSummary(Base):
+    __tablename__ = "audit_general_ledger_summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    entity_org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True)
+    account_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    period_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_periods.id"), nullable=True)
+    opening_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    debit_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    credit_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    closing_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(20), default="pending")
+    post_status: Mapped[str] = mapped_column(String(20), default="draft")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # 注册 app.models 下的模型，确保与 app.db.models 中 relationship 引用的类位于同一 Base metadata。

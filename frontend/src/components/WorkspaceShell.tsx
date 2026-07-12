@@ -70,29 +70,24 @@ export function WorkspaceShell({ title, description, functionsList, children }: 
         </Col>
       </Row>
 
-      <Row gutter={16}>
-        <Col span={6}>
-          <Card title="功能导航" size="small">
-            <Space direction="vertical" style={{ width: '100%' }}>
-              {functionsList.map((fn) => (
-                <Button
-                  key={fn.key}
-                  type={location.pathname === fn.path ? 'primary' : 'text'}
-                  block
-                  icon={fn.icon}
-                  onClick={() => navigate(fn.path)}
-                >
-                  {fn.label}
-                </Button>
-              ))}
-            </Space>
-          </Card>
-        </Col>
+      {functionsList.length > 0 && (
+        <Card size="small" title="功能导航" style={{ marginBottom: 16 }}>
+          <Space wrap size={[8, 8]}>
+            {functionsList.map((fn) => (
+              <Button
+                key={fn.key}
+                type={location.pathname === fn.path ? 'primary' : 'default'}
+                icon={fn.icon}
+                onClick={() => navigate(fn.path)}
+              >
+                {fn.label}
+              </Button>
+            ))}
+          </Space>
+        </Card>
+      )}
 
-        <Col span={18}>
-          {children}
-        </Col>
-      </Row>
+      {children}
     </div>
   )
 }

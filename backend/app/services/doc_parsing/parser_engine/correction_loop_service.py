@@ -9,6 +9,7 @@
 更新记录：
     2026-07-03  初始创建，实现修正记录、规则提取、回归验证核心功能
 """
+import json
 import logging
 import re
 from datetime import datetime
@@ -34,6 +35,7 @@ def create_correction_record(
     corrected_result: dict[str, Any],
     correction_reason: str = "",
     corrected_by: str = "",
+    original_text: str = "",
 ) -> ParseCorrection:
     """
     创建修正记录
@@ -77,6 +79,18 @@ def create_correction_record(
     db.refresh(record)
     
     logger.info(f"创建修正记录 {record.id}：{document_type} - {file_name}，差异字段：{diff_fields}")
+
+    # 生产机制：改错即进入进化提案队列（draft，待批量采纳）
+    try:
+        from app.services.doc_parsing.parser_engine.parser_evolution_service import (
+            enqueue_proposals_from_correction,
+        )
+
+        queued = enqueue_proposals_from_correction(db, record, original_text=original_text)
+        logger.info("修正记录 %s 已入提案队列 %s 条", record.id, queued)
+    except Exception as exc:
+        logger.warning("修正记录 %s 入提案队列失败: %s", record.id, exc)
+
     return record
 
 
@@ -330,9 +344,6 @@ def _generate_mapping_rule(original_val: str, corrected_val: str) -> str:
     }, ensure_ascii=False)
 
 
-import json
-
-
 # =============================================================================
 # 回归验证
 # =============================================================================
@@ -419,6 +430,15 @@ def _apply_patch_to_text(patch: ParsingRulePatch, text: str) -> dict[str, Any]:
             if mapping.get("match_type") == "exact":
                 if mapping.get("original") in text:
                     result[patch.target_field] = mapping.get("corrected")
+        except json.JSONDecodeError:
+            pass
+
+    elif patch.rule_type == "production_field":
+        try:
+            meta = json.loads(patch.rule_pattern)
+            corrected = meta.get("corrected_value")
+            if corrected is not None and str(corrected).strip():
+                result[patch.target_field] = corrected
         except json.JSONDecodeError:
             pass
     

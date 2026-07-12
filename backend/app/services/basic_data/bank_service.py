@@ -26,15 +26,48 @@ def create_account(
     account_no: str,
     account_name: str,
     coa_account_code: str = "1002",
+    source_sub_code: str | None = None,
     opening_balance: Decimal | str | float | int = Decimal("0.00"),
 ) -> BankAccount:
     opening_balance_decimal = Decimal(str(opening_balance)).quantize(Decimal("0.01"))
+    normalized_sub = (source_sub_code or "").strip() or None
+    normalized_no = account_no.strip()
+    normalized_name = account_name.strip()
+    normalized_bank = bank_name.strip()
+
+    existing: BankAccount | None = None
+    if normalized_sub:
+        existing = (
+            db.query(BankAccount)
+            .filter(BankAccount.ledger_id == ledger_id, BankAccount.source_sub_code == normalized_sub)
+            .first()
+        )
+    if existing is None and normalized_no:
+        existing = (
+            db.query(BankAccount)
+            .filter(BankAccount.ledger_id == ledger_id, BankAccount.account_no == normalized_no)
+            .first()
+        )
+
+    if existing:
+        existing.bank_name = normalized_bank
+        existing.account_no = normalized_no
+        existing.account_name = normalized_name
+        existing.coa_account_code = coa_account_code or "1002"
+        if normalized_sub:
+            existing.source_sub_code = normalized_sub
+        existing.is_active = True
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     account = BankAccount(
         ledger_id=ledger_id,
-        bank_name=bank_name,
-        account_no=account_no,
-        account_name=account_name,
+        bank_name=normalized_bank,
+        account_no=normalized_no,
+        account_name=normalized_name,
         coa_account_code=coa_account_code or "1002",
+        source_sub_code=normalized_sub,
         opening_balance=opening_balance_decimal,
         current_balance=opening_balance_decimal,
     )
@@ -42,6 +75,118 @@ def create_account(
     db.commit()
     db.refresh(account)
     return account
+
+
+def update_account(
+    db: Session,
+    *,
+    account_id: int,
+    ledger_id: int,
+    bank_name: str,
+    account_no: str,
+    account_name: str,
+    coa_account_code: str = "1002",
+    source_sub_code: str | None = None,
+) -> BankAccount:
+    account = (
+        db.query(BankAccount)
+        .filter(BankAccount.id == account_id, BankAccount.ledger_id == ledger_id)
+        .first()
+    )
+    if account is None:
+        raise ValueError("银行账户不存在")
+
+    normalized_sub = (source_sub_code or "").strip() or None
+    if normalized_sub:
+        conflict = (
+            db.query(BankAccount)
+            .filter(
+                BankAccount.ledger_id == ledger_id,
+                BankAccount.source_sub_code == normalized_sub,
+                BankAccount.id != account_id,
+            )
+            .first()
+        )
+        if conflict:
+            raise ValueError(f"来源段「{normalized_sub}」已被其他账户使用")
+
+    account.bank_name = bank_name.strip()
+    account.account_no = account_no.strip()
+    account.account_name = account_name.strip()
+    account.coa_account_code = coa_account_code or "1002"
+    account.source_sub_code = normalized_sub
+    account.is_active = True
+    db.commit()
+    db.refresh(account)
+    return account
+
+
+def deactivate_account(db: Session, *, account_id: int, ledger_id: int) -> None:
+    """软删除银行账户（误登记时可移除，不影响历史流水）。"""
+    account = (
+        db.query(BankAccount)
+        .filter(BankAccount.id == account_id, BankAccount.ledger_id == ledger_id)
+        .first()
+    )
+    if account is None:
+        raise ValueError("银行账户不存在")
+    account.is_active = False
+    db.commit()
+
+
+def bulk_import_accounts(
+    db: Session,
+    *,
+    ledger_id: int,
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """批量导入开户清单（外部证据层）。"""
+    created = 0
+    skipped = 0
+    errors: list[str] = []
+    for idx, record in enumerate(records, start=1):
+        bank_name = str(record.get("bank_name") or record.get("开户银行") or "").strip()
+        account_no = str(record.get("account_no") or record.get("账号") or "").strip()
+        account_name = str(record.get("account_name") or record.get("户名") or "").strip()
+        if not bank_name or not account_no:
+            errors.append(f"第 {idx} 行缺少银行名称或账号")
+            skipped += 1
+            continue
+        coa_code = str(record.get("coa_account_code") or record.get("关联科目") or "1002").strip() or "1002"
+        source_sub_code = str(record.get("source_sub_code") or record.get("来源段") or "").strip() or None
+        existing = (
+            db.query(BankAccount)
+            .filter(
+                BankAccount.ledger_id == ledger_id,
+                BankAccount.account_no == account_no,
+            )
+            .first()
+        )
+        if existing:
+            existing.bank_name = bank_name
+            existing.account_name = account_name or existing.account_name
+            existing.coa_account_code = coa_code
+            if source_sub_code:
+                existing.source_sub_code = source_sub_code
+            skipped += 1
+            continue
+        opening_balance_decimal = Decimal(str(record.get("opening_balance") or record.get("期初余额") or 0)).quantize(
+            Decimal("0.01")
+        )
+        account = BankAccount(
+            ledger_id=ledger_id,
+            bank_name=bank_name,
+            account_no=account_no,
+            account_name=account_name or bank_name,
+            coa_account_code=coa_code,
+            source_sub_code=source_sub_code,
+            opening_balance=opening_balance_decimal,
+            current_balance=opening_balance_decimal,
+        )
+        db.add(account)
+        created += 1
+    db.commit()
+    return {"created": created, "skipped": skipped, "errors": errors}
 
 
 def create_transaction(

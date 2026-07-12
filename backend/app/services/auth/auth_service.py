@@ -10,7 +10,7 @@
     2025-01-20  封装为 AuthService 类
 """
 from datetime import datetime, timezone, timedelta
-from secrets import randbelow
+from secrets import randbelow, token_hex
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -64,6 +64,20 @@ class AuthService:
                 db.refresh(user)
         return user
 
+    def ensure_username(self, db: Session, user: User) -> User:
+        """为缺少用户名的账号分配唯一 username（短信注册等场景）。"""
+        if user.username and user.username.strip():
+            return user
+        for _ in range(32):
+            candidate = f"user_{token_hex(4)}"
+            if not self.get_user_by_username(db, candidate):
+                user.username = candidate
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+                return user
+        raise RuntimeError("无法生成唯一用户名")
+
     def register_user(
         self,
         db: Session,
@@ -98,6 +112,7 @@ class AuthService:
         db.add(user)
         db.commit()
         db.refresh(user)
+        user = self.ensure_username(db, user)
         return self.sync_configured_super_admin(db, user)
 
     def get_password_login_user(self, db: Session, username: str) -> User | None:
@@ -200,6 +215,7 @@ class AuthService:
             db.add(user)
             db.commit()
             db.refresh(user)
+            user = self.ensure_username(db, user)
         return self.sync_configured_super_admin(db, user)
 
     def set_user_password(self, db: Session, user: User, password: str) -> User:
@@ -445,6 +461,9 @@ def get_password_login_user(db: Session, username: str) -> User | None:
 
 def sync_configured_super_admin(db: Session, user: User) -> User:
     return _auth_service_instance.sync_configured_super_admin(db, user)
+
+def ensure_username(db: Session, user: User) -> User:
+    return _auth_service_instance.ensure_username(db, user)
 
 def authenticate_user(db: Session, username: str, password: str) -> User | None:
     return _auth_service_instance.authenticate_user(db, username, password)

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd'
-import { DeleteOutlined, EditOutlined, FileTextOutlined, ReloadOutlined } from '@ant-design/icons'
+import { useSearchParams } from 'react-router-dom'
+import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
+import { DeleteOutlined, EditOutlined, FileTextOutlined, FolderOpenOutlined, InboxOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
-import type { Counterparty, Ledger, Project, SourceFileRead } from '../api/client'
+import type { Counterparty, Project, SourceFileRead } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
 
 const { Paragraph, Title, Text } = Typography
@@ -30,6 +31,18 @@ const FILE_TYPE_OPTIONS = [
   { value: 'other', label: '其他' },
 ]
 
+const ARCHIVE_CATEGORY_OPTIONS = [
+  '税务底稿', '银行资金底稿', '合同底稿', '往来款项底稿', '采购底稿', '销售底稿',
+  '库存底稿', '薪酬底稿', '通用底稿', '会计凭证底稿', '序时簿底稿', '待分类底稿',
+]
+
+interface ArchiveFileForm {
+  project_id: number
+  period_code: string
+  archive_category: string
+  document_folder?: string
+}
+
 interface EditFileForm {
   filename: string
   file_type: string
@@ -48,15 +61,22 @@ const getFileObjectNames = (file: SourceFileRead) => {
 }
 
 export function LedgerFilesPage() {
+  const [searchParams] = useSearchParams()
+  const highlightFileId = Number(searchParams.get('fileId') || 0)
   const { currentLedgerId, setCurrentLedger, userLedgers, setUserLedgers } = useAuthStore()
   const [files, setFiles] = useState<SourceFileRead[]>([])
+  const [ingestExample, setIngestExample] = useState<{
+    curl_example: string
+    cli_example: string
+    notes: string[]
+  } | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
-  const [projectLedgers, setProjectLedgers] = useState<Ledger[]>([])
   const [counterparties, setCounterparties] = useState<Counterparty[]>([])
   const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [lifecycleTab, setLifecycleTab] = useState<'inbox' | 'archived'>('inbox')
   const [filters, setFilters] = useState<{
     project_id?: number
-    ledger_ids?: number[]
     counterparty_id?: number
     object_name?: string
     file_type?: string
@@ -65,11 +85,14 @@ export function LedgerFilesPage() {
   }>({})
   const [bindingFileId, setBindingFileId] = useState<number | null>(null)
 
-  // 编辑相关状态
   const [editModalVisible, setEditModalVisible] = useState(false)
   const [editingFile, setEditingFile] = useState<SourceFileRead | null>(null)
   const [editLoading, setEditLoading] = useState(false)
   const [editForm] = Form.useForm<EditFileForm>()
+  const [archiveModalVisible, setArchiveModalVisible] = useState(false)
+  const [archivingFile, setArchivingFile] = useState<SourceFileRead | null>(null)
+  const [archiveLoading, setArchiveLoading] = useState(false)
+  const [archiveForm] = Form.useForm<ArchiveFileForm>()
 
   const ensureCurrentLedger = async () => {
     if (currentLedgerId) return currentLedgerId
@@ -84,56 +107,34 @@ export function LedgerFilesPage() {
   const loadProjects = async () => {
     const rows = (await api.listProjects()).filter((item) => item.status !== 'cancelled')
     setProjects(rows)
-    if (!filters.project_id && rows.length > 0) {
-      setFilters((prev) => ({ ...prev, project_id: rows[0].id }))
-    }
-  }
-
-  const loadProjectLedgers = async (projectId?: number) => {
-    if (!projectId) {
-      setProjectLedgers([])
-      return
-    }
-    const [projectRows, ledgerRows] = await Promise.all([
-      api.listProjectLedgers(projectId),
-      userLedgers.length > 0 ? Promise.resolve(userLedgers) : api.listLedgers(),
-    ])
-    if (userLedgers.length === 0 && ledgerRows.length > 0) setUserLedgers(ledgerRows)
-    const rows = ledgerRows.filter((ledger) => projectRows.some((item) => item.id === ledger.id))
-    setProjectLedgers(rows)
-    setFilters((prev) => ({
-      ...prev,
-      ledger_ids: prev.ledger_ids?.filter((id) => rows.some((ledger) => ledger.id === id)),
-      object_name: undefined,
-      counterparty_id: undefined,
-    }))
   }
 
   const loadData = async () => {
     setLoading(true)
     try {
-      await ensureCurrentLedger()
-      if (!filters.project_id) {
+      const ledgerId = await ensureCurrentLedger()
+      if (!ledgerId) {
         setFiles([])
         setCounterparties([])
         return
       }
       const [fileResp, counterpartyResp] = await Promise.all([
         api.listLedgerFiles({
-          project_id: filters.project_id,
-          ledger_ids: filters.ledger_ids,
+          ledger_id: ledgerId,
+          project_id: lifecycleTab === 'archived' ? filters.project_id : undefined,
           counterparty_id: filters.counterparty_id,
           object_name: filters.object_name,
           file_type: filters.file_type,
           parse_status: filters.parse_status,
           archive_category: filters.archive_category,
+          lifecycle: lifecycleTab,
         }),
         api.listCounterparties(),
       ])
       setFiles(fileResp)
       setCounterparties(counterpartyResp.filter((item) => item.is_active))
     } catch (error: any) {
-      message.error(error.message || '加载支持性文件失败')
+      message.error(error.message || '加载证据云空间失败')
     } finally {
       setLoading(false)
     }
@@ -144,12 +145,66 @@ export function LedgerFilesPage() {
   }, [])
 
   useEffect(() => {
-    void loadProjectLedgers(filters.project_id)
-  }, [filters.project_id])
+    void loadData()
+  }, [currentLedgerId, lifecycleTab, filters.project_id, filters.counterparty_id, filters.object_name, filters.file_type, filters.parse_status, filters.archive_category])
 
   useEffect(() => {
-    void loadData()
-  }, [currentLedgerId, filters.project_id, filters.ledger_ids?.join(','), filters.counterparty_id, filters.object_name, filters.file_type, filters.parse_status, filters.archive_category])
+    if (!currentLedgerId) {
+      setIngestExample(null)
+      return
+    }
+    void api.getIngestApiExample(currentLedgerId)
+      .then((example) => setIngestExample(example))
+      .catch(() => setIngestExample(null))
+  }, [currentLedgerId])
+
+  const handleUpload = async (file: File) => {
+    const ledgerId = await ensureCurrentLedger()
+    if (!ledgerId) {
+      message.warning('请先选择账簿')
+      return false
+    }
+    setUploading(true)
+    try {
+      const created = await api.ingestEvidenceFile(ledgerId, file)
+      setFiles((prev) => [created, ...prev])
+      message.success(`已收到：${file.name}`)
+    } catch (error: any) {
+      message.error(error.message || '上传失败')
+    } finally {
+      setUploading(false)
+    }
+    return false
+  }
+
+  const handleOpenArchive = (file: SourceFileRead) => {
+    setArchivingFile(file)
+    archiveForm.setFieldsValue({
+      project_id: filters.project_id || projects[0]?.id,
+      period_code: new Date().toISOString().slice(0, 7),
+      archive_category: ARCHIVE_CATEGORY_OPTIONS[0],
+      document_folder: FILE_TYPE_OPTIONS.find((item) => item.value === file.file_type)?.label,
+    })
+    setArchiveModalVisible(true)
+  }
+
+  const handleArchiveSubmit = async () => {
+    if (!archivingFile) return
+    try {
+      const values = await archiveForm.validateFields()
+      setArchiveLoading(true)
+      const updated = await api.archiveEvidenceFile(archivingFile.id, values)
+      setFiles((prev) => prev.filter((item) => item.id !== updated.id))
+      message.success('已归档到项目资料库')
+      setArchiveModalVisible(false)
+      if (lifecycleTab === 'archived') void loadData()
+    } catch (error: any) {
+      if (error.errorFields) return
+      message.error(error.message || '归档失败')
+    } finally {
+      setArchiveLoading(false)
+    }
+  }
 
   const handleBindCounterparty = async (fileId: number, counterpartyId: number | null) => {
     try {
@@ -231,53 +286,94 @@ export function LedgerFilesPage() {
     new Set(files.flatMap((item) => getFileObjectNames(item)).filter(Boolean))
   ).map((value) => ({ value, label: value }))
 
+  const currentLedgerName = userLedgers.find((item) => item.id === currentLedgerId)?.name
+
   return (
     <Card>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <div>
           <Title level={4} style={{ margin: 0 }}>
-            <FileTextOutlined /> 支持性文件
+            <FileTextOutlined /> 证据云空间
           </Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            支持性文件是合同、发票、银行回单、客户供应商资料等原始证据；当前页面按项目范围展示，项目内已绑定账簿的文件均可检索。
+            以当前账簿为主视图：发票、合同、银行回单等原件先进入收件箱，归档到项目/期间/分类后，再供财务总账记账引用。存储为本地目录 + 虚拟文件夹（后期可同步至云存储）。
           </Paragraph>
         </div>
 
-        {!filters.project_id && !loading && (
+        {!currentLedgerId && !loading && (
+          <Alert type="warning" showIcon title="请先选择账簿" description="证据云空间按账簿隔离；请在顶部切换当前账簿后再上传或检索文件。" />
+        )}
+
+        <Alert
+          type="info"
+          showIcon
+          title={`当前账簿：${currentLedgerName || '未选择'}`}
+          description="企业自建 ingest 服务可使用下方 curl / CLI 示例，将文件推送到本账簿收件箱。"
+        />
+
+        {ingestExample && (
+          <Card size="small" title="API / CLI 推送示例（企业自建）">
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Text type="secondary">curl 示例（需先用服务账号登录获取 JWT）：</Text>
+              <Input.TextArea rows={3} readOnly value={ingestExample.curl_example} />
+              <Text type="secondary">CLI 示例：</Text>
+              <Input.TextArea rows={2} readOnly value={ingestExample.cli_example} />
+              {ingestExample.notes.map((note) => (
+                <Text key={note} type="secondary">· {note}</Text>
+              ))}
+            </Space>
+          </Card>
+        )}
+
+        {highlightFileId > 0 && (
           <Alert
-            type="warning"
+            type="success"
             showIcon
-            title="尚未选择项目"
-            description="请先选择审计项目；页面将只加载该项目范围内、项目已绑定账簿下的支持性文件。"
+            title={`已从分录跳转，定位文件 #${highlightFileId}`}
+            description="若列表中未见该文件，请切换收件箱/归档库或刷新列表。"
           />
         )}
 
+        <Upload.Dragger
+          multiple
+          showUploadList={false}
+          disabled={!currentLedgerId || uploading}
+          beforeUpload={(file) => {
+            void handleUpload(file)
+            return false
+          }}
+        >
+          <p className="ant-upload-drag-icon">
+            <InboxOutlined />
+          </p>
+          <p className="ant-upload-text">拖拽或点击上传，文件进入当前账簿收件箱</p>
+          <p className="ant-upload-hint">支持 PDF、图片、Excel 等；原件归档前可在此集中管理</p>
+        </Upload.Dragger>
+
+        <Tabs
+          activeKey={lifecycleTab}
+          onChange={(key) => setLifecycleTab(key as 'inbox' | 'archived')}
+          items={[
+            { key: 'inbox', label: <span><InboxOutlined /> 收件箱</span> },
+            { key: 'archived', label: <span><FolderOpenOutlined /> 归档库</span> },
+          ]}
+        />
+
         <Form layout="inline">
-          <Form.Item label="项目">
-            <Select
-              showSearch
-              style={{ width: 220 }}
-              placeholder="选择项目"
-              optionFilterProp="label"
-              value={filters.project_id}
-              onChange={(value) => setFilters((prev) => ({ ...prev, project_id: value, ledger_ids: undefined, object_name: undefined, counterparty_id: undefined }))}
-              options={projects.map((item) => ({ value: item.id, label: item.name }))}
-            />
-          </Form.Item>
-          <Form.Item label="账簿">
-            <Select
-              allowClear
-              mode="multiple"
-              showSearch
-              maxTagCount="responsive"
-              style={{ width: 260 }}
-              placeholder="全部项目账簿"
-              optionFilterProp="label"
-              value={filters.ledger_ids}
-              onChange={(value) => setFilters((prev) => ({ ...prev, ledger_ids: value, object_name: undefined, counterparty_id: undefined }))}
-              options={projectLedgers.map((item) => ({ value: item.id, label: item.name }))}
-            />
-          </Form.Item>
+          {lifecycleTab === 'archived' && (
+            <Form.Item label="归档项目">
+              <Select
+                allowClear
+                showSearch
+                style={{ width: 220 }}
+                placeholder="按项目筛选"
+                optionFilterProp="label"
+                value={filters.project_id}
+                onChange={(value) => setFilters((prev) => ({ ...prev, project_id: value }))}
+                options={projects.map((item) => ({ value: item.id, label: item.name }))}
+              />
+            </Form.Item>
+          )}
           <Form.Item label="往来对象">
             <Select
               allowClear
@@ -341,6 +437,12 @@ export function LedgerFilesPage() {
           loading={loading}
           size="small"
           pagination={{ pageSize: 20 }}
+          rowClassName={(row) => (highlightFileId > 0 && row.id === highlightFileId ? 'evidence-file-highlight' : '')}
+          onRow={(row) => ({
+            style: highlightFileId > 0 && row.id === highlightFileId
+              ? { background: '#fffbe6' }
+              : undefined,
+          })}
           columns={[
             {
               title: '账簿',
@@ -458,10 +560,15 @@ export function LedgerFilesPage() {
             {
               title: '操作',
               key: 'actions',
-              width: 120,
+              width: lifecycleTab === 'inbox' ? 180 : 120,
               fixed: 'right',
               render: (_: unknown, row: SourceFileRead) => (
                 <Space size="small">
+                  {lifecycleTab === 'inbox' && (
+                    <Button type="link" size="small" onClick={() => handleOpenArchive(row)}>
+                      归档
+                    </Button>
+                  )}
                   <Button
                     type="text"
                     size="small"
@@ -470,7 +577,7 @@ export function LedgerFilesPage() {
                   />
                   <Popconfirm
                     title="删除文件"
-                    description="确定要删除此支持性文件记录吗？此操作不可恢复。"
+                    description="确定要删除此原件记录吗？此操作不可恢复。"
                     onConfirm={() => handleDeleteFile(row.id)}
                     okText="删除"
                     cancelText="取消"
@@ -513,6 +620,37 @@ export function LedgerFilesPage() {
           </Form.Item>
           <Form.Item name="notes" label="备注">
             <Input.TextArea rows={3} placeholder="请输入备注信息（选填）" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="归档到项目资料库"
+        open={archiveModalVisible}
+        onOk={() => void handleArchiveSubmit()}
+        onCancel={() => setArchiveModalVisible(false)}
+        confirmLoading={archiveLoading}
+        okText="确认归档"
+        cancelText="取消"
+        width={520}
+      >
+        <Form form={archiveForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="project_id" label="归档项目" rules={[{ required: true, message: '请选择项目' }]}>
+            <Select
+              showSearch
+              placeholder="选择项目"
+              optionFilterProp="label"
+              options={projects.map((item) => ({ value: item.id, label: item.name }))}
+            />
+          </Form.Item>
+          <Form.Item name="period_code" label="会计期间" rules={[{ required: true, message: '请输入期间' }]}>
+            <Input placeholder="例如 2026-03" />
+          </Form.Item>
+          <Form.Item name="archive_category" label="底稿分类" rules={[{ required: true, message: '请选择分类' }]}>
+            <Select options={ARCHIVE_CATEGORY_OPTIONS.map((value) => ({ value, label: value }))} />
+          </Form.Item>
+          <Form.Item name="document_folder" label="文档文件夹（可选）">
+            <Input placeholder="例如 发票、合同" />
           </Form.Item>
         </Form>
       </Modal>

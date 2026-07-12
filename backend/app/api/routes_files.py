@@ -1,14 +1,25 @@
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.db.models import Counterparty, ImportJob, SourceFile
 from app.db.session import get_db
-from app.services.doc_parsing.draft_archive_service import load_archive_metadata
+from app.core.dependencies import get_current_user
+from app.models.user import User
+from app.models.ledger import Ledger
+from app.services.shared import ledger_management_service
+from app.services.doc_parsing.draft_archive_service import (
+    ARCHIVE_CATEGORIES,
+    get_evidence_lifecycle,
+    load_archive_metadata,
+    manual_archive_source_file,
+    set_evidence_inbox_metadata,
+)
+from app.services.doc_parsing.import_service import attach_file, create_import_job
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -25,6 +36,13 @@ class UpdateFileRequest(BaseModel):
     filename: str | None = None
     file_type: str | None = None
     notes: str | None = None
+
+
+class ArchiveFileRequest(BaseModel):
+    project_id: int
+    period_code: str
+    archive_category: str
+    document_folder: str | None = None
 
 
 def _collect_object_names(value: Any) -> list[str]:
@@ -180,8 +198,27 @@ def _to_dict(db: Session, item: SourceFile) -> dict[str, Any]:
         "project_name": archive.get("project_name") if archive else None,
         "period_code": archive.get("period_code") if archive else None,
         "archive_context": archive,
+        "evidence_lifecycle": get_evidence_lifecycle(item),
+        "ingest_channel": (_load_evidence_meta(item) or {}).get("ingest_channel"),
         "created_at": item.created_at,
     }
+
+
+def _load_evidence_meta(item: SourceFile) -> dict[str, Any] | None:
+    if not item.notes:
+        return None
+    try:
+        parsed = json.loads(item.notes)
+        evidence = parsed.get("evidence") if isinstance(parsed, dict) else None
+        return evidence if isinstance(evidence, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _filter_by_lifecycle(items: list[SourceFile], lifecycle: str | None) -> list[SourceFile]:
+    if not lifecycle or lifecycle == "all":
+        return items
+    return [item for item in items if get_evidence_lifecycle(item) == lifecycle]
 
 
 def _parse_id_list(value: str | None) -> list[int]:
@@ -216,6 +253,7 @@ def list_source_files(
     parse_status: str | None = None,
     text_extract_status: str | None = None,
     archive_category: str | None = None,
+    lifecycle: str | None = None,
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     selected_ledger_ids = _parse_id_list(ledger_ids)
@@ -245,6 +283,7 @@ def list_source_files(
             items = [item for item in items if item.text_extract_status == selected_status]
         if object_name:
             items = [item for item in items if object_name in (_to_dict(db, item).get("object_names") or [])]
+        items = _filter_by_lifecycle(items, lifecycle)
         return [_to_dict(db, item) for item in items]
 
     query = db.query(SourceFile).outerjoin(ImportJob, SourceFile.import_job_id == ImportJob.id)
@@ -270,7 +309,114 @@ def list_source_files(
         ]
     if object_name:
         items = [item for item in items if object_name in (_to_dict(db, item).get("object_names") or [])]
+    items = _filter_by_lifecycle(items, lifecycle)
     return [_to_dict(db, item) for item in items]
+
+
+@router.post("/ingest")
+def ingest_evidence_file(
+    ledger_id: int = Form(...),
+    file: UploadFile = File(...),
+    file_type: str | None = Form(None),
+    x_ingest_channel: str | None = Header(None, alias="X-Ingest-Channel"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """证据云空间：上传文件到当前账簿收件箱（本地存储，生命周期 inbox）。"""
+    ledger = db.get(Ledger, ledger_id)
+    if not ledger:
+        raise HTTPException(status_code=404, detail="账簿不存在")
+    if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
+        raise HTTPException(status_code=403, detail=f"用户无权向账簿 {ledger_id} 推送证据")
+    job = create_import_job(
+        db,
+        ledger.name,
+        None,
+        None,
+        "evidence_inbox",
+        ledger_id,
+    )
+    source_file = attach_file(db, job, file)
+    source_file.ledger_id = ledger_id
+    if file_type:
+        source_file.file_type = file_type
+    channel = (x_ingest_channel or "web").strip().lower()
+    if channel not in {"web", "api", "cli", "email", "wechat"}:
+        channel = "api"
+    set_evidence_inbox_metadata(source_file, ingest_channel=channel)
+    db.commit()
+    db.refresh(source_file)
+    return _to_dict(db, source_file)
+
+
+@router.get("/ingest/example")
+def get_ingest_api_example(
+    ledger_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """返回企业自建推送用的 curl / CLI 示例（需登录鉴权）。"""
+    del current_user
+    ledger = db.get(Ledger, ledger_id)
+    if not ledger:
+        raise HTTPException(status_code=404, detail="账簿不存在")
+    base = "http://127.0.0.1:8000"
+    return {
+        "ledger_id": ledger_id,
+        "ledger_name": ledger.name,
+        "endpoint": f"{base}/api/files/ingest",
+        "method": "POST",
+        "headers": {
+            "Authorization": "Bearer <access_token>",
+            "X-Ingest-Channel": "api",
+        },
+        "form_fields": {
+            "ledger_id": ledger_id,
+            "file": "<binary>",
+            "file_type": "invoice|contract|statement|other (optional)",
+        },
+        "curl_example": (
+            f'curl -X POST "{base}/api/files/ingest" '
+            f'-H "Authorization: Bearer $TOKEN" '
+            f'-H "X-Ingest-Channel: api" '
+            f'-F "ledger_id={ledger_id}" '
+            f'-F "file=@/path/to/invoice.pdf" '
+            f'-F "file_type=invoice"'
+        ),
+        "cli_example": (
+            f"python scripts/evidence_ingest.py "
+            f"--token $TOKEN --ledger-id {ledger_id} --file /path/to/invoice.pdf --file-type invoice"
+        ),
+        "notes": [
+            "企业自建 ingest 服务可使用服务账号登录获取 JWT，再调用本接口。",
+            "文件落入账簿收件箱（lifecycle=inbox），需在云空间页归档后供记账引用。",
+            "后期可为企业配置独立 ingest 域名与专用 token。",
+        ],
+    }
+
+
+@router.post("/{file_id}/archive")
+def archive_evidence_file(file_id: int, payload: ArchiveFileRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """将收件箱文件归档到指定项目/期间/分类。"""
+    item = db.get(SourceFile, file_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if payload.archive_category not in ARCHIVE_CATEGORIES.values() and payload.archive_category not in ARCHIVE_CATEGORIES:
+        pass  # allow custom folder labels used in virtual paths
+    try:
+        manual_archive_source_file(
+            db,
+            item,
+            project_id=payload.project_id,
+            period_code=payload.period_code,
+            archive_category=payload.archive_category,
+            document_folder=payload.document_folder,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(item)
+    return _to_dict(db, item)
 
 
 @router.get("/{file_id}")

@@ -8,9 +8,10 @@ type Props = {
   ledgerId?: number | null
   value: { organizationId: number | null; periodId: number | null }
   onChange: (v: { organizationId: number | null; periodId: number | null }) => void
+  autoSelectFirst?: boolean
 }
 
-export function PeriodSelector({ ledgerId, value, onChange }: Props) {
+export function PeriodSelector({ ledgerId, value, onChange, autoSelectFirst = true }: Props) {
   const [periods, setPeriods] = useState<AccountingPeriod[]>([])
 
   useEffect(() => {
@@ -18,7 +19,7 @@ export function PeriodSelector({ ledgerId, value, onChange }: Props) {
       .listAccountingPeriods(undefined, ledgerId || undefined)
       .then((data) => {
         setPeriods(data)
-        if (!value.periodId && data.length > 0) {
+        if (autoSelectFirst && !value.periodId && data.length > 0) {
           onChange({ organizationId: data[0].organization_id, periodId: data[0].id })
         }
       })

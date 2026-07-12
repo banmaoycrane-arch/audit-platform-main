@@ -90,6 +90,7 @@ class DocumentParsingService:
             self._add_payment_term(contract.id, term_data)
         
         self._generate_contract_tags(contract.id, contract_data)
+        self.db.commit()
         
         return contract
 

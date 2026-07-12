@@ -18,7 +18,6 @@ import { BasicDataWorkspace } from './pages/Workspaces/BasicDataWorkspace'
 import { EntriesPageRoute } from './pages/EntriesPageRoute'
 import { RisksPageRoute } from './pages/RisksPageRoute'
 import { AccountingPeriodsPage } from './pages/AccountingPeriodsPage'
-import { ChartOfAccountsPage } from './pages/BasicData/ChartOfAccountsPage'
 import { CounterpartiesPage } from './pages/BasicData/CounterpartiesPage'
 import { OpeningBalancesPage } from './pages/BasicData/OpeningBalancesPage'
 import { OrganizationUnitsPage } from './pages/BasicData/OrganizationUnitsPage'
@@ -26,6 +25,8 @@ import { PersonnelPage } from './pages/BasicData/PersonnelPage'
 import { TrialBalancePage } from './pages/Reports/TrialBalancePage'
 import { BalanceSheetPage } from './pages/Reports/BalanceSheetPage'
 import { IncomeStatementPage } from './pages/Reports/IncomeStatementPage'
+import { CashFlowStatementPage } from './pages/Reports/CashFlowStatementPage'
+import { FinancialReportsHubPage } from './pages/Reports/FinancialReportsHubPage'
 import { AgentChatPage } from './pages/AgentChatPage'
 import { ModuleRegisterPage } from './pages/ModuleRegisterPage'
 import { PlaceholderModulePage } from './pages/PlaceholderModulePage'
@@ -34,6 +35,7 @@ import { Step2AccountingImportSource } from './pages/AccountingMode/Step2ImportS
 import { Step3GenerateEntries } from './pages/AccountingMode/Step3GenerateEntries'
 import { Step4ReviewEntries } from './pages/AccountingMode/Step4ReviewEntries'
 import { Step5Export } from './pages/AccountingMode/Step5Export'
+import { VoucherFlowStepGuard } from './components/VoucherFlowStepGuard'
 import { DraftPage } from './pages/AccountingMode/DraftPage'
 import { FixedAssetsWorkspace } from './pages/Workspaces/FixedAssetsWorkspace'
 import { InventoryWorkspace } from './pages/Workspaces/InventoryWorkspace'
@@ -66,15 +68,18 @@ import { AuditDashboardPage } from './pages/Audit/AuditDashboardPage'
 import { LedgerBooksPage } from './pages/LedgerBooksPage'
 import { ScopeSettingsPage } from './pages/ScopeSettingsPage'
 import { ParserEngineManagementPage } from './pages/ParserEngineManagementPage'
+import { ParserEvolutionPage } from './pages/ParserEvolutionPage'
 import { ParserEngineConfigPage } from './pages/ParserEngineConfigPage'
 import { UserSettingsPage } from './pages/UserSettingsPage'
 import { SuperAdminPage } from './pages/SuperAdminPage'
 import { GeneralLedgerPage, SubsidiaryLedgerPage } from './pages/Ledger/LedgerBookPages'
-import { VoucherQueryPage } from './pages/VoucherQueryPage'
 import { VoucherCreatePage } from './pages/VoucherCreatePage'
 import { VoucherEditPage } from './pages/VoucherEditPage'
 import { ParserVoucherPreview } from './pages/ParserVoucherPreview'
 import DocumentTagsPage from './pages/DocumentTagsPage'
+import { LedgerDimensionsPage } from './pages/LedgerDimensionsPage'
+import { ControlDefectsPage } from './pages/ControlDefectsPage'
+import { ImportJobManagePage } from './pages/ImportJobManagePage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -93,6 +98,14 @@ function LoggedInRedirect({ children }: { children: React.ReactNode }) {
     return <Navigate to="/workspace" replace />
   }
   return <>{children}</>
+}
+
+/** 旧路径 /accounting/step/* 统一重定向到财务总账主路径，保留查询参数。 */
+function AccountingStepRedirect() {
+  const location = useLocation()
+  const match = location.pathname.match(/^\/accounting\/step\/(\d+)/)
+  const step = match?.[1] ?? '1'
+  return <Navigate to={`/ledger/vouchers/step/${step}${location.search}${location.hash}`} replace />
 }
 
 function LedgerDataGuard({ children }: { children: React.ReactNode }) {
@@ -154,7 +167,7 @@ function AppRoutes() {
       <Route path="/forgot-password" element={<LoggedInRedirect><ForgotPasswordPage /></LoggedInRedirect>} />
 
       {/* 引导式向导（保留旧路径） */}
-      <Route path="/accounting" element={<Navigate to="/accounting/step/1" replace />} />
+      <Route path="/accounting" element={<Navigate to="/ledger/vouchers/step/1" replace />} />
       <Route path="/audit" element={<Navigate to="/audit/step/1" replace />} />
 
       {/* SAAS Shell + 嵌套子路由（受保护） */}
@@ -167,6 +180,7 @@ function AppRoutes() {
         <Route path="/team-management" element={<TeamManagementPage />} />
         <Route path="/ledger-management" element={<LedgerManagementPage />} />
         <Route path="/ledger/files" element={<LedgerDataGuard><LedgerFilesPage /></LedgerDataGuard>} />
+        <Route path="/ledger/evidence" element={<LedgerDataGuard><LedgerFilesPage /></LedgerDataGuard>} />
         <Route path="/ledger/workspace" element={<LedgerDataGuard><LedgerWorkspace /></LedgerDataGuard>} />
         <Route path="/audit/workspace" element={<LedgerDataGuard><AuditWorkspace /></LedgerDataGuard>} />
         <Route path="/bank/workspace" element={<LedgerDataGuard><BankWorkspace /></LedgerDataGuard>} />
@@ -177,21 +191,18 @@ function AppRoutes() {
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/scope-settings" element={<ScopeSettingsPage />} />
 <Route path="/parser-engine" element={<AuthGuard><ParserEngineManagementPage /></AuthGuard>} />
+<Route path="/parser-engine/evolution" element={<AuthGuard><ParserEvolutionPage /></AuthGuard>} />
 <Route path="/parser-engine/config" element={<AuthGuard><ParserEngineConfigPage /></AuthGuard>} />
         <Route path="/ledger/lifecycle" element={<LedgerLifecyclePage />} />
-        <Route path="/accounting/step/1" element={<LedgerDataGuard><Step1AccountingSelectType /></LedgerDataGuard>} />
-        <Route path="/accounting/step/2" element={<LedgerDataGuard><Step2AccountingImportSource /></LedgerDataGuard>} />
-        <Route path="/accounting/step/3" element={<LedgerDataGuard><Step3GenerateEntries /></LedgerDataGuard>} />
-        <Route path="/accounting/step/4" element={<LedgerDataGuard><Step4ReviewEntries /></LedgerDataGuard>} />
-        <Route path="/accounting/step/5" element={<LedgerDataGuard><Step5Export /></LedgerDataGuard>} />
-        <Route path="/ledger/vouchers" element={<LedgerDataGuard><VoucherQueryPage /></LedgerDataGuard>} />
+        <Route path="/accounting/step/:step" element={<AccountingStepRedirect />} />
+        <Route path="/ledger/vouchers" element={<Navigate to="/ledger/entries" replace />} />
         <Route path="/ledger/vouchers/create" element={<LedgerDataGuard><VoucherCreatePage /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/edit/:voucherId" element={<LedgerDataGuard><VoucherEditPage /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/step/1" element={<LedgerDataGuard><Step1AccountingSelectType /></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/step/2" element={<LedgerDataGuard><Step2AccountingImportSource /></LedgerDataGuard>} />
-        <Route path="/ledger/vouchers/step/3" element={<LedgerDataGuard><Step3GenerateEntries /></LedgerDataGuard>} />
-        <Route path="/ledger/vouchers/step/4" element={<LedgerDataGuard><Step4ReviewEntries /></LedgerDataGuard>} />
-        <Route path="/ledger/vouchers/step/5" element={<LedgerDataGuard><Step5Export /></LedgerDataGuard>} />
+        <Route path="/ledger/vouchers/step/3" element={<LedgerDataGuard><VoucherFlowStepGuard step={3}><Step3GenerateEntries /></VoucherFlowStepGuard></LedgerDataGuard>} />
+        <Route path="/ledger/vouchers/step/4" element={<LedgerDataGuard><VoucherFlowStepGuard step={4}><Step4ReviewEntries /></VoucherFlowStepGuard></LedgerDataGuard>} />
+        <Route path="/ledger/vouchers/step/5" element={<LedgerDataGuard><VoucherFlowStepGuard step={5}><Step5Export /></VoucherFlowStepGuard></LedgerDataGuard>} />
         <Route path="/ledger/vouchers/draft/:jobId" element={<LedgerDataGuard><DraftPage /></LedgerDataGuard>} />
         <Route path="/parser-voucher/preview" element={<LedgerDataGuard><ParserVoucherPreview /></LedgerDataGuard>} />
         <Route path="/document-tags" element={<LedgerDataGuard><DocumentTagsPage /></LedgerDataGuard>} />
@@ -218,15 +229,18 @@ function AppRoutes() {
         <Route path="/bank/cash-flow-ledger" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="bank_cash_flow" /></LedgerDataGuard>} />
         <Route path="/registers/:moduleKey" element={<LedgerDataGuard><ModuleRegisterPage /></LedgerDataGuard>} />
         <Route path="/agent" element={<AgentChatPage />} />
-        <Route path="/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
+        <Route path="/entries" element={<Navigate to="/ledger/entries" replace />} />
         <Route path="/ledger/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
         <Route path="/ledger/books" element={<LedgerDataGuard><LedgerBooksPage /></LedgerDataGuard>} />
+        <Route path="/ledger/dimensions" element={<LedgerDataGuard><LedgerDimensionsPage /></LedgerDataGuard>} />
+        <Route path="/ledger/import-jobs" element={<LedgerDataGuard><ImportJobManagePage /></LedgerDataGuard>} />
+        <Route path="/ledger/control-defects" element={<LedgerDataGuard><ControlDefectsPage /></LedgerDataGuard>} />
         <Route path="/ledger/general-ledger" element={<LedgerDataGuard><GeneralLedgerPage /></LedgerDataGuard>} />
         <Route path="/ledger/subsidiary-ledger" element={<LedgerDataGuard><SubsidiaryLedgerPage /></LedgerDataGuard>} />
         <Route path="/risks" element={<RisksPageRoute />} />
         <Route path="/periods" element={<AccountingPeriodsPage />} />
         <Route path="/accounting-periods" element={<AccountingPeriodsPage />} />
-        <Route path="/basic/coa" element={<ChartOfAccountsPage />} />
+        <Route path="/basic/coa" element={<Navigate to="/ledger/dimensions?tab=coa" replace />} />
         <Route path="/basic/org-units" element={<OrganizationUnitsPage />} />
         <Route path="/basic/personnel" element={<PersonnelPage />} />
         <Route path="/basic/counterparties" element={<CounterpartiesPage />} />
@@ -453,9 +467,11 @@ function AppRoutes() {
             />
           )}
         />
+        <Route path="/reports" element={<LedgerDataGuard><FinancialReportsHubPage /></LedgerDataGuard>} />
         <Route path="/reports/trial-balance" element={<LedgerDataGuard><TrialBalancePage /></LedgerDataGuard>} />
         <Route path="/reports/balance-sheet" element={<LedgerDataGuard><BalanceSheetPage /></LedgerDataGuard>} />
         <Route path="/reports/income-statement" element={<LedgerDataGuard><IncomeStatementPage /></LedgerDataGuard>} />
+        <Route path="/reports/cash-flow-statement" element={<LedgerDataGuard><CashFlowStatementPage /></LedgerDataGuard>} />
       </Route>
     </Routes>
   )

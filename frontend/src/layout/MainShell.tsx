@@ -29,6 +29,8 @@ import {
 } from '@ant-design/icons'
 import { LedgerSelector } from '../components/LedgerSelector'
 import { RouteTabs } from '../components/RouteTabs'
+import { voucherFlowNavKey } from '../utils/voucherFlowRoutes'
+import { LEDGER_NAV_GROUPS } from '../utils/ledgerNavTaxonomy'
 import { api, type AuditNotification } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
 
@@ -36,6 +38,20 @@ const { Header, Sider, Content } = Layout
 const { Title } = Typography
 
 function buildNavItems(isSuperAdmin: boolean) {
+  const ledgerNavChildren = [
+    { key: '/ledger/workspace', icon: <HomeOutlined />, label: <Link to="/ledger/workspace">工作台</Link> },
+    { key: '/ledger/files', icon: <FileTextOutlined />, label: <Link to="/ledger/files">证据云空间</Link> },
+    ...LEDGER_NAV_GROUPS.map((group) => ({
+      key: `ledger-group-${group.key}`,
+      label: group.label,
+      children: group.items.map((item) => ({
+        key: item.path,
+        label: <Link to={item.path}>{item.label}</Link>,
+      })),
+    })),
+    { key: '/ledger/control-defects', label: <Link to="/ledger/control-defects">内控待办</Link> },
+  ]
+
   return [
   { key: '/workspace', icon: <HomeOutlined />, label: <Link to="/workspace">工作台</Link> },
   { key: '/agent', icon: <RobotOutlined />, label: <Link to="/agent">Agent 助手</Link> },
@@ -43,28 +59,7 @@ function buildNavItems(isSuperAdmin: boolean) {
     key: 'ledger',
     icon: <BookOutlined />,
     label: '财务总账',
-    children: [
-      { key: '/ledger/workspace', icon: <HomeOutlined />, label: <Link to="/ledger/workspace">工作台</Link> },
-      { key: '/ledger/files', icon: <FileTextOutlined />, label: <Link to="/ledger/files">支持性文件</Link> },
-      {
-        key: 'ledger-vouchers',
-        icon: <FileTextOutlined />,
-        label: '凭证管理',
-        children: [
-          { key: '/ledger/vouchers/step/1', label: <Link to="/ledger/vouchers/step/1">Step 1 选择原始资料类型</Link> },
-          { key: '/ledger/vouchers/step/2', label: <Link to="/ledger/vouchers/step/2">Step 2 导入原始凭证</Link> },
-          { key: '/ledger/vouchers/step/3', label: <Link to="/ledger/vouchers/step/3">Step 3 AI 生成会计分录</Link> },
-          { key: '/ledger/vouchers/step/4', label: <Link to="/ledger/vouchers/step/4">Step 4 复核会计分录</Link> },
-          { key: '/ledger/vouchers/step/5', label: <Link to="/ledger/vouchers/step/5">Step 5 确认导出</Link> },
-          { key: '/ledger/entries', label: <Link to="/ledger/entries">凭证查询</Link> },
-        ],
-      },
-      { key: '/ledger/books', label: <Link to="/ledger/books">账簿管理</Link> },
-      { key: '/ledger/general-ledger', label: <Link to="/ledger/general-ledger">总账</Link> },
-      { key: '/ledger/subsidiary-ledger', label: <Link to="/ledger/subsidiary-ledger">明细账</Link> },
-      { key: '/reports/trial-balance', icon: <PieChartOutlined />, label: <Link to="/reports/trial-balance">科目余额表</Link> },
-      { key: '/reports/trial-balance-statement', label: <Link to="/reports/trial-balance">试算平衡表</Link> },
-    ],
+    children: ledgerNavChildren,
   },
   {
     key: 'audit-system',
@@ -137,7 +132,7 @@ function buildNavItems(isSuperAdmin: boolean) {
     label: '基础资料',
     children: [
       { key: '/basic/workspace', icon: <HomeOutlined />, label: <Link to="/basic/workspace">工作台</Link> },
-      { key: '/basic/coa', icon: <BookOutlined />, label: <Link to="/basic/coa">会计科目</Link> },
+      { key: '/basic/coa', icon: <BookOutlined />, label: <Link to="/ledger/dimensions?tab=coa">会计科目</Link> },
       { key: '/basic/org-units', icon: <ApartmentOutlined />, label: <Link to="/basic/org-units">企业组织架构</Link> },
       { key: '/basic/personnel', icon: <UserOutlined />, label: <Link to="/basic/personnel">员工/协作人员</Link> },
       { key: '/basic/counterparties', icon: <TeamOutlined />, label: <Link to="/basic/counterparties">往来单位</Link> },
@@ -156,7 +151,7 @@ function buildNavItems(isSuperAdmin: boolean) {
       { key: '/scope-settings', icon: <SettingOutlined />, label: <Link to="/scope-settings">管理配置</Link> },
       { key: '/parser-engine', icon: <ExperimentOutlined />, label: <Link to="/parser-engine">解析引擎管理</Link> },
       { key: '/parser-engine/config', icon: <SettingOutlined />, label: <Link to="/parser-engine/config">解析引擎配置</Link> },
-      { key: '/ledger/files', icon: <FileTextOutlined />, label: <Link to="/ledger/files">支持性文件</Link> },
+      { key: '/ledger/files', icon: <FileTextOutlined />, label: <Link to="/ledger/files">证据云空间</Link> },
       { key: '/projects', icon: <AppstoreOutlined />, label: <Link to="/projects">项目管理</Link> },
       ...(isSuperAdmin ? [{ key: '/super-admin', icon: <CrownOutlined />, label: <Link to="/super-admin">开发者超级管理员</Link> }] : []),
     ],
@@ -176,6 +171,8 @@ function buildNavItems(isSuperAdmin: boolean) {
 
 const selectedKeyAliases: Record<string, string> = {
   '/entries': '/ledger/entries',
+  '/ledger/vouchers': '/ledger/entries',
+  '/basic/coa': '/ledger/dimensions',
   '/fixed-assets': '/fixed-assets/workspace',
   '/inventory': '/inventory/workspace',
 }
@@ -205,9 +202,8 @@ function getNotificationTargetLabel(notification: AuditNotification) {
 }
 
 function getSelectedKey(pathname: string) {
-  if (pathname.startsWith('/accounting/step/')) {
-    return pathname.replace('/accounting/step/', '/ledger/vouchers/step/')
-  }
+  const flowKey = voucherFlowNavKey(pathname)
+  if (flowKey) return flowKey
   if (pathname.startsWith('/fixed-assets/') && pathname !== '/fixed-assets/workspace') {
     return pathname
   }
@@ -230,6 +226,7 @@ export function MainShell() {
   const [notifications, setNotifications] = useState<AuditNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [notificationLoading, setNotificationLoading] = useState(false)
+  const [openKeys, setOpenKeys] = useState<string[]>([])
 
   const loadNotifications = () => {
     setNotificationLoading(true)
@@ -328,18 +325,8 @@ export function MainShell() {
           <Menu
             mode="inline"
             selectedKeys={[selectedKey]}
-            defaultOpenKeys={[
-              'ledger',
-              'ledger-vouchers',
-              'audit-system',
-              'bank-module',
-              'tax-module',
-              'fixed-assets-module',
-              'inventory-module',
-              'basic',
-              'management',
-              'custom-module',
-            ]}
+            openKeys={openKeys}
+            onOpenChange={setOpenKeys}
             items={navItems}
             style={{ height: '100%', borderRight: 0 }}
             onClick={handleMenuClick}

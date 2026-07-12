@@ -108,6 +108,98 @@ def test_bank_account_and_transaction_flow(client):
     assert summary.json()["unreconciled_count"] == 1
 
 
+def test_create_bank_account_upserts_by_source_sub_code(client):
+    headers, _ = _auth_headers(client, "bank_user3")
+    ledger_id = _create_ledger(client, headers)
+    ledger_headers = {**headers, "X-Ledger-Id": str(ledger_id)}
+
+    first = client.post(
+        "/api/bank/accounts",
+        json={
+            "bank_name": "浦发银行太原分行",
+            "account_no": "111111",
+            "account_name": "临时户名",
+            "source_sub_code": "02",
+        },
+        headers=ledger_headers,
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        "/api/bank/accounts",
+        json={
+            "bank_name": "浦发银行太原分行",
+            "account_no": "97979797979",
+            "account_name": "山西美德盛矿业有限公司",
+            "source_sub_code": "02",
+        },
+        headers=ledger_headers,
+    )
+    assert second.status_code == 201
+    body = second.json()
+    assert body["account_name"] == "山西美德盛矿业有限公司"
+    assert body["account_no"] == "97979797979"
+
+    listed = client.get("/api/bank/accounts", headers=ledger_headers)
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+    assert listed.json()[0]["source_sub_code"] == "02"
+
+
+def test_update_bank_account(client):
+    headers, _ = _auth_headers(client, "bank_user4")
+    ledger_id = _create_ledger(client, headers)
+    ledger_headers = {**headers, "X-Ledger-Id": str(ledger_id)}
+
+    created = client.post(
+        "/api/bank/accounts",
+        json={
+            "bank_name": "农商行",
+            "account_no": "62220200000003",
+            "account_name": "简称",
+            "source_sub_code": "03",
+        },
+        headers=ledger_headers,
+    ).json()
+
+    updated = client.put(
+        f"/api/bank/accounts/{created['id']}",
+        json={
+            "bank_name": "山西农村商业银行股份有限公司",
+            "account_no": "62220200000003",
+            "account_name": "山西美德盛矿业有限公司",
+            "source_sub_code": "03",
+        },
+        headers=ledger_headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["account_name"] == "山西美德盛矿业有限公司"
+
+
+def test_delete_bank_account_soft_hides_from_list(client):
+    headers, _ = _auth_headers(client, "bank_user5")
+    ledger_id = _create_ledger(client, headers)
+    ledger_headers = {**headers, "X-Ledger-Id": str(ledger_id)}
+
+    created = client.post(
+        "/api/bank/accounts",
+        json={
+            "bank_name": "误登记银行",
+            "account_no": "62220200000099",
+            "account_name": "错误户名",
+            "source_sub_code": "99",
+        },
+        headers=ledger_headers,
+    ).json()
+
+    deleted = client.delete(f"/api/bank/accounts/{created['id']}", headers=ledger_headers)
+    assert deleted.status_code == 200
+
+    listed = client.get("/api/bank/accounts", headers=ledger_headers)
+    assert listed.status_code == 200
+    assert len(listed.json()) == 0
+
+
 def test_auto_reconcile_matches_bank_and_ledger_entries(client):
     headers, _ = _auth_headers(client, "bank_user2")
     ledger_id = _create_ledger(client, headers)

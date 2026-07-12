@@ -101,7 +101,7 @@ export function HomePage() {
             borderRadius: '16px',
             cursor: 'pointer'
           }}
-          onClick={() => navigate('/accounting/step/1')}
+          onClick={() => navigate('/ledger/vouchers/step/1')}
         >
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>📒</div>
           <Title level={4}>记账模式</Title>

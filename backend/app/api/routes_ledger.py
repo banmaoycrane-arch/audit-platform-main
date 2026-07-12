@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from datetime import date
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
 from app.core.dependencies import get_current_user, get_current_ledger
@@ -21,6 +21,7 @@ from app.models.user_ledger_auth import UserLedgerAuth
 from app.models.user import User
 from app.models.ledger import Ledger
 from app.services.shared import ledger_management_service
+from app.services.auth import auth_service
 
 router = APIRouter(prefix="/api/ledgers", tags=["ledgers"])
 
@@ -37,7 +38,9 @@ class CreateLedgerRequest(BaseModel):
 
 class AuthUserRequest(BaseModel):
     """授权用户请求体"""
-    user_id: int
+    user_id: int | None = None
+    username: str | None = None
+    phone: str | None = None
     role: str
 
 
@@ -64,15 +67,65 @@ class AuthResponse(BaseModel):
     user_id: int
     ledger_id: int
     role: str
+    username: str | None = None
+    phone: str | None = None
     granted_at: str | None
     granted_by: int | None
 
     model_config = {"from_attributes": True}
 
 
+def build_auth_response(db: Session, auth: UserLedgerAuth) -> AuthResponse:
+    user = auth.user
+    if user is None:
+        user = db.query(User).filter(User.id == auth.user_id).first()
+    if user is not None:
+        user = auth_service.ensure_username(db, user)
+    return AuthResponse(
+        id=auth.id,
+        user_id=auth.user_id,
+        ledger_id=auth.ledger_id,
+        role=auth.role,
+        username=user.username if user else None,
+        phone=user.phone if user else None,
+        granted_at=str(auth.granted_at) if auth.granted_at else None,
+        granted_by=auth.granted_by,
+    )
+
+
 class LifecycleReasonRequest(BaseModel):
     """生命周期变更原因请求体"""
     reason: str | None = None
+
+
+class UpdateLedgerRequest(BaseModel):
+    """更新账簿请求体"""
+    name: str | None = None
+    accounting_start_date: date | None = None
+
+
+class DeleteLedgerResponse(BaseModel):
+    """硬删除账簿响应体"""
+    deleted: bool
+    ledger_id: int
+
+
+class InitializeLedgerResponse(BaseModel):
+    """初始化账簿响应体"""
+    ledger_id: int
+    deleted_vouchers: int
+    deleted_entries: int
+
+
+def _require_ledger_admin(db: Session, current_user: User, ledger_id: int) -> UserLedgerAuth:
+    auth = (
+        db.query(UserLedgerAuth)
+        .filter(UserLedgerAuth.user_id == current_user.id, UserLedgerAuth.ledger_id == ledger_id)
+        .first()
+    )
+    if not auth or auth.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="只有 admin 可以执行此操作")
+    return auth
 
 
 def build_ledger_response(ledger: Ledger, role: str | None = None) -> LedgerResponse:
@@ -142,6 +195,92 @@ def list_user_ledgers(
     return [build_ledger_response(ledger, role_by_ledger_id.get(ledger.id)) for ledger in ledgers]
 
 
+@router.put("/{ledger_id}", response_model=LedgerResponse)
+def update_ledger_endpoint(
+    ledger_id: int,
+    payload: UpdateLedgerRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> LedgerResponse:
+    """更新账簿名称或会计时间线起点（仅 admin）。"""
+    ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
+    if not ledger:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
+
+    auth = _require_ledger_admin(db, current_user, ledger_id)
+
+    if payload.name is None and payload.accounting_start_date is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少提供一个待更新字段")
+
+    try:
+        updated = ledger_management_service.update_ledger(
+            db,
+            ledger_id,
+            name=payload.name,
+            accounting_start_date=payload.accounting_start_date,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+    return build_ledger_response(updated, role=auth.role)
+
+
+@router.post("/{ledger_id}/delete", response_model=DeleteLedgerResponse)
+def delete_ledger_endpoint(
+    ledger_id: int,
+    payload: LifecycleReasonRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DeleteLedgerResponse:
+    """硬删除账簿（仅 admin）：物理清除关联数据，不可恢复。"""
+    ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
+    if not ledger:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
+
+    _require_ledger_admin(db, current_user, ledger_id)
+
+    try:
+        result = ledger_management_service.delete_ledger(
+            db,
+            ledger_id,
+            reason=payload.reason if payload else None,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+    return DeleteLedgerResponse(deleted=bool(result["deleted"]), ledger_id=int(result["ledger_id"]))
+
+
+@router.post("/{ledger_id}/initialize", response_model=InitializeLedgerResponse)
+def initialize_ledger_endpoint(
+    ledger_id: int,
+    payload: LifecycleReasonRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> InitializeLedgerResponse:
+    """初始化账簿（仅 admin）：删除全部凭证与分录，保留科目、期间、设置与授权。"""
+    ledger = ledger_management_service.get_ledger_by_id(db, ledger_id)
+    if not ledger:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账簿不存在")
+
+    _require_ledger_admin(db, current_user, ledger_id)
+
+    try:
+        result = ledger_management_service.initialize_ledger(
+            db,
+            ledger_id,
+            reason=payload.reason if payload else None,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+    return InitializeLedgerResponse(
+        ledger_id=int(result["ledger_id"]),
+        deleted_vouchers=int(result["deleted_vouchers"]),
+        deleted_entries=int(result["deleted_entries"]),
+    )
+
+
 @router.post("/{ledger_id}/switch")
 def switch_ledger(
     ledger_id: int,
@@ -192,13 +331,31 @@ def authorize_user(
     if not current_auth or current_auth.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="只有 admin 可以授权其他用户")
 
+    if not payload.user_id and not payload.username and not payload.phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请提供 user_id、username 或 phone 中的任意一项",
+        )
+
+    target_user = ledger_management_service.get_user_by_identifier(
+        db,
+        user_id=payload.user_id,
+        username=payload.username,
+        phone=payload.phone,
+    )
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
+    target_user = auth_service.ensure_username(db, target_user)
+
     auth = ledger_management_service.authorize_user_to_ledger(
-        db, ledger_id, payload.user_id, payload.role, granted_by=current_user.id
+        db, ledger_id, target_user.id, payload.role, granted_by=current_user.id
     )
 
     return {
         "message": "授权成功",
         "user_id": auth.user_id,
+        "username": target_user.username,
         "ledger_id": auth.ledger_id,
         "role": auth.role,
     }
@@ -355,18 +512,13 @@ def list_ledger_auths(
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
 
-    auths = ledger_management_service.get_ledger_auths(db, ledger_id)
-    return [
-        AuthResponse(
-            id=auth.id,
-            user_id=auth.user_id,
-            ledger_id=auth.ledger_id,
-            role=auth.role,
-            granted_at=str(auth.granted_at) if auth.granted_at else None,
-            granted_by=auth.granted_by,
-        )
-        for auth in auths
-    ]
+    auths = (
+        db.query(UserLedgerAuth)
+        .options(joinedload(UserLedgerAuth.user))
+        .filter(UserLedgerAuth.ledger_id == ledger_id)
+        .all()
+    )
+    return [build_auth_response(db, auth) for auth in auths]
 
 
 @router.delete("/{ledger_id}/auths/{auth_id}")

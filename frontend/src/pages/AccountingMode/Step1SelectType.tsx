@@ -1,38 +1,26 @@
-import { Alert, Button, Card, Radio, Space, Steps, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Radio, Space, Steps, Tag, Tooltip, Typography } from 'antd'
 import {
   CloudUploadOutlined,
   EditOutlined,
   FileExcelOutlined,
+  LockOutlined,
   RobotOutlined,
   TableOutlined,
 } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FlowNav } from '../../components/FlowNav'
+import {
+  ACCOUNTING_ALLOWED_STRUCTURED_KINDS,
+  type StructuredKind,
+  STRUCTURED_KIND_OPTIONS,
+  resolveStructuredKind,
+} from '../../constants/structuredImportKinds'
 
 const { Title, Text, Paragraph } = Typography
 
 /** 与 Step2 兼容的 inputMode 参数 */
 type VoucherInputMode = 'ai_generated' | 'day_book_import' | 'manual_entry'
-
-type StructuredKind =
-  | 'day_book'
-  | 'standard_entries'
-  | 'trial_balance'
-  | 'subsidiary_ledger'
-  | 'financial_reports'
-
-const STRUCTURED_KIND_OPTIONS: Array<{
-  value: StructuredKind
-  label: string
-  hint: string
-}> = [
-  { value: 'day_book', label: '序时簿 / 日记账', hint: '按凭证号、日期排列的分录流水' },
-  { value: 'standard_entries', label: '标准格式分录文件', hint: '凭证号、科目、借贷金额等标准列' },
-  { value: 'trial_balance', label: '科目余额表', hint: '期初、本期发生、期末余额' },
-  { value: 'subsidiary_ledger', label: '明细账', hint: '按科目展开的分录明细' },
-  { value: 'financial_reports', label: '标准财务报表', hint: '资产负债表、利润表等导出表' },
-]
 
 const MODE_OPTIONS: Array<{
   value: VoucherInputMode
@@ -48,7 +36,7 @@ const MODE_OPTIONS: Array<{
     title: '非结构化 · 支持性原始文件',
     subtitle: '证据链资料，需语义理解后再生成凭证草稿',
     description:
-      '上传 PDF、图片、扫描件及非标准表格等原始资料。系统调用项目统一智能解析引擎，完成 OCR、单据类型识别与语义分解，登记模块台账并生成待复核凭证草稿。',
+      '上传 PDF、图片、扫描件及非标准表格等原始资料。资料解析中心（场景 B）完成 OCR、单据识别与语义分解，登记模块台账并生成待复核凭证草稿。',
     pipeline: '智能解析引擎',
     icon: <RobotOutlined style={{ fontSize: 28, color: '#1677ff' }} />,
     examples: ['增值税发票', '银行回单', '合同协议', '报销影像', '收据扫描件'],
@@ -56,12 +44,12 @@ const MODE_OPTIONS: Array<{
   {
     value: 'day_book_import',
     title: '结构化 · 标准化财务文件',
-    subtitle: '其他账套或财务软件导出的标准表格/报表',
+    subtitle: '序时簿、日记账及标准分录表（Excel/CSV）',
     description:
-      '上传 Excel/CSV 等结构化文件。系统先用规则引擎识别表头、模板与列映射以保证速度，再调用智能解析引擎做校验、补全与异常提示，兼顾导入效率与精度。',
+      '上传 Excel/CSV 等结构化分录文件。系统先用规则引擎识别表头、模板与列映射，再调用智能解析引擎做校验与异常提示。科目余额表、明细账、财务报表请在审计系统中导入。',
     pipeline: '规则预识别 + 智能解析引擎',
     icon: <FileExcelOutlined style={{ fontSize: 28, color: '#52c41a' }} />,
-    examples: ['序时簿', '标准分录', '科目余额表', '明细账', '资产负债表导出'],
+    examples: ['序时簿', '日记账', '标准格式分录'],
   },
   {
     value: 'manual_entry',
@@ -87,16 +75,24 @@ export function Step1AccountingSelectType() {
   const [structuredKind, setStructuredKind] = useState<StructuredKind>('day_book')
   const currentStep = 0
 
+  useEffect(() => {
+    if (!ACCOUNTING_ALLOWED_STRUCTURED_KINDS.includes(structuredKind)) {
+      setStructuredKind('day_book')
+    }
+  }, [structuredKind])
+
   const selectedMode = useMemo(
     () => MODE_OPTIONS.find((option) => option.value === selectedInputMode),
     [selectedInputMode],
   )
 
+  const selectedKindOption = STRUCTURED_KIND_OPTIONS.find((kind) => kind.value === structuredKind)
+
   const handleNext = () => {
     if (!selectedInputMode) return
     const params = new URLSearchParams({ inputMode: selectedInputMode })
     if (selectedInputMode === 'day_book_import') {
-      params.set('structuredKind', structuredKind)
+      params.set('structuredKind', resolveStructuredKind(structuredKind, 'accounting'))
     }
     navigate(`${stepPath(2)}?${params.toString()}`)
   }
@@ -174,6 +170,16 @@ export function Step1AccountingSelectType() {
       </Radio.Group>
 
       {selectedInputMode === 'day_book_import' && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginTop: 16 }}
+          title="Step 2 上传前提示"
+          description="结构化 Excel/CSV 导入时，系统会自动识别字符集与列分隔符。若文件来自老版财务软件或出现乱码，请在 Step 2 上传前配置 UTF-8 / GB18030 及逗号、Tab 分隔符，并可先预检测表头。"
+        />
+      )}
+
+      {selectedInputMode === 'day_book_import' && (
         <Card
           size="small"
           title={
@@ -186,16 +192,40 @@ export function Step1AccountingSelectType() {
         >
           <Radio.Group
             value={structuredKind}
-            onChange={(event) => setStructuredKind(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value as StructuredKind
+              if (ACCOUNTING_ALLOWED_STRUCTURED_KINDS.includes(next)) {
+                setStructuredKind(next)
+              }
+            }}
             style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
           >
-            {STRUCTURED_KIND_OPTIONS.map((kind) => (
-              <Radio key={kind.value} value={kind.value}>
-                <Text strong>{kind.label}</Text>
-                <Text type="secondary"> — {kind.hint}</Text>
-              </Radio>
-            ))}
+            {STRUCTURED_KIND_OPTIONS.map((kind) => {
+              const disabled = kind.auditOnly
+              const radio = (
+                <Radio key={kind.value} value={kind.value} disabled={disabled}>
+                  <Text strong type={disabled ? 'secondary' : undefined}>
+                    {kind.label}
+                  </Text>
+                  <Text type="secondary"> — {kind.hint}</Text>
+                  {disabled && (
+                    <Tag icon={<LockOutlined />} color="default" style={{ marginLeft: 8 }}>
+                      审计系统专用
+                    </Tag>
+                  )}
+                </Radio>
+              )
+              if (!disabled) return radio
+              return (
+                <Tooltip key={kind.value} title={kind.auditModuleHint}>
+                  <div>{radio}</div>
+                </Tooltip>
+              )
+            })}
           </Radio.Group>
+          <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+            科目余额表、明细账、标准财务报表属于审计底稿资料，请在「审计系统」对应导入步骤中使用；财务总账此处仅支持序时簿、日记账与标准分录。
+          </Paragraph>
         </Card>
       )}
 
@@ -207,7 +237,7 @@ export function Step1AccountingSelectType() {
           title={`已选择：${selectedMode.title}`}
           description={
             selectedInputMode === 'day_book_import'
-              ? `下一步将上传结构化文件（${STRUCTURED_KIND_OPTIONS.find((k) => k.value === structuredKind)?.label}），先规则识别表头，再由智能解析引擎校验。`
+              ? `下一步将上传结构化文件（${selectedKindOption?.label || '序时簿 / 日记账'}），先规则识别表头，再由智能解析引擎校验。`
               : `下一步将进入${selectedMode.title}流程。`
           }
         />

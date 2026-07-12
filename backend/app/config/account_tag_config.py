@@ -58,12 +58,17 @@ def _default_config() -> AccountTagConfig:
             "2211.01.01", "2211.01.02", "2211.01.03", "2211.01.04",
             "2211.01.05", "2211.01.06", "2211.01.07", "2211.01.08",
             "2211.01.09",
+            "4001", "4002", "4101", "4103", "4104",
         },
         mandatory_hierarchical_keywords={
             "应交增值税", "未交增值税", "进项税额", "销项税额",
             "进项税额转出", "已交税金", "应付职工薪酬",
+            "实收资本", "资本公积", "盈余公积", "法定盈余公积", "任意盈余公积",
+            "资本溢价", "其他资本公积", "本年利润", "利润分配", "未分配利润",
         },
         account_code_tag_category={
+            "1001": "bank_account",
+            "1002": "bank_account",
             "1122": "customer",
             "1123": "customer",
             "2202": "supplier",
@@ -76,11 +81,15 @@ def _default_config() -> AccountTagConfig:
             "5101": "cost_element",
             "5401": "cost_element",
             "6001": "product",
-            "6051": "product",
+            "6051": "service",
             "6601": "expense_type",
             "6602": "expense_type",
             "6603": "expense_type",
             "6403": "tax_type",
+            "1601": "fixed_asset_class",
+            "1602": "fixed_asset_class",
+            "1604": "cip_category",
+            "2001": "loan_channel",
         },
         account_name_tag_category={
             "应收": "customer",
@@ -97,17 +106,22 @@ def _default_config() -> AccountTagConfig:
             "制造费用": "cost_element",
             "主营业务成本": "cost_element",
             "主营业务收入": "product",
-            "其他业务收入": "product",
+            "其他业务收入": "service",
             "销售费用": "expense_type",
             "管理费用": "expense_type",
             "财务费用": "expense_type",
             "研发费用": "expense_type",
             "税金及附加": "tax_type",
+            "固定资产": "fixed_asset_class",
+            "累计折旧": "fixed_asset_class",
+            "在建工程": "cip_category",
+            "短期借款": "loan_channel",
         },
         auxiliary_keywords={
             "department": ["行政部", "财务部", "销售部", "研发部", "生产部",
                            "采购部", "人力资源部", "部", "部门", "中心", "事业部", "车间", "工厂"],
             "project": ["PO-", "SO-", "项目", "工程", "课题", "合同"],
+            "service": ["技术服务", "咨询服务", "劳务", "服务", "维修", "租赁"],
             "region": ["北京", "上海", "广州", "深圳", "山西", "杭州", "成都",
                        "武汉", "西安", "重庆", "天津", "南京", "苏州"],
         },
@@ -164,41 +178,150 @@ def load_account_tag_config_from_db(db: Session) -> AccountTagConfig | None:
     Returns:
         AccountTagConfig | None: 数据库中的配置对象，若不存在则返回 None。
     """
+    from sqlalchemy.exc import OperationalError, ProgrammingError
+
     from app.models.global_settings import GlobalSettings
 
-    settings = db.query(GlobalSettings).filter(
-        GlobalSettings.settings_key == CONFIG_KEY
-    ).first()
+    try:
+        settings = db.query(GlobalSettings).filter(
+            GlobalSettings.settings_key == CONFIG_KEY
+        ).first()
+    except (OperationalError, ProgrammingError):
+        return None
     if not settings or not settings.settings_value:
         return None
     return _build_config_from_dict(settings.settings_value)
 
 
+def _config_to_dict(config: AccountTagConfig) -> dict[str, Any]:
+    return {
+        "version": config.version,
+        "mandatory_hierarchical_accounts": list(config.mandatory_hierarchical_accounts),
+        "mandatory_hierarchical_keywords": list(config.mandatory_hierarchical_keywords),
+        "account_code_tag_category": dict(config.account_code_tag_category),
+        "account_name_tag_category": dict(config.account_name_tag_category),
+        "auxiliary_keywords": {
+            key: list(value) for key, value in config.auxiliary_keywords.items()
+        },
+    }
+
+
+def merge_account_tag_configs(
+    base: AccountTagConfig,
+    override: dict[str, Any] | None,
+) -> AccountTagConfig:
+    """将账簿级覆盖合并到平台/全局配置之上（覆盖字段优先）。"""
+    if not override:
+        return base
+
+    mandatory_accounts = base.mandatory_hierarchical_accounts
+    if "mandatory_hierarchical_accounts" in override:
+        mandatory_accounts = set(override.get("mandatory_hierarchical_accounts") or [])
+
+    mandatory_keywords = base.mandatory_hierarchical_keywords
+    if "mandatory_hierarchical_keywords" in override:
+        mandatory_keywords = set(override.get("mandatory_hierarchical_keywords") or [])
+
+    code_map = dict(base.account_code_tag_category)
+    code_map.update(override.get("account_code_tag_category") or {})
+
+    name_map = dict(base.account_name_tag_category)
+    name_map.update(override.get("account_name_tag_category") or {})
+
+    auxiliary_keywords = {
+        key: list(value) for key, value in base.auxiliary_keywords.items()
+    }
+    for key, value in (override.get("auxiliary_keywords") or {}).items():
+        auxiliary_keywords[key] = list(value or [])
+
+    return AccountTagConfig(
+        version=str(override.get("version") or base.version),
+        mandatory_hierarchical_accounts=mandatory_accounts,
+        mandatory_hierarchical_keywords=mandatory_keywords,
+        account_code_tag_category=code_map,
+        account_name_tag_category=name_map,
+        auxiliary_keywords=auxiliary_keywords,
+    )
+
+
+def load_ledger_account_tag_override(db: Session, ledger_id: int) -> dict[str, Any] | None:
+    from app.models.scope_settings import LedgerSettings
+
+    row = db.query(LedgerSettings).filter(LedgerSettings.ledger_id == ledger_id).first()
+    if not row or not row.settings:
+        return None
+    override = row.settings.get("account_tag_rules_override")
+    return override if isinstance(override, dict) else None
+
+
+def save_ledger_account_tag_override(
+    db: Session,
+    ledger_id: int,
+    config: AccountTagConfig,
+) -> None:
+    from app.models.scope_settings import LedgerSettings
+
+    row = db.query(LedgerSettings).filter(LedgerSettings.ledger_id == ledger_id).first()
+    if row is None:
+        row = LedgerSettings(ledger_id=ledger_id, settings={})
+        db.add(row)
+    settings = dict(row.settings or {})
+    settings["account_tag_rules_override"] = _config_to_dict(config)
+    row.settings = settings
+    db.commit()
+
+
+def clear_ledger_account_tag_override(db: Session, ledger_id: int) -> bool:
+    from app.models.scope_settings import LedgerSettings
+
+    row = db.query(LedgerSettings).filter(LedgerSettings.ledger_id == ledger_id).first()
+    if not row or not row.settings:
+        return False
+    settings = dict(row.settings)
+    if "account_tag_rules_override" not in settings:
+        return False
+    settings.pop("account_tag_rules_override", None)
+    row.settings = settings
+    db.commit()
+    return True
+
+
 def load_account_tag_config(
     db: Session | None = None,
     path: Path | str | None = None,
+    *,
+    ledger_id: int | None = None,
 ) -> AccountTagConfig:
     """
     加载科目解析规则配置。
 
     加载优先级：
-        1. 数据库中的有效配置（如果 db 传入且数据库存在记录）；
-        2. 配置文件；
-        3. 内置默认配置。
+        1. 平台数据库配置（GlobalSettings）或 YAML/内置默认；
+        2. 账簿级覆盖（LedgerSettings.account_tag_rules_override）合并其上。
 
     Args:
         db: 可选的数据库会话，用于读取数据库配置。
         path: 可选的配置文件路径。
+        ledger_id: 可选账簿 ID，加载并合并账簿级覆盖。
 
     Returns:
         AccountTagConfig: 配置对象。
     """
+    base_config: AccountTagConfig
     if db is not None:
         db_config = load_account_tag_config_from_db(db)
         if db_config is not None:
-            return db_config
+            base_config = db_config
+        else:
+            base_config = load_account_tag_config_from_file(path)
+    else:
+        base_config = load_account_tag_config_from_file(path)
 
-    return load_account_tag_config_from_file(path)
+    if db is not None and ledger_id is not None:
+        override = load_ledger_account_tag_override(db, ledger_id)
+        return merge_account_tag_configs(base_config, override)
+
+    return base_config
 
 
 def save_account_tag_config_to_db(

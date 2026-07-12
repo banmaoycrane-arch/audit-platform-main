@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -27,6 +27,7 @@ class BankAccountResponse(BaseModel):
     account_no: str
     account_name: str
     coa_account_code: str
+    source_sub_code: str | None = None
     opening_balance: float
     current_balance: float
     is_active: bool
@@ -39,7 +40,16 @@ class CreateBankAccountRequest(BaseModel):
     account_no: str
     account_name: str
     coa_account_code: str = "1002"
+    source_sub_code: str | None = None
     opening_balance: float = 0
+
+
+class UpdateBankAccountRequest(BaseModel):
+    bank_name: str
+    account_no: str
+    account_name: str
+    coa_account_code: str = "1002"
+    source_sub_code: str | None = None
 
 
 class CreateBankTransactionRequest(BaseModel):
@@ -90,9 +100,62 @@ def create_bank_account(
         account_no=payload.account_no,
         account_name=payload.account_name,
         coa_account_code=payload.coa_account_code,
+        source_sub_code=payload.source_sub_code,
         opening_balance=payload.opening_balance,
     )
     return BankAccountResponse.model_validate(account)
+
+
+@router.put("/accounts/{account_id}", response_model=BankAccountResponse)
+def update_bank_account(
+    account_id: int,
+    payload: UpdateBankAccountRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    ledger_id: int = Depends(require_ledger),
+) -> BankAccountResponse:
+    try:
+        account = bank_service.update_account(
+            db,
+            account_id=account_id,
+            ledger_id=ledger_id,
+            bank_name=payload.bank_name,
+            account_no=payload.account_no,
+            account_name=payload.account_name,
+            coa_account_code=payload.coa_account_code,
+            source_sub_code=payload.source_sub_code,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return BankAccountResponse.model_validate(account)
+
+
+@router.delete("/accounts/{account_id}")
+def delete_bank_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    ledger_id: int = Depends(require_ledger),
+) -> dict[str, str]:
+    try:
+        bank_service.deactivate_account(db, account_id=account_id, ledger_id=ledger_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"status": "deleted"}
+
+
+class BulkBankAccountImportRequest(BaseModel):
+    records: list[dict[str, Any]]
+
+
+@router.post("/accounts/bulk-import")
+def bulk_import_bank_accounts(
+    payload: BulkBankAccountImportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    ledger_id: int = Depends(require_ledger),
+) -> dict[str, Any]:
+    return bank_service.bulk_import_accounts(db, ledger_id=ledger_id, records=payload.records)
 
 
 @router.get("/transactions", response_model=list[BankTransactionResponse])

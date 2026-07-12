@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button, Card, Col, DatePicker, Form, Input, message, Modal, Row, Select, Space, Table, Tag, Typography, Empty, Dropdown, Badge } from 'antd'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { BookOutlined, PlusOutlined, SafetyOutlined, MoreOutlined, FolderOpenOutlined, EditOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { BookOutlined, PlusOutlined, SafetyOutlined, MoreOutlined, FolderOpenOutlined, EditOutlined, ExclamationCircleOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { Ledger, LedgerAuth, Project, Team } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
@@ -57,6 +57,13 @@ const ledgerStatusBorderMap: Record<string, string> = {
   deleted: '#ff4d4f',
 }
 
+const ledgerRoleLabelMap: Record<string, string> = {
+  admin: '管理员',
+  accountant: '会计',
+  auditor: '审计',
+  viewer: '只读查看',
+}
+
 const lifecycleActionMap: Record<string, { label: string; nextStatus: string; danger?: boolean }> = {
   activate: { label: '激活', nextStatus: 'active' },
   suspend: { label: '暂停', nextStatus: 'suspended' },
@@ -85,11 +92,12 @@ const statusFilters = [
   { key: 'active', label: '活跃' },
   { key: 'suspended', label: '暂停' },
   { key: 'archived', label: '归档' },
+  { key: 'deleted', label: '已删除' },
 ]
 
 export function LedgerManagementPage() {
   const navigate = useNavigate()
-  const { setUserLedgers, setCurrentLedger, refreshAuthContext } = useAuthStore()
+  const { setUserLedgers, setCurrentLedger, refreshAuthContext, currentLedgerId } = useAuthStore()
   const [teams, setTeams] = useState<Team[]>([])
   const [ledgers, setLedgers] = useState<Ledger[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -99,6 +107,8 @@ export function LedgerManagementPage() {
   const [loading, setLoading] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editingLedger, setEditingLedger] = useState<Ledger | null>(null)
   const [grantOpen, setGrantOpen] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [reasonModal, setReasonModal] = useState<{
@@ -109,11 +119,14 @@ export function LedgerManagementPage() {
   }>({ open: false, ledgerId: null, action: '', title: '' })
   const [reason, setReason] = useState('')
   const [createForm] = Form.useForm()
+  const [editForm] = Form.useForm()
   const [grantForm] = Form.useForm()
   const selectedCreateTeamId = Form.useWatch('team_id', createForm)
 
   const selectedLedger = ledgers.find((ledger) => ledger.id === selectedLedgerId) || null
-  const filteredLedgers = statusFilter === 'all' ? ledgers : ledgers.filter(l => l.status === statusFilter)
+  const filteredLedgers = statusFilter === 'all'
+    ? ledgers.filter((ledger) => ledger.status !== 'deleted')
+    : ledgers.filter((ledger) => ledger.status === statusFilter)
 
   const loadBaseData = () => {
     setLoading(true)
@@ -229,11 +242,13 @@ export function LedgerManagementPage() {
   const handleGrantAuth = async () => {
     if (!selectedLedgerId) return
     const values = await grantForm.validateFields()
+    const identifier = String(values.identifier || '').trim()
+    const payload =
+      /^1\d{10}$/.test(identifier)
+        ? { phone: identifier, role: values.role as string }
+        : { username: identifier, role: values.role as string }
     try {
-      await api.grantLedgerAuth(selectedLedgerId, {
-        user_id: Number(values.user_id),
-        role: values.role,
-      })
+      await api.grantLedgerAuth(selectedLedgerId, payload)
       message.success('账簿授权成功')
       setGrantOpen(false)
       grantForm.resetFields()
@@ -264,6 +279,90 @@ export function LedgerManagementPage() {
     }
   }
 
+  const openEditLedger = (ledger: Ledger) => {
+    setEditingLedger(ledger)
+    editForm.setFieldsValue({
+      name: ledger.name,
+      accounting_start_date: ledger.accounting_start_date ? dayjs(ledger.accounting_start_date) : undefined,
+    })
+    setEditOpen(true)
+  }
+
+  const handleUpdateLedger = async () => {
+    if (!editingLedger) return
+    const values = await editForm.validateFields()
+    try {
+      const updated = await api.updateLedger(editingLedger.id, {
+        name: values.name,
+        accounting_start_date: values.accounting_start_date
+          ? dayjs(values.accounting_start_date).format('YYYY-MM-DD')
+          : undefined,
+      })
+      message.success('账簿已更新')
+      setEditOpen(false)
+      setEditingLedger(null)
+      editForm.resetFields()
+      setLedgers((prev) => prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)))
+      await refreshAuthContext()
+      loadBaseData()
+    } catch (error: any) {
+      message.error(error.message || '账簿更新失败')
+    }
+  }
+
+  const handleDeleteLedger = (ledger: Ledger) => {
+    Modal.confirm({
+      title: `删除账簿「${ledger.name}」？`,
+      icon: <ExclamationCircleOutlined />,
+      content: '硬删除不可恢复：账簿及其凭证、分录、导入记录等关联数据将被永久清除。仅账簿管理员可执行。',
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await api.deleteLedger(ledger.id, '用户在账簿管理中删除')
+          message.success('账簿已永久删除')
+          if (selectedLedgerId === ledger.id) {
+            setSelectedLedgerId(null)
+          }
+          if (currentLedgerId === ledger.id) {
+            setCurrentLedger(null)
+          }
+          setLedgers((prev) => prev.filter((item) => item.id !== ledger.id))
+          await refreshAuthContext()
+          loadBaseData()
+        } catch (error: any) {
+          message.error(error.message || '删除账簿失败')
+        }
+      },
+    })
+  }
+
+  const handleInitializeLedger = (ledger: Ledger) => {
+    Modal.confirm({
+      title: `初始化账簿「${ledger.name}」？`,
+      icon: <ExclamationCircleOutlined />,
+      content:
+        '将永久删除该账簿内全部凭证及分录，使业务数据回到账套创建时的空白状态。科目表、会计期间、授权与账簿设置保持不变。此操作不可撤销。',
+      okText: '确认初始化',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const result = await api.initializeLedger(ledger.id, '用户在账簿管理中初始化')
+          const voucherMsg =
+            result.deleted_vouchers > 0
+              ? `已删除 ${result.deleted_vouchers} 张凭证、${result.deleted_entries} 条分录`
+              : '账簿内暂无凭证，已完成初始化'
+          message.success(voucherMsg)
+          await refreshAuthContext()
+        } catch (error: any) {
+          message.error(error.message || '初始化账簿失败')
+        }
+      },
+    })
+  }
+
   const filteredProjects = projects.filter((project) => !selectedCreateTeamId || !project.team_id || project.team_id === selectedCreateTeamId)
 
   // 账簿卡片组件
@@ -273,12 +372,42 @@ export function LedgerManagementPage() {
     const team = teams.find(t => t.id === ledger.team_id)
     const availableActions = getAvailableActions(ledger.status)
     
-    const menuItems = availableActions.map(action => ({
-      key: action,
-      label: lifecycleActionMap[action]?.label || action,
-      danger: lifecycleActionMap[action]?.danger,
-      onClick: () => handleLifecycleAction(ledger.id, action),
-    }))
+    const isAdmin = ledger.role === 'admin'
+    const canManage = isAdmin && ledger.status !== 'deleted'
+
+    const menuItems = [
+      ...availableActions.map(action => ({
+        key: action,
+        label: lifecycleActionMap[action]?.label || action,
+        danger: lifecycleActionMap[action]?.danger,
+        onClick: () => handleLifecycleAction(ledger.id, action),
+      })),
+      ...(canManage
+        ? [
+            { type: 'divider' as const },
+            {
+              key: 'edit',
+              label: '编辑账簿',
+              icon: <EditOutlined />,
+              onClick: () => openEditLedger(ledger),
+            },
+            {
+              key: 'initialize',
+              label: '初始化账簿',
+              icon: <ReloadOutlined />,
+              danger: true,
+              onClick: () => handleInitializeLedger(ledger),
+            },
+            {
+              key: 'delete',
+              label: '删除账簿',
+              icon: <DeleteOutlined />,
+              danger: true,
+              onClick: () => handleDeleteLedger(ledger),
+            },
+          ]
+        : []),
+    ]
     
     return (
       <Card
@@ -316,7 +445,7 @@ export function LedgerManagementPage() {
           </Text>
         )}
         
-        <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Button 
             type="primary" 
             ghost 
@@ -329,6 +458,18 @@ export function LedgerManagementPage() {
           >
             授权
           </Button>
+          {canManage ? (
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={(e) => {
+                e.stopPropagation()
+                openEditLedger(ledger)
+              }}
+            >
+              编辑
+            </Button>
+          ) : null}
           <Button 
             size="small" 
             icon={<FolderOpenOutlined />}
@@ -336,19 +477,56 @@ export function LedgerManagementPage() {
               e.stopPropagation()
               handleEnterLedgerFiles(ledger.id)
             }}
+            disabled={ledger.status === 'deleted'}
           >
             支持性文件
           </Button>
+          {canManage ? (
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleDeleteLedger(ledger)
+              }}
+            >
+              删除
+            </Button>
+          ) : null}
         </div>
       </Card>
     )
   }
 
   const authColumns = [
-    { title: '授权ID', dataIndex: 'id', key: 'id' },
-    { title: '用户ID', dataIndex: 'user_id', key: 'user_id' },
-    { title: '角色', dataIndex: 'role', key: 'role', render: (value: string) => <Tag color="blue">{value}</Tag> },
-    { title: '授权时间', dataIndex: 'granted_at', key: 'granted_at', render: (value: string | null) => value || '-' },
+    {
+      title: '用户名',
+      dataIndex: 'username',
+      key: 'username',
+      render: (_: string | null | undefined, record: LedgerAuth) => (
+        <div>
+          <div>{record.username || '—'}</div>
+          {record.phone ? (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {record.phone}
+            </Text>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      title: '角色',
+      dataIndex: 'role',
+      key: 'role',
+      render: (value: string) => <Tag color="blue">{ledgerRoleLabelMap[value] || value}</Tag>,
+    },
+    {
+      title: '授权时间',
+      dataIndex: 'granted_at',
+      key: 'granted_at',
+      render: (value: string | null) => value || '-',
+    },
     {
       title: '操作',
       key: 'action',
@@ -537,6 +715,32 @@ export function LedgerManagementPage() {
       </Modal>
 
       <Modal
+        title="编辑账簿"
+        open={editOpen}
+        onOk={handleUpdateLedger}
+        onCancel={() => {
+          setEditOpen(false)
+          setEditingLedger(null)
+          editForm.resetFields()
+        }}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={editForm} layout="vertical">
+          <Form.Item name="name" label="账簿名称" rules={[{ required: true, message: '请输入账簿名称' }]}>
+            <Input placeholder="账簿名称" />
+          </Form.Item>
+          <Form.Item
+            name="accounting_start_date"
+            label="会计时间线起点"
+            tooltip="补建历史账簿时可调整；已有期间数据请谨慎修改"
+          >
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
         title="授权用户访问账簿"
         open={grantOpen}
         onOk={handleGrantAuth}
@@ -545,8 +749,12 @@ export function LedgerManagementPage() {
         cancelText="取消"
       >
         <Form form={grantForm} layout="vertical" initialValues={{ role: 'viewer' }}>
-          <Form.Item name="user_id" label="用户ID" rules={[{ required: true, message: '请输入用户ID' }]}>
-            <Input placeholder="请输入被授权用户ID" />
+          <Form.Item
+            name="identifier"
+            label="用户名或手机号"
+            rules={[{ required: true, message: '请输入被授权用户的用户名或手机号' }]}
+          >
+            <Input placeholder="输入用户名或11位手机号" />
           </Form.Item>
           <Form.Item name="role" label="账簿角色" rules={[{ required: true, message: '请选择账簿角色' }]}>
             <Select

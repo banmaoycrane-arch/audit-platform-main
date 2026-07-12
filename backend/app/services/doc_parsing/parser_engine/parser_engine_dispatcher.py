@@ -21,7 +21,12 @@ from pathlib import Path
 from typing import Any, cast
 
 from app.core.config import get_settings
-from app.services.doc_parsing.parser_engine.config_service import get_runtime_parser_engine_config
+from app.services.doc_parsing.parser_engine.config_service import (
+    config_for_parse_llm,
+    get_runtime_parser_engine_config,
+    resolve_effective_comparison_engines,
+    resolve_parse_model,
+)
 from app.services.doc_parsing.parser_engine.parse_result import (
     DocumentType,
     DocumentSubType,
@@ -49,11 +54,20 @@ from app.services.doc_parsing.parser_engine.format_recognizer import recognize_f
 from app.services.doc_parsing.parser_engine.document_type_classifier import classify_document_type
 from app.services.basic_data.source_document_service import classify_document
 from app.services.agent.llm_client_service import LightweightLLMClient
-from app.services.basic_data.seal_detection_service import detect_seals
-from app.services.basic_data.seal_extraction_service import extract_seal_region
-from app.services.basic_data.seal_ocr_service import recognize_seal_text, text_items_to_dict_list
 
 logger = logging.getLogger(__name__)
+
+
+def _load_seal_services() -> tuple[Any, Any, Any, Any]:
+    """按需加载印章服务，避免 Excel-only 部署强依赖 OpenCV。"""
+    from app.services.basic_data.seal_detection_service import detect_seals
+    from app.services.basic_data.seal_extraction_service import extract_seal_region
+    from app.services.basic_data.seal_ocr_service import (
+        recognize_seal_text,
+        text_items_to_dict_list,
+    )
+
+    return detect_seals, extract_seal_region, recognize_seal_text, text_items_to_dict_list
 
 
 # =============================================================================
@@ -375,9 +389,19 @@ def parse_with_rule_engine(
         ParseResult: 规则引擎解析结果
     """
     from app.services.doc_parsing.parser_engine.rule_parsers import parse_with_rules
+    from app.services.doc_parsing.parser_engine.parser_evolution_service import (
+        get_active_column_header_aliases,
+    )
     
     try:
-        parsed_data = parse_with_rules(document_type.value, extracted_text, file_path)
+        parsed_data = parse_with_rules(
+            document_type.value,
+            extracted_text,
+            file_path,
+            header_aliases=(
+                get_active_column_header_aliases(db, document_type.value) if db is not None else None
+            ),
+        )
         
         if db is not None:
             from app.services.doc_parsing.parser_engine.correction_loop_service import (
@@ -991,7 +1015,7 @@ async def multi_llm_comparison(
     Returns:
         LLMComparisonResult: 多LLM引擎对比结果
     """
-    from app.services.llm_engine_config_service import get_llm_engines_config
+    from app.services.agent.llm_engine_config_service import get_llm_engines_config
     
     config = get_runtime_parser_engine_config(db)
     
@@ -1009,10 +1033,10 @@ async def multi_llm_comparison(
         except Exception as e:
             logger.warning(f"读取多LLM引擎配置失败，使用默认配置: {e}")
     
-    # 如果数据库中没有配置，回退到settings
+    # 如果数据库中没有配置，回退到统一主模型配置
     if not engines_config:
         settings = get_settings()
-        engines_list = settings.llm_comparison_engines.split(",") if settings.llm_comparison_engines else []
+        engines_list = resolve_effective_comparison_engines(config)
         try:
             weights = json.loads(settings.llm_engine_weights) if settings.llm_engine_weights else {}
         except Exception:
@@ -1654,9 +1678,9 @@ async def dual_engine_parallel_parse(file_path: str, document_type: DocumentType
             file_path,
             document_type,
             extracted_text,
-            config.get("ai_model") or config.get("llm_preferred_model", "qwen2.5-14b-chat"),
+            resolve_parse_model(config),
             file_format,
-            config,
+            config_for_parse_llm(config),
         )
     )
     
@@ -1793,6 +1817,9 @@ def _perform_seal_recognition(file_path: str) -> SealRecognitionResult:
         SealRecognitionResult: 印章识别结果
     """
     try:
+        detect_seals, extract_seal_region, recognize_seal_text, text_items_to_dict_list = (
+            _load_seal_services()
+        )
         detected_seals = detect_seals(file_path)
         
         if not detected_seals:
@@ -1847,7 +1874,14 @@ def _perform_seal_recognition(file_path: str) -> SealRecognitionResult:
             seal_count=len(seal_details),
             seals=seal_details,
         )
-    
+
+    except ImportError as e:
+        logger.warning("印章模块未安装（可选 pip install -e backend[vision]）: %s", e)
+        return SealRecognitionResult(
+            detected=False,
+            seal_count=0,
+            seals=[],
+        )
     except Exception as e:
         logger.warning(f"印章识别失败: {e}")
         return SealRecognitionResult(
@@ -1993,6 +2027,33 @@ class ParserEngineDispatcher:
                 confidence=0.0,
                 validation_errors=[type_result.conflict_reason or "文档类型无法识别"],
             )
+
+        # 3. 结构化 CSV/Excel：直接走规则引擎，跳过 LLM（避免阻塞与超时）
+        if (
+            format_result.file_format in {FileFormat.EXCEL, FileFormat.CSV}
+            and type_result.document_type
+            in {
+                DocumentType.ACCOUNTING_ENTRY,
+                DocumentType.BANK_STATEMENT,
+                DocumentType.SALARY_TABLE,
+            }
+        ):
+            logger.info(
+                "结构化表格 %s / %s，跳过 LLM，直接使用规则引擎",
+                format_result.file_format.value,
+                type_result.document_type.value,
+            )
+            extracted_text = extract_text_from_file(
+                file_path, format_result.file_format, sheet_name=sheet_name
+            )
+            rule_result = parse_with_rule_engine(
+                file_path,
+                type_result.document_type,
+                extracted_text,
+                format_result.file_format,
+                self.db,
+            )
+            return rule_result
         
         # 3. 提取文本
         extracted_text = extract_text_from_file(file_path, format_result.file_format, sheet_name=sheet_name)

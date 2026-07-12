@@ -21,6 +21,8 @@ class CoACreate(BaseModel):
     account_category: str | None = None
     account_subcategory: str | None = None
     equity_subcategory: str | None = None
+    balance_sheet_item: str | None = None
+    cash_flow_item: str | None = None
     include_in_dividend_base: bool | None = None
     is_terminal: bool = True
 
@@ -32,6 +34,8 @@ class CoAUpdate(BaseModel):
     account_category: str | None = None
     account_subcategory: str | None = None
     equity_subcategory: str | None = None
+    balance_sheet_item: str | None = None
+    cash_flow_item: str | None = None
     include_in_dividend_base: bool | None = None
     parent_code: str | None = None
     is_terminal: bool | None = None
@@ -48,6 +52,8 @@ def _to_dict(account: Any) -> dict[str, Any]:
         "account_category": account.account_category,
         "account_subcategory": account.account_subcategory,
         "equity_subcategory": account.equity_subcategory,
+        "balance_sheet_item": account.balance_sheet_item,
+        "cash_flow_item": account.cash_flow_item,
         "include_in_dividend_base": account.include_in_dividend_base,
         "is_terminal": account.is_terminal,
         "status": account.status,
@@ -66,6 +72,20 @@ def list_accounts(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 @router.get("/industry-templates")
 def list_industry_templates() -> list[dict[str, Any]]:
     return coa_service.list_industry_templates()
+
+
+@router.get("/balance-sheet-items")
+def list_balance_sheet_items() -> list[dict[str, str]]:
+    from app.services.accounting.balance_sheet_presentation_service import BS_ITEM_OPTIONS
+
+    return [{"code": code, "label": label} for code, label in BS_ITEM_OPTIONS.items()]
+
+
+@router.get("/cash-flow-items")
+def list_cash_flow_items() -> list[dict[str, str]]:
+    from app.services.accounting.cash_flow_presentation_service import CF_ITEM_OPTIONS
+
+    return [{"code": code, "label": label} for code, label in CF_ITEM_OPTIONS.items()]
 
 
 @router.get("/industry-templates/{template_code}")
@@ -93,12 +113,25 @@ def create_account(payload: CoACreate, db: Session = Depends(get_db)) -> dict[st
     return _to_dict(account)
 
 
+@router.post("/auto-provision-gaps")
+def auto_provision_coa_gaps_api(
+    ledger_id: int,
+    dry_run: bool = False,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """扫描账簿分录/期初，自动补全无法 rollup 的 COA 缺口科目。"""
+    from app.services.accounting.coa_gap_mapping_service import auto_provision_coa_gaps
+
+    try:
+        return auto_provision_coa_gaps(db, ledger_id, dry_run=dry_run)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.put("/{code}")
 def update_account(code: str, payload: CoAUpdate, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
-        account = coa_service.update_account(
-            db, code, {k: v for k, v in payload.model_dump().items() if v is not None}
-        )
+        account = coa_service.update_account(db, code, payload.model_dump(exclude_unset=True))
     except LookupError:
         raise HTTPException(status_code=404, detail="科目不存在")
     except ValueError as exc:

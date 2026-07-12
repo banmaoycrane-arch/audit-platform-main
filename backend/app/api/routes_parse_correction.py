@@ -73,6 +73,7 @@ def create_correction(
         corrected_result=request.corrected_result,
         correction_reason=request.correction_reason,
         corrected_by=request.corrected_by,
+        original_text=request.original_text,
     )
     return _correction_to_response(correction)
 

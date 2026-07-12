@@ -42,6 +42,11 @@ class CounterpartyBatchRequest(BaseModel):
     ids: list[int]
 
 
+class CounterpartyBatchRoleUpdate(BaseModel):
+    ids: list[int]
+    role: str
+
+
 def _to_dict(cp: Counterparty) -> dict[str, Any]:
     return {
         "id": cp.id,
@@ -83,6 +88,45 @@ def get_counterparties_batch(
         return [_to_dict(cp) for cp in items]
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=422, detail=f"往来单位批量查询失败：{exc}")
+
+
+@router.post("/batch-update-role")
+def batch_update_counterparty_role(
+    payload: CounterpartyBatchRoleUpdate,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """批量变更往来单位角色（维度值主数据页初始归类用）。"""
+    if payload.role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail=f"角色无效，应为 {sorted(VALID_ROLES)}")
+    unique_ids = list({i for i in payload.ids if i})
+    if not unique_ids:
+        raise HTTPException(status_code=400, detail="请至少选择一条往来单位")
+    try:
+        items = (
+            db.query(Counterparty)
+            .filter(Counterparty.id.in_(unique_ids), Counterparty.is_active == True)
+            .all()
+        )
+        if not items:
+            raise HTTPException(status_code=404, detail="未找到可更新的往来单位")
+        for cp in items:
+            cp.role = payload.role
+            if payload.role == "related_party":
+                cp.is_related_party = True
+        db.commit()
+        for cp in items:
+            db.refresh(cp)
+        return {
+            "updated": len(items),
+            "role": payload.role,
+            "items": [_to_dict(cp) for cp in items],
+            "skipped_ids": [i for i in unique_ids if i not in {cp.id for cp in items}],
+        }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=f"批量更新角色失败：{exc}")
 
 
 @router.post("")

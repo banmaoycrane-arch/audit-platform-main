@@ -297,6 +297,9 @@ def delete_category(db: Session, category_id: int) -> None:
     if category is None:
         raise ValueError(f"标签分类不存在：{category_id}")
 
+    if category.is_system:
+        raise ValueError("系统内置分类不可删除，请改为禁用或归档")
+
     children_count = (
         db.query(TagCategory)
         .filter(TagCategory.parent_id == category_id)

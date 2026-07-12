@@ -2,10 +2,13 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
 from app.db.models import AgentApproval, AgentDraftReview, ChartOfAccounts, Counterparty, ExecutionAuditLog
-from app.db.session import SessionLocal
+from app.db.session import Base, get_db
 from app.main import app
 from app.services.agent.agent_orchestration_service import build_due_diligence_orchestration_plan
 from app.services.agent.agent_role_registry import get_agent_role
@@ -14,7 +17,37 @@ from app.services.audit.audit_case_template_service import build_due_diligence_c
 from app.services.agent.llm_client_service import LLMResult
 from app.services.agent.model_config_service import get_model_config_status
 
-client = TestClient(app)
+client: TestClient
+
+
+@pytest.fixture(autouse=True)
+def _isolated_agent_client(monkeypatch, tmp_path):
+  """每个 agent 测试使用独立内存库，避免全量套件污染 finance_audit.db。"""
+  global client
+  engine = create_engine(
+      "sqlite:///:memory:",
+      connect_args={"check_same_thread": False},
+      poolclass=StaticPool,
+  )
+  Base.metadata.create_all(bind=engine)
+  testing_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+  def override_get_db():
+      db = testing_session_local()
+      try:
+          yield db
+      finally:
+          db.close()
+
+  monkeypatch.setattr("app.db.session.SessionLocal", testing_session_local)
+  app.dependency_overrides[get_db] = override_get_db
+  try:
+      with TestClient(app) as test_client:
+          client = test_client
+          yield
+  finally:
+      app.dependency_overrides.clear()
+      Base.metadata.drop_all(bind=engine)
 
 
 def auth_headers(username: str, phone: str) -> dict[str, str]:
@@ -33,6 +66,8 @@ def auth_headers(username: str, phone: str) -> dict[str, str]:
 
 
 def latest_audit_log(tool_name: str) -> ExecutionAuditLog | None:
+    from app.db.session import SessionLocal
+
     db = SessionLocal()
     try:
         return (
@@ -46,6 +81,8 @@ def latest_audit_log(tool_name: str) -> ExecutionAuditLog | None:
 
 
 def latest_agent_approval(tool_name: str) -> AgentApproval | None:
+    from app.db.session import SessionLocal
+
     db = SessionLocal()
     try:
         return (
@@ -59,6 +96,8 @@ def latest_agent_approval(tool_name: str) -> AgentApproval | None:
 
 
 def latest_draft_review(approval_id: int) -> AgentDraftReview | None:
+    from app.db.session import SessionLocal
+
     db = SessionLocal()
     try:
         return (
@@ -72,6 +111,8 @@ def latest_draft_review(approval_id: int) -> AgentDraftReview | None:
 
 
 def seed_agent_tool_basic_data(account_code: str, counterparty_name: str) -> None:
+    from app.db.session import SessionLocal
+
     db = SessionLocal()
     try:
         db.add(

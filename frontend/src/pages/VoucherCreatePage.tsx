@@ -261,7 +261,7 @@ export function VoucherCreatePage() {
     try {
       await api.createVoucher(payload)
       message.success('凭证保存成功')
-      navigate('/ledger/vouchers')
+      navigate('/ledger/entries')
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       message.error(`保存凭证失败：${detail}`)
@@ -372,7 +372,7 @@ export function VoucherCreatePage() {
         onSaveAndCopy={() => undefined}
         onClear={handleClear}
         onNewVoucher={handleClear}
-        onOpenVoucherList={() => navigate('/ledger/vouchers')}
+        onOpenVoucherList={() => navigate('/ledger/entries')}
       />
     </div>
   )

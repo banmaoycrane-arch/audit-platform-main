@@ -41,8 +41,29 @@ def client(monkeypatch, tmp_path):
 
     monkeypatch.setattr("app.storage.local_storage.get_settings", lambda: SimpleNamespace(upload_dir=str(tmp_path)))
     monkeypatch.setattr("app.services.doc_parsing.import_service.safe_vector_store", lambda: None)
-    monkeypatch.setattr("app.services.risk_case_library.safe_vector_store", lambda: None)
+    monkeypatch.setattr("app.services.audit.risk_case_library.safe_vector_store", lambda: None)
     monkeypatch.setattr("app.services.audit.risk_rule_service.safe_vector_store", lambda: None)
+
+    from app.services.doc_parsing.parser_engine import config_service as parser_config_service
+
+    _original_parser_config = parser_config_service.get_runtime_parser_engine_config
+
+    def _rule_only_parser_config(db=None):
+        return {
+            **_original_parser_config(db),
+            "llm_multi_engine_enabled": False,
+            "llm_enable_parallel_parsing": False,
+            "ai_local_model_enabled": False,
+        }
+
+    monkeypatch.setattr(
+        "app.services.doc_parsing.parser_engine.config_service.get_runtime_parser_engine_config",
+        _rule_only_parser_config,
+    )
+    monkeypatch.setattr(
+        "app.services.doc_parsing.parser_engine.parser_engine_dispatcher.get_runtime_parser_engine_config",
+        _rule_only_parser_config,
+    )
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:

@@ -205,9 +205,9 @@ export function Step3ImportEntries() {
     try {
       const sourceFile = await api.uploadFile(currentJobId, file)
       const kindLabel = kind === 'audit_day_book' ? '序时簿' : '凭证'
-      message.success(`${file.name}（${kindLabel}）上传成功，开始调用统一解析引擎`)
+      message.success(`${file.name}（${kindLabel}）上传成功，开始结构化自适应导入（场景 A）`)
       await api.parseSourceFileWithEngine(currentJobId, sourceFile.id)
-      message.success('统一解析引擎解析完成')
+      message.success('结构化自适应导入完成')
       await refreshEntries()
       if (kind === 'audit_day_book') {
         await fetchDayBookReport()

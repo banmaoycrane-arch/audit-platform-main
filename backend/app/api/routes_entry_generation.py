@@ -393,14 +393,15 @@ def generate_entries(
         {"job_id": job.id},
     ).scalar_one()
     if _looks_like_day_book_job(job, source_files) and existing_entry_count == 0:
-        day_book_result = process_day_book_import(db, job)
-        if day_book_result.success:
-            job.status = "completed"
-            job.entry_count = day_book_result.entries_created
-            db.commit()
-            db.refresh(job)
-        elif job.source_type == "ai_generated":
-            raise HTTPException(status_code=400, detail=day_book_result.error_message or "序时簿解析失败")
+        if not is_day_book_source_type(job.source_type or ""):
+            day_book_result = process_day_book_import(db, job)
+            if day_book_result.success:
+                job.status = "completed"
+                job.entry_count = day_book_result.entries_created
+                db.commit()
+                db.refresh(job)
+            elif job.source_type == "ai_generated":
+                raise HTTPException(status_code=400, detail=day_book_result.error_message or "序时簿解析失败")
     drafts = entry_generation_service.generate_drafts(
         db,
         job,

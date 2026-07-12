@@ -20,6 +20,7 @@ from app.db.session import Base
 from app.models.ledger import Ledger
 from app.models.team import Team
 from app.services.accounting.financial_statements_service import (
+    account_balance_breakdown,
     balance_sheet,
     compute_account_balances,
     income_statement,
@@ -190,3 +191,79 @@ def test_balance_sheet_returns_category_totals(db):
     assert Decimal(report["liabilities_total"]) >= 0
     assert Decimal(report["equity_total"]) >= 0
     assert "is_balanced" in report
+
+
+def test_account_balance_breakdown_returns_detail_codes(db):
+    """汇总科目下钻应返回分录明细编码拆分余额。"""
+    ledger_id, period_id = _seed_minimal_ledger(db)
+    period = db.get(AccountingPeriod, period_id)
+    assert period is not None
+
+    for code, debit, credit in [
+        ("100201", Decimal("50"), Decimal("0")),
+        ("100202", Decimal("0"), Decimal("30")),
+        ("1122", Decimal("0"), Decimal("20")),
+    ]:
+        db.add(
+            AccountingEntry(
+                organization_id=period.organization_id,
+                ledger_id=ledger_id,
+                import_job_id=0,
+                voucher_no="测-002",
+                voucher_date=date(2026, 1, 20),
+                account_code=code,
+                account_name=code,
+                debit_amount=debit,
+                credit_amount=credit,
+                entry_line_no=1,
+                post_status="posted",
+            )
+        )
+    db.commit()
+
+    breakdown = account_balance_breakdown(db, ledger_id, period_id, "1002")
+
+    codes = {row["account_code"] for row in breakdown["rows"]}
+    assert "100201" in codes
+    assert "100202" in codes
+
+
+def test_balance_sheet_net_movement_rolls_profit_into_4103(db):
+    """净发生额视图应将损益类汇总进 4103，不在资产负债方单独列示。"""
+    ledger_id, period_id = _seed_minimal_ledger(db)
+
+    report = balance_sheet(db, ledger_id, period_id, presentation_mode="net_movement")
+
+    assert report["presentation_mode"] == "net_movement"
+    section_codes = {
+        row["account_code"]
+        for row in report["assets"] + report["liabilities"] + report["equity"]
+    }
+    assert "6001" not in section_codes
+    assert "6601" not in section_codes
+    assert "4103" in section_codes
+    profit_row = next(row for row in report["equity"] if row["account_code"] == "4103")
+    assert Decimal(profit_row["closing_credit"]) - Decimal(profit_row["closing_debit"]) == Decimal("850.00")
+
+
+def test_trial_balance_report_includes_ytd_columns(db):
+    """科目余额表应包含本年累计借贷发生额。"""
+    ledger_id, period_id = _seed_minimal_ledger(db)
+
+    report = trial_balance_report(db, ledger_id, period_id)
+    assert report["rows"]
+    assert "ytd_debit" in report["rows"][0]
+    assert "ytd_credit" in report["rows"][0]
+    assert "ytd_debit" in report["totals"]
+    assert "ytd_credit" in report["totals"]
+
+
+def test_trial_balance_report_includes_live_balance_meta(db):
+    """开放期间报表应返回即时余额元数据。"""
+    ledger_id, period_id = _seed_minimal_ledger(db)
+
+    report = trial_balance_report(db, ledger_id, period_id)
+
+    assert report["balance_source"] == "live"
+    assert report["as_of_date"]
+    assert report["period_id"] == period_id

@@ -49,7 +49,7 @@ def client():
 
 
 def test_create_access_token_fails_without_secret_key(monkeypatch) -> None:
-    monkeypatch.setattr(security, "get_settings", lambda: SimpleNamespace(secret_key=None))
+    monkeypatch.setattr(security, "_get_jwt_secret_key", lambda: (_ for _ in ()).throw(RuntimeError("JWT 密钥未配置")))
 
     with pytest.raises(RuntimeError, match="JWT 密钥未配置"):
         create_access_token({"sub": "1"}, expires_delta=timedelta(minutes=5))
@@ -233,6 +233,23 @@ def test_sms_user_can_set_password_and_login_with_password(client) -> None:
     })
     assert password_login_response.status_code == 200
     assert "access_token" in password_login_response.json()
+
+
+def test_sms_login_assigns_unique_username(client) -> None:
+    phone = "13800138999"
+    code_response = client.post("/api/auth/sms/code", json={"phone": phone})
+    code = code_response.json()["sms_code"]
+    login_response = client.post("/api/auth/login/sms", json={"phone": phone, "code": code})
+    assert login_response.status_code == 200
+
+    me_response = client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {login_response.json()['access_token']}"},
+    )
+    assert me_response.status_code == 200
+    username = me_response.json()["username"]
+    assert username
+    assert username.startswith("user_")
 
 
 def test_login_then_empty_team_and_ledger_lists_are_available(client) -> None:

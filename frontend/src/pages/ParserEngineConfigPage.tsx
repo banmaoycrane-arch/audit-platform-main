@@ -1,16 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
-import { Card, Row, Col, Form, Input, Select, Switch, InputNumber, Button, Space, Typography, Divider, Alert, Spin, message, Modal, Tabs, Tag, Table } from 'antd'
-import { ReloadOutlined, SaveOutlined, ExperimentOutlined, InfoCircleOutlined, ThunderboltOutlined, DatabaseOutlined, SettingOutlined, BookOutlined, UploadOutlined, DownloadOutlined, PlusOutlined, DeleteOutlined, EditOutlined, CheckOutlined } from '@ant-design/icons'
-import { api, type AccountTagConfig } from '../api/client'
+import { Card, Row, Col, Form, Input, Select, Switch, InputNumber, Button, Space, Typography, Divider, Alert, Spin, message, Modal, Tabs } from 'antd'
+import { ReloadOutlined, SaveOutlined, ExperimentOutlined, InfoCircleOutlined, ThunderboltOutlined, DatabaseOutlined, SettingOutlined, BookOutlined, UploadOutlined, DownloadOutlined, EditOutlined, CheckOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
+import { api } from '../api/client'
 
 const { Title, Text } = Typography
 const { Option } = Select
 
 export function ParserEngineConfigPage() {
+  const navigate = useNavigate()
   const [form] = Form.useForm()
   const [config, setConfig] = useState<{ 
     ai_provider?: string; 
-    ai_model?: string; 
+    ai_model?: string;
+    ai_reasoning_model?: string;
     ai_base_url?: string;
     llm_enable_parallel_parsing?: boolean;
     llm_multi_engine_enabled?: boolean;
@@ -45,22 +48,17 @@ export function ParserEngineConfigPage() {
   const [saveAsModalVisible, setSaveAsModalVisible] = useState(false)
   const [saveAsFileName, setSaveAsFileName] = useState('')
 
-  const [accountTagConfig, setAccountTagConfig] = useState<AccountTagConfig | null>(null)
-  const [accountTagLoading, setAccountTagLoading] = useState(false)
-  const [editingRow, setEditingRow] = useState<{ table: string; index: number } | null>(null)
-  const [editValue, setEditValue] = useState('')
-
   useEffect(() => {
     fetchConfig()
     fetchOptions()
-    fetchAccountTagConfig()
   }, [])
 
   const fetchConfig = async () => {
     try {
       const cfg = await api.getParserEngineConfig()
-      setConfig(cfg)
-      form.setFieldsValue(cfg)
+      const merged = { ...cfg, ai_reasoning_model: cfg.ai_reasoning_model ?? '' }
+      setConfig(merged)
+      form.setFieldsValue(merged)
     } catch (error) {
       console.error('获取配置失败:', error)
     } finally {
@@ -74,20 +72,6 @@ export function ParserEngineConfigPage() {
       setOptions(opts)
     } catch (error) {
       console.error('获取选项失败:', error)
-    }
-  }
-
-  const fetchAccountTagConfig = async () => {
-    setAccountTagLoading(true)
-    try {
-      const result = await api.getAccountTagRules()
-      if (result.success) {
-        setAccountTagConfig(result.config)
-      }
-    } catch (error) {
-      console.error('获取科目解析规则配置失败:', error)
-    } finally {
-      setAccountTagLoading(false)
     }
   }
 
@@ -149,28 +133,59 @@ export function ParserEngineConfigPage() {
     }
   }
 
-  const normalizeConfigValues = (values: Record<string, unknown>) => ({
-    ...values,
-    ai_local_model_enabled: Boolean(values.ai_local_model_enabled),
-    ai_fallback_to_rules: Boolean(values.ai_fallback_to_rules),
-    llm_enable_parallel_parsing: Boolean(values.llm_enable_parallel_parsing),
-    llm_multi_engine_enabled: Boolean(values.llm_multi_engine_enabled),
-    llm_save_all_results: Boolean(values.llm_save_all_results),
-    llm_comparison_engines: typeof values.llm_comparison_engines === 'string'
+  const normalizeConfigValues = (values: Record<string, unknown>) => {
+    const primary = String(values.ai_model || '').trim()
+    let comparisonEngines = typeof values.llm_comparison_engines === 'string'
       ? values.llm_comparison_engines.split(',').map(item => item.trim()).filter(Boolean).join(',')
-      : values.llm_comparison_engines,
-    llm_engine_weights: typeof values.llm_engine_weights === 'string' && values.llm_engine_weights.trim()
-      ? JSON.stringify(JSON.parse(values.llm_engine_weights), null, 2)
-      : values.llm_engine_weights || '{}',
-  })
+      : values.llm_comparison_engines
+    if (primary) {
+      const list = String(comparisonEngines || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+      const legacyDefaults = ['qwen2.5-14b', 'qwen2.5-7b', 'deepseek-v2']
+      const isLegacyDefault =
+        list.length === legacyDefaults.length && legacyDefaults.every((item) => list.includes(item))
+      if (!list.length || isLegacyDefault) {
+        comparisonEngines = primary
+      } else if (!list.includes(primary)) {
+        comparisonEngines = [primary, ...list].join(',')
+      }
+    }
+    return {
+      ...values,
+      ai_reasoning_model: String(values.ai_reasoning_model || '').trim(),
+      llm_preferred_model: primary || values.llm_preferred_model,
+      ai_local_model_enabled: Boolean(values.ai_local_model_enabled),
+      ai_fallback_to_rules: Boolean(values.ai_fallback_to_rules),
+      llm_enable_parallel_parsing: Boolean(values.llm_enable_parallel_parsing),
+      llm_multi_engine_enabled: Boolean(values.llm_multi_engine_enabled),
+      llm_save_all_results: Boolean(values.llm_save_all_results),
+      llm_comparison_engines: comparisonEngines,
+      llm_engine_weights: typeof values.llm_engine_weights === 'string' && values.llm_engine_weights.trim()
+        ? JSON.stringify(JSON.parse(values.llm_engine_weights), null, 2)
+        : values.llm_engine_weights || '{}',
+    }
+  }
 
   const handleSave = async () => {
     try {
       const values = await form.validateFields()
+      const parseModel = String(values.ai_model || '').trim()
+      const reasoningModel = String(values.ai_reasoning_model || '').trim()
+      if (parseModel.toLowerCase().includes('vl') && !reasoningModel) {
+        message.error('解析模型为视觉多模态时，必须单独配置「推理模型」（如 deepseek-r1:8b）')
+        return
+      }
       const payload = normalizeConfigValues(values)
       const result = await api.saveParserEngineConfig(payload)
       if (result.success) {
-        message.success(result.message || '配置保存成功！')
+        const savedReasoning = String(result.config?.ai_reasoning_model || '').trim()
+        if (reasoningModel && savedReasoning !== reasoningModel) {
+          message.warning('推理模型可能未写入数据库，请刷新页面确认后重试')
+        } else {
+          message.success(result.message || '配置保存成功！')
+        }
         if (result.config) {
           setConfig(result.config)
           form.setFieldsValue(result.config)
@@ -276,172 +291,34 @@ export function ParserEngineConfigPage() {
     event.target.value = ''
   }
 
-  const handleAccountTagSave = async () => {
-    if (!accountTagConfig) return
-    
-    try {
-      const result = await api.saveAccountTagRules(accountTagConfig)
-      if (result.success) {
-        message.success(result.message)
-        fetchAccountTagConfig()
-      } else {
-        message.error(result.message || '保存失败')
-      }
-    } catch (error) {
-      message.error(`保存失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-
-  const handleAccountTagReset = async () => {
-    Modal.confirm({
-      title: '确认重置',
-      content: '将重置为默认配置，所有自定义规则将丢失。确认继续？',
-      onOk: async () => {
-        try {
-          const result = await api.resetAccountTagRules()
-          if (result.success) {
-            message.success(result.message)
-            fetchAccountTagConfig()
-          }
-        } catch (error) {
-          message.error(`重置失败: ${error instanceof Error ? error.message : String(error)}`)
-        }
-      },
-    })
-  }
-
-  const handleAddRule = (table: string) => {
-    if (!accountTagConfig) return
-    
-    const newConfig = { ...accountTagConfig }
-    
-    if (table === 'mandatory_accounts') {
-      newConfig.mandatory_hierarchical_accounts = [...newConfig.mandatory_hierarchical_accounts, '']
-    } else if (table === 'mandatory_keywords') {
-      newConfig.mandatory_hierarchical_keywords = [...newConfig.mandatory_hierarchical_keywords, '']
-    }
-    
-    setAccountTagConfig(newConfig)
-    setEditingRow({ table, index: newConfig[table === 'mandatory_accounts' ? 'mandatory_hierarchical_accounts' : 'mandatory_hierarchical_keywords'].length - 1 })
-  }
-
-  const handleEditRule = (table: string, index: number, value: string) => {
-    if (!accountTagConfig) return
-    
-    const newConfig = { ...accountTagConfig }
-    
-    if (table === 'mandatory_accounts') {
-      newConfig.mandatory_hierarchical_accounts = newConfig.mandatory_hierarchical_accounts.map(
-        (item, i) => i === index ? value : item
-      )
-    } else if (table === 'mandatory_keywords') {
-      newConfig.mandatory_hierarchical_keywords = newConfig.mandatory_hierarchical_keywords.map(
-        (item, i) => i === index ? value : item
-      )
-    } else if (table === 'code_mapping') {
-      const entries = Object.entries(newConfig.account_code_tag_category) as [string, string][]
-      const [key] = entries[index]
-      newConfig.account_code_tag_category = {
-        ...newConfig.account_code_tag_category,
-        [key]: value,
-      }
-    } else if (table === 'name_mapping') {
-      const entries = Object.entries(newConfig.account_name_tag_category) as [string, string][]
-      const [key] = entries[index]
-      newConfig.account_name_tag_category = {
-        ...newConfig.account_name_tag_category,
-        [key]: value,
-      }
-    }
-    
-    setAccountTagConfig(newConfig)
-  }
-
-  const handleDeleteRule = (table: string, index: number) => {
-    if (!accountTagConfig) return
-    
-    const newConfig = { ...accountTagConfig }
-    
-    if (table === 'mandatory_accounts') {
-      newConfig.mandatory_hierarchical_accounts = newConfig.mandatory_hierarchical_accounts.filter(
-        (_, i) => i !== index
-      )
-    } else if (table === 'mandatory_keywords') {
-      newConfig.mandatory_hierarchical_keywords = newConfig.mandatory_hierarchical_keywords.filter(
-        (_, i) => i !== index
-      )
-    } else if (table === 'code_mapping') {
-      const entries = Object.entries(newConfig.account_code_tag_category) as [string, string][]
-      const [key] = entries[index]
-      delete newConfig.account_code_tag_category[key]
-    } else if (table === 'name_mapping') {
-      const entries = Object.entries(newConfig.account_name_tag_category) as [string, string][]
-      const [key] = entries[index]
-      delete newConfig.account_name_tag_category[key]
-    }
-    
-    setAccountTagConfig(newConfig)
-    setEditingRow(null)
-  }
-
-  const handleAddCodeMapping = () => {
-    if (!accountTagConfig) return
-    setAccountTagConfig({
-      ...accountTagConfig,
-      account_code_tag_category: {
-        ...accountTagConfig.account_code_tag_category,
-        ['新科目编码']: 'customer',
-      },
-    })
-  }
-
-  const handleAddNameMapping = () => {
-    if (!accountTagConfig) return
-    setAccountTagConfig({
-      ...accountTagConfig,
-      account_name_tag_category: {
-        ...accountTagConfig.account_name_tag_category,
-        ['新关键词']: 'customer',
-      },
-    })
-  }
-
-  const renderMappingCell = (table: string, index: number, key: string, value: string) => {
-    const isEditing = editingRow?.table === table && editingRow?.index === index
-    
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        {isEditing ? (
-          <Input
-            size="small"
-            value={editValue || value}
-            onChange={(e) => setEditValue(e.target.value)}
-            onBlur={() => {
-              handleEditRule(table, index, editValue || value)
-              setEditingRow(null)
-            }}
-            onPressEnter={() => {
-              handleEditRule(table, index, editValue || value)
-              setEditingRow(null)
-            }}
-            autoFocus
-          />
-        ) : (
+  const renderModelSelect = (name: string, label: string, placeholder: string, required = false) => (
+    <Form.Item
+      name={name}
+      label={label}
+      rules={required ? [{ required: true, message: '请选择模型名称' }] : []}
+    >
+      <Select placeholder={placeholder} showSearch allowClear={!required}>
+        {ollamaModels.length > 0 && (
           <>
-            <span>{value}</span>
-            <Button
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => {
-                setEditValue(value)
-                setEditingRow({ table, index })
-              }}
-            />
+            <Option disabled style={{ fontWeight: 'bold' }}>—— 自动发现的模型 ——</Option>
+            {ollamaModels.map(model => (
+              <Option key={`${name}-${model.value}`} value={model.value}>
+                {model.label}
+                <div style={{ color: '#52c41a', fontSize: 12, marginTop: 4 }}>{model.description}</div>
+              </Option>
+            ))}
+            <Option disabled style={{ fontWeight: 'bold' }}>—— 常用预设模型 ——</Option>
           </>
         )}
-      </div>
-    )
-  }
+        {options?.models.map(model => (
+          <Option key={`${name}-preset-${model.value}`} value={model.value}>
+            {model.label}
+            <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>{model.description}</div>
+          </Option>
+        ))}
+      </Select>
+    </Form.Item>
+  )
 
   if (loading) {
     return (
@@ -467,7 +344,14 @@ export function ParserEngineConfigPage() {
           <Form form={form} layout="vertical" onFinish={handleSave}>
             <Row gutter={16}>
               <Col span={16}>
-                <Card title="AI 模型配置（本地大模型入口）" extra={<Space><Button icon={<ReloadOutlined />} onClick={fetchConfig}>刷新</Button></Space>}>
+                <Card title="AI 模型配置（双模型分工）" extra={<Space><Button icon={<ReloadOutlined />} onClick={fetchConfig}>刷新</Button></Space>}>
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="解析模型与推理模型请分开配置"
+                    description="非结构化文件解析（含图片/票据）使用视觉或多模态解析模型；Step4 合规审查使用纯文本推理模型。两者共用同一 API 地址，但不应强行使用同一个模型，否则容易在 Ollama 上互相挤占显存或导致审查效果变差。"
+                  />
                   <Divider titlePlacement="start"><SettingOutlined /> AI供应商</Divider>
                   
                   <Form.Item name="ai_provider" label="供应商类型" rules={[{ required: true, message: '请选择供应商类型' }]}>
@@ -503,28 +387,31 @@ export function ParserEngineConfigPage() {
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="ai_model" label="模型名称" rules={[{ required: true, message: '请选择模型名称' }]}>
-                        <Select placeholder="请选择模型" showSearch>
-                          {ollamaModels.length > 0 && (
-                            <>
-                              <Option disabled style={{ fontWeight: 'bold' }}>—— 自动发现的模型 ——</Option>
-                              {ollamaModels.map(model => (
-                                <Option key={model.value} value={model.value}>
-                                  {model.label}
-                                  <div style={{ color: '#52c41a', fontSize: 12, marginTop: 4 }}>{model.description}</div>
-                                </Option>
-                              ))}
-                              <Option disabled style={{ fontWeight: 'bold' }}>—— 常用预设模型 ——</Option>
-                            </>
-                          )}
-                          {options?.models.map(model => (
-                            <Option key={model.value} value={model.value}>
-                              {model.label}
-                              <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>{model.description}</div>
-                            </Option>
-                          ))}
-                        </Select>
-                      </Form.Item>
+                      {renderModelSelect(
+                        'ai_model',
+                        '解析模型（非结构化文件 / 视觉）',
+                        '如 qwen2.5vl:latest',
+                        true,
+                      )}
+                    </Col>
+                  </Row>
+
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      {renderModelSelect(
+                        'ai_reasoning_model',
+                        '推理模型（合规审查 / 语义分析）',
+                        '如 deepseek-r1:8b；留空则回退到解析模型',
+                        false,
+                      )}
+                    </Col>
+                    <Col span={12}>
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="推荐组合"
+                        description="解析：qwen2.5vl:latest · 推理：deepseek-r1:8b。推理模型支持思索过程输出时，合规审查抽屉会显示思索链。"
+                      />
                     </Col>
                   </Row>
 
@@ -863,8 +750,12 @@ https://api.moonshot.cn/v1`}
                     <Text strong>{config?.ai_provider}</Text>
                   </div>
                   <div style={{ marginTop: 8 }}>
-                    <Text type="secondary">模型：</Text>
+                    <Text type="secondary">解析模型：</Text>
                     <Text strong>{config?.ai_model || '未配置'}</Text>
+                  </div>
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="secondary">推理模型：</Text>
+                    <Text strong>{config?.ai_reasoning_model || config?.ai_model || '未配置（回退解析模型）'}</Text>
                   </div>
                   <div style={{ marginTop: 8 }}>
                     <Text type="secondary">API URL：</Text>
@@ -909,253 +800,28 @@ https://api.moonshot.cn/v1`}
         </Tabs.TabPane>
 
         <Tabs.TabPane tab="科目解析规则配置" key="account-tag">
-          {accountTagLoading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '50px' }}>
-              <Spin tip="加载中..." />
-            </div>
-          ) : accountTagConfig ? (
-            <div>
-              <Row gutter={16} style={{ marginBottom: 16 }}>
-                <Col span={16}>
-                  <Space>
-                    <Button type="primary" icon={<SaveOutlined />} onClick={handleAccountTagSave}>
-                      保存科目解析规则配置
-                    </Button>
-                    <Button icon={<ReloadOutlined />} onClick={fetchAccountTagConfig}>
-                      刷新
-                    </Button>
-                    <Button danger icon={<DownloadOutlined />} onClick={handleAccountTagReset}>
-                      重置为默认值
-                    </Button>
-                  </Space>
-                </Col>
-                <Col span={8}>
-                  <Alert
-                    message="配置版本"
-                    description={`当前版本: ${accountTagConfig.version}`}
-                    type="info"
-                    showIcon
-                  />
-                </Col>
-              </Row>
-
-              <Card title="强制保留层级的科目编码（不得扁平化为Tag）">
-                <Alert
-                  message="说明"
-                  description="这些科目具有明确的会计准则/税法含义，必须保留完整层级结构。例如：应交增值税明细科目、应付职工薪酬明细科目。"
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                />
-                <div style={{ marginBottom: 8, textAlign: 'right' }}>
-                  <Button size="small" icon={<PlusOutlined />} onClick={() => handleAddRule('mandatory_accounts')}>添加科目编码</Button>
-                </div>
-                <Table
-                  dataSource={accountTagConfig.mandatory_hierarchical_accounts.map((code, index) => ({ key: index, code }))}
-                  columns={[
-                    {
-                      title: '序号',
-                      render: (_, __, index) => index + 1,
-                      width: 60,
-                    },
-                    {
-                      title: '科目编码',
-                      dataIndex: 'code',
-                      render: (code: string, _, index: number) => (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          {editingRow?.table === 'mandatory_accounts' && editingRow?.index === index ? (
-                            <Input
-                              size="small"
-                              value={editValue || code}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              onBlur={() => {
-                                handleEditRule('mandatory_accounts', index, editValue || code)
-                                setEditingRow(null)
-                              }}
-                              onPressEnter={() => {
-                                handleEditRule('mandatory_accounts', index, editValue || code)
-                                setEditingRow(null)
-                              }}
-                              autoFocus
-                            />
-                          ) : (
-                            <>
-                              <Tag color="red">{code}</Tag>
-                              <Button size="small" icon={<EditOutlined />} onClick={() => { setEditValue(code); setEditingRow({ table: 'mandatory_accounts', index }) }} />
-                              <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteRule('mandatory_accounts', index)} />
-                            </>
-                          )}
-                        </div>
-                      ),
-                    },
-                  ]}
-                  pagination={false}
-                  locale={{ emptyText: '暂无数据' }}
-                />
-              </Card>
-
-              <Card title="强制保留层级的科目名称关键词（兜底匹配）" style={{ marginTop: 24 }}>
-                <Alert
-                  message="说明"
-                  description="当科目编码未匹配到强制编码列表时，系统会检查科目名称是否包含这些关键词，包含则保留层级。"
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                />
-                <div style={{ marginBottom: 8, textAlign: 'right' }}>
-                  <Button size="small" icon={<PlusOutlined />} onClick={() => handleAddRule('mandatory_keywords')}>添加关键词</Button>
-                </div>
-                <Table
-                  dataSource={accountTagConfig.mandatory_hierarchical_keywords.map((keyword, index) => ({ key: index, keyword }))}
-                  columns={[
-                    {
-                      title: '序号',
-                      render: (_, __, index) => index + 1,
-                      width: 60,
-                    },
-                    {
-                      title: '关键词',
-                      dataIndex: 'keyword',
-                      render: (keyword: string, _, index: number) => (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          {editingRow?.table === 'mandatory_keywords' && editingRow?.index === index ? (
-                            <Input
-                              size="small"
-                              value={editValue || keyword}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              onBlur={() => {
-                                handleEditRule('mandatory_keywords', index, editValue || keyword)
-                                setEditingRow(null)
-                              }}
-                              onPressEnter={() => {
-                                handleEditRule('mandatory_keywords', index, editValue || keyword)
-                                setEditingRow(null)
-                              }}
-                              autoFocus
-                            />
-                          ) : (
-                            <>
-                              <Tag color="orange">{keyword}</Tag>
-                              <Button size="small" icon={<EditOutlined />} onClick={() => { setEditValue(keyword); setEditingRow({ table: 'mandatory_keywords', index }) }} />
-                              <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteRule('mandatory_keywords', index)} />
-                            </>
-                          )}
-                        </div>
-                      ),
-                    },
-                  ]}
-                  pagination={false}
-                  locale={{ emptyText: '暂无数据' }}
-                />
-              </Card>
-
-              <Card title="一级科目代码到Tag类别的映射" style={{ marginTop: 24 }}>
-                <Alert
-                  message="说明"
-                  description="当该科目下级段作为辅助核算维度时，优先使用此分类。例如：1122应收账款 -> customer客户"
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                />
-                <div style={{ marginBottom: 8, textAlign: 'right' }}>
-                  <Button size="small" icon={<PlusOutlined />} onClick={handleAddCodeMapping}>添加映射</Button>
-                </div>
-                <Table
-                  dataSource={Object.entries(accountTagConfig.account_code_tag_category).map(([code, category], index) => ({ key: index, code, category }))}
-                  columns={[
-                    {
-                      title: '序号',
-                      render: (_, __, index) => index + 1,
-                      width: 60,
-                    },
-                    {
-                      title: '科目代码',
-                      dataIndex: 'code',
-                      render: (code: string) => <Tag color="blue">{code}</Tag>,
-                    },
-                    {
-                      title: 'Tag类别',
-                      dataIndex: 'category',
-                      render: (category: string, _, index: number) => renderMappingCell('code_mapping', index, '', category),
-                    },
-                    {
-                      title: '操作',
-                      render: (_, __, index: number) => (
-                        <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteRule('code_mapping', index)} />
-                      ),
-                    },
-                  ]}
-                  pagination={false}
-                  locale={{ emptyText: '暂无数据' }}
-                />
-              </Card>
-
-              <Card title="科目名称关键词到Tag类别的映射（当科目代码未知时使用）" style={{ marginTop: 24 }}>
-                <Alert
-                  message="说明"
-                  description="当科目代码不在映射表中时，系统会检查科目名称是否包含这些关键词。例如：名称包含'应收' -> customer客户"
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                />
-                <div style={{ marginBottom: 8, textAlign: 'right' }}>
-                  <Button size="small" icon={<PlusOutlined />} onClick={handleAddNameMapping}>添加映射</Button>
-                </div>
-                <Table
-                  dataSource={Object.entries(accountTagConfig.account_name_tag_category).map(([keyword, category], index) => ({ key: index, keyword, category }))}
-                  columns={[
-                    {
-                      title: '序号',
-                      render: (_, __, index) => index + 1,
-                      width: 60,
-                    },
-                    {
-                      title: '关键词',
-                      dataIndex: 'keyword',
-                      render: (keyword: string) => <Tag color="purple">{keyword}</Tag>,
-                    },
-                    {
-                      title: 'Tag类别',
-                      dataIndex: 'category',
-                      render: (category: string, _, index: number) => renderMappingCell('name_mapping', index, '', category),
-                    },
-                    {
-                      title: '操作',
-                      render: (_, __, index: number) => (
-                        <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteRule('name_mapping', index)} />
-                      ),
-                    },
-                  ]}
-                  pagination={false}
-                  locale={{ emptyText: '暂无数据' }}
-                />
-              </Card>
-
-              <Card title="常见辅助核算维度关键词（用于从摘要中补充识别）" style={{ marginTop: 24 }}>
-                <Alert
-                  message="说明"
-                  description="当科目中未能识别出辅助核算维度时，系统会从摘要中提取这些关键词作为辅助维度。每个类别内的关键词按长度降序排列，优先匹配更长的词。"
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                />
-                {Object.entries(accountTagConfig.auxiliary_keywords).map(([category, keywords]) => (
-                  <div key={category} style={{ marginBottom: 16 }}>
-                    <Text strong>{category === 'department' ? '部门' : category === 'project' ? '项目' : category === 'region' ? '区域' : category}</Text>
-                    <Space wrap style={{ marginTop: 8 }}>
-                      {keywords.map((keyword) => (
-                        <Tag key={keyword} color={category === 'department' ? 'orange' : category === 'project' ? 'pink' : 'cyan'}>
-                          {keyword}
-                        </Tag>
-                      ))}
-                    </Space>
-                  </div>
-                ))}
-              </Card>
-            </div>
-          ) : (
-            <Alert message="加载科目解析规则配置失败" type="error" showIcon />
-          )}
+          <Alert
+            type="info"
+            showIcon
+            message="科目解析映射已迁入「账簿维度管理」"
+            description={
+              <div>
+                <p style={{ marginBottom: 8 }}>
+                  序时簿导入时「一级科目保留 / 强制二级 / 下级段转 Tag / 摘要补维度」等规则，请在账簿维度中心的「解析映射」Tab 维护。
+                </p>
+                <p style={{ marginBottom: 0, color: '#666' }}>
+                  本页保留 LLM 与解析引擎参数；平台默认模板仍存于 YAML，账簿侧保存后写入数据库并优先生效。
+                </p>
+              </div>
+            }
+          />
+          <Button
+            type="primary"
+            style={{ marginTop: 16 }}
+            onClick={() => navigate('/ledger/dimensions?tab=parse-mapping')}
+          >
+            打开账簿维度管理 · 解析映射
+          </Button>
         </Tabs.TabPane>
       </Tabs>
     </div>

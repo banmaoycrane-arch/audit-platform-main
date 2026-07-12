@@ -77,13 +77,13 @@ export function Step2AuditImportSource() {
       }
       setUploadedFiles(prev => [...prev, fileInfo])
 
-      // 上传后统一调用 parser-engine，不再使用模块私有解析链路。
-      message.loading({ content: '正在调用统一解析引擎解析上传文件，请稍候...', key: 'parsing' })
+      // 上传后走 import-jobs 解析路由（审计序时簿为场景 A，证据文件为场景 B）
+      message.loading({ content: '正在解析上传的审计证据（原始资料解析 · 场景 B），请稍候...', key: 'parsing' })
       try {
         await api.parseSourceFileWithEngine(jobId, result.id)
-        message.success({ content: `文件已由统一解析引擎完成解析，${file.name} 已处理`, key: 'parsing' })
+        message.success({ content: `原始资料解析完成，${file.name} 已处理`, key: 'parsing' })
       } catch {
-        message.warning({ content: `${file.name} 上传成功，但统一解析引擎解析失败`, key: 'parsing' })
+        message.warning({ content: `${file.name} 上传成功，但原始资料解析失败`, key: 'parsing' })
       }
     } catch (error) {
       message.error(`${file.name} 上传失败`)

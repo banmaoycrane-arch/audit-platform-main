@@ -21,9 +21,14 @@ if settings.database_url.startswith("sqlite"):
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragma(dbapi_connection: Any, _connection_record: Any) -> None:
         cursor = dbapi_connection.cursor()
+        cache_kb = -max(1, int(settings.sqlite_cache_size_mb)) * 1000
+        mmap_bytes = max(0, int(settings.sqlite_mmap_size_mb)) * 1024 * 1024
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA cache_size=-8000")
+        cursor.execute(f"PRAGMA cache_size={cache_kb}")
+        if mmap_bytes > 0:
+            cursor.execute(f"PRAGMA mmap_size={mmap_bytes}")
+        cursor.execute("PRAGMA temp_store=MEMORY")
         cursor.close()
 
 

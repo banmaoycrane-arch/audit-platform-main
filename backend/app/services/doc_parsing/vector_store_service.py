@@ -70,12 +70,33 @@ class VectorStore:
             points=[qmodels.PointStruct(id=point_id, vector=embed_text(text), payload=payload)],
         )
 
-    def search(self, text: str, limit: int = 5) -> list[dict[str, Any]]:
+    def search(
+        self,
+        text: str,
+        limit: int = 5,
+        filter_payload: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """语义检索；filter_payload 用于账簿等边界隔离，避免跨公司向量串库。"""
         self.ensure_collection()
+        query_filter = None
+        if filter_payload:
+            must_conditions: list[qmodels.FieldCondition] = []
+            for key, value in filter_payload.items():
+                if value is not None:
+                    must_conditions.append(
+                        qmodels.FieldCondition(
+                            key=key,
+                            match=qmodels.MatchValue(value=value),
+                        )
+                    )
+            if must_conditions:
+                query_filter = qmodels.Filter(must=must_conditions)
+
         resp = self.client.query_points(
             collection_name=self.collection,
             query=embed_text(text),
             limit=limit,
+            query_filter=query_filter,
         )
         return [
             {"id": str(item.id), "score": item.score, "payload": item.payload}

@@ -1,15 +1,122 @@
-# 原始文件解析引擎与数据库设计规范
+# 原始文件解析引擎（D05 双场景总纲）
 
-## 1. 设计理念
+```text
+Domain: D05 - 原始资料导入与解析
+Status: active-main（重构中，见 parser-dual-scenario-strategy.md）
+Owner Spec: document-parsing-engine（本文档）
+Depends On: AGENTS.md, adaptive-import-engine（场景 A）, seal-recognition-system（场景 B Layer1）
+In Scope:
+- 场景 A 电子档案 / 场景 B 实体化资料的双路径策略
+- 分层识别、殊途同归输出（台账 / 底稿 / 候选草稿）
+- 样本驱动通过率、修正回流、LLM Plan B
+Out of Scope:
+- API 路径收敛（见 api-boundary-governance-plan.md）
+- 正式凭证 post、结账（D04/D08）
+- 审计测试规则定义（D06）
+Acceptance Level: L4 API + L5 前端；L6 依 TOP3 样本集验收
+```
 
-### 1.1 核心原则
+> **重构说明**：本文档前部为 **双场景总纲（执行优先级）**；后部「附录」保留历史数据库设计草案，**逐步迁移，不作为当前 Sprint 任务**。
+
+---
+
+## 1. 双场景模型
+
+### 1.1 两个世界，一条出口
+
+| 场景 | 代号 | 典型资料 | 引擎重点 |
+|------|------|----------|----------|
+| **电子档案** | **A** | 序时账 Excel、OFD/XML 发票、网银 CSV | 模板 / 规则 / 字段别名；**多样本固定映射** |
+| **实体化资料** | **B** | 扫描合同、拍照发票、混贴报销 | **分层**：印章 → 格式块 → 非标语义 → 项目背景 |
+
+**殊途同归** → `StructuredDocumentFact`（统一 ParseResult）→ 分流：
+
+- **尽调**：`register_ingestion` 模块台账 + 合同底稿合规段落  
+- **记账**：`parser_voucher_mapper` 候选草稿（**人工复核**，不自动 post）  
+- **风险**：分录入库后 `risk_rule_service`（解析质量决定风险质量）
+
+详细 charter：[parser-dual-scenario-strategy.md](../../documents/parser-dual-scenario-strategy.md)
+
+### 1.2 场景 B 分层流水线
+
+```text
+Step 0  格式识别
+Step 1  印章层          → seal-recognition-system
+Step 2  格式层（RULE）   → rule_parsers + field_alias_catalog
+Step 3  非标层（LLM）    → LLM + contract_deep_analyzer
+Step 4  背景层          → 项目/账簿/往来（待系统化）
+Step 5  融合            → RULE ∥ LLM（∥ 后期多 LLM）；Ollama 挂 → Plan B
+Step 6  ParseResult + review_flags
+Step 7  台账 / 底稿 / 候选草稿
+```
+
+**Plan B**：LLM 不可用时，仍输出 RULE + 印章字段；用户可人工补字段并写入 **修正规则**。
+
+### 1.3 修正回流与生产进化机制（优先级高于双引擎一致性）
+
+| 交付物 | 说明 |
+|--------|------|
+| 解析结果纠错 UI | 字段级改错 + 来源展示 |
+| A 规则库 | 别名、Excel 模板、列映射 |
+| B 规则库 | 印章→主体、非标 phrase→字段 |
+| 质量看板 | 按资料类型：字段准确率、修正命中率 |
+| `ParseCorrection` + `ParsingRulePatch` | **生产主信号**：每次改错自动入 draft 提案队列 |
+| Nightly TOP3 回归 | **固定标尺**：防退化，不自动激活规则 |
+| 进化审批台 | 批量采纳 → active，下次解析自动加载 |
+
+详见 [parser-evolution-loop.md](../../documents/parser-evolution-loop.md)。
+
+### 1.4 合同输出（不进正式凭证，但三层都要）
+
+| 层级 | 输出 |
+|------|------|
+| 台账 | 主体、金额、期限、印章、条款摘要 → `Contract` / register |
+| 底稿 | 合规：矛盾/缺失/非标 → `contract_deep_analyzer` → workpaper |
+| 候选草稿 | 收入/成本 **初步** 分录；允许多口径 **多草稿** → 同一 `business_key` → 用户选一 post |
+
+### 1.5 TOP3 托底范围（当前验收）
+
+| 资料 | 场景 | 主实现 |
+|------|------|--------|
+| 序时账/凭证 Excel | A | `adaptive-import-engine` / `file_parser_service` |
+| 发票 | A 为主，B 扫描走分层 | `parser_engine` + `parser_voucher_mapper` |
+| 银行流水 | A 为主，B PDF 走分层 | 同上 |
+
+**样本策略**：TOP3 用固定样本集测通过率；B 类复杂扫描 **单独统计**；功能迭代必须绑定样本结果（见 charter §七）。
+
+### 1.6 子 Spec 分工（不新增域）
+
+| Spec | 职责 |
+|------|------|
+| `adaptive-import-engine` | **仅场景 A** 结构化导入 |
+| `seal-recognition-system` | **仅场景 B Layer1** |
+| `govern-ai-voucher-evidence-tags` | 多草稿、证据、复核留痕 |
+| `auto-generate-entries-from-source` | 草稿生成与 Step3 衔接 |
+
+### 1.7 原始文件类型范围（产品全景，分阶段实现）
+
+| 文件类型 | 子类型 | 审计准则关联 | 解析复杂度 | 当前阶段 |
+|---------|-------|-------------|-----------|----------|
+| **序时账/凭证表** | Excel/CSV | 全科目 | ⭐⭐ | **A TOP3 验收** |
+| **发票** | 专票/普票/电子/OFD | 税务 | ⭐⭐⭐⭐ | **A TOP3 验收** |
+| **银行流水** | 网银/对账单 | 资金 | ⭐⭐⭐ | **A TOP3 验收** |
+| **合同** | 采购/销售/服务 | 收入准则 | ⭐⭐⭐⭐⭐ | **B 台账+底稿+初步草稿** |
+| **费用/工资/收据** | 报销/工资/收据 | 费用/薪酬 | ⭐⭐⭐ | 草稿映射已有，样本后验 |
+| **入库单** | 验收/收货 | 存货 | ⭐⭐⭐ | 台账为主 |
+| 订单/物流/结算/审批 | 各类 | 循环审计 | ⭐⭐–⭐⭐⭐ | Backlog |
+
+---
+
+## 附录 A：历史设计理念（保留参考）
+
+### A.1 核心原则（历史表述）
 
 **稳定框架 + 灵活映射**：
 - **稳定框架**：核心字段存入关系数据库（SQLite/PostgreSQL）
 - **灵活映射**：字段别名、不同称谓通过大模型判断
 - **准则视角**：从收入准则等审计准则出发设计解析引擎
 
-### 1.2 原始文件范围扩展
+### A.2 原始文件范围扩展（历史全景表）
 
 | 文件类型 | 子类型 | 审计准则关联 | 解析复杂度 |
 |---------|-------|-------------|-----------|
@@ -23,6 +130,12 @@
 | **结算单** | 对账单、结算确认单 | 应收应付确认 | ⭐⭐⭐ |
 | **验收单** | 验收报告、检测报告、确认函 | 履约义务完成 | ⭐⭐⭐⭐ |
 | **审批单** | 请购单、付款申请单、费用报销单 | 内控证据 | ⭐⭐⭐ |
+
+---
+
+## 附录 B：历史数据库设计草案（逐步迁移，非 Sprint 优先级）
+
+> 以下 SQL/表结构为早期设计草案。实现以 `backend/app/db/models.py` 及 Alembic 为准。
 
 ## 2. 数据库设计
 

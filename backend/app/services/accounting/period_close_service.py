@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.db.models import AccountingEntry, AccountingPeriod, ChartOfAccounts, Voucher
 import app.services.accounting.financial_statements_service as financial_statements_service
 import app.services.accounting.voucher_service as voucher_service
+from app.services.accounting.voucher_service import VoucherValidationError
 
 
 PL_ACCOUNT_CODE = "4103"  # 本年利润
@@ -139,7 +140,26 @@ def auto_pl_transfer(db: Session, ledger_id: int | None, period_id: int) -> dict
             pl_total -= net
 
     if not lines:
-        # 无损益需要结转，直接标记期间状态
+        balance_sheet = financial_statements_service._build_balance_sheet_payload(
+            db, effective_ledger_id, period_id
+        )
+        unmapped_net = Decimal(str(balance_sheet.get("unmapped_entry_net") or 0))
+
+        if not balance_sheet.get("is_balanced"):
+            hint = (
+                "无损益科目可结转，但资产负债表仍不平衡，请检查明细科目映射、导入结转凭证或期初余额。"
+                f" 资产 {balance_sheet.get('assets_total')} ≠ 负债 {balance_sheet.get('liabilities_total')}"
+                f" + 权益 {balance_sheet.get('equity_total')}"
+            )
+            if unmapped_net != 0:
+                unmapped_codes = balance_sheet.get("unmapped_codes") or []
+                codes_text = "、".join(unmapped_codes[:8]) if unmapped_codes else "见科目余额表"
+                hint += (
+                    f"。未映射分录净额 {unmapped_net.quantize(Decimal('0.01'))}，"
+                    f"建议在「损益结转与结账」页执行「补全 COA 缺口」（涉及科目：{codes_text}）"
+                )
+            raise ValueError(hint)
+
         period.status = "pl_transferred"
         period.updated_at = datetime.now(timezone.utc)
         db.commit()
@@ -190,6 +210,54 @@ def auto_pl_transfer(db: Session, ledger_id: int | None, period_id: int) -> dict
     }
 
 
+def ensure_pl_transfer_ready(
+    db: Session,
+    ledger_id: int | None,
+    period_id: int,
+    *,
+    auto_apply: bool = True,
+) -> dict[str, Any]:
+    """
+    结账/过账前确保损益结转条件成立。
+
+    - 导入凭证已清零损益且报表平衡：仅更新期间状态，不生成系统结转凭证
+    - 仍有损益余额：自动调用 auto_pl_transfer 生成结转凭证
+    """
+    from app.services.accounting.period_pl_health_service import assess_pl_transfer_readiness
+
+    period = db.get(AccountingPeriod, period_id)
+    if not period:
+        raise LookupError("会计期间不存在")
+    if period.status == "closed":
+        raise PermissionError("该期间已结账")
+    effective_ledger_id = ledger_id or period.ledger_id
+    if effective_ledger_id is None:
+        raise ValueError("无法确定账簿ID")
+
+    assessment = assess_pl_transfer_readiness(db, effective_ledger_id, period_id)
+    if period.status == "pl_transferred":
+        return {**assessment, "applied": False, "status": period.status}
+
+    if assessment.get("ready"):
+        if auto_apply and period.status in {"open", "reopened"}:
+            period.status = "pl_transferred"
+            period.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(period)
+        return {
+            **assessment,
+            "applied": auto_apply,
+            "status": period.status,
+            "voucher_no": None,
+            "lines": 0,
+        }
+
+    if assessment.get("mode") == "transfer_required" and auto_apply:
+        return auto_pl_transfer(db, effective_ledger_id, period_id)
+
+    raise ValueError(assessment.get("message") or "损益结转条件未满足，无法继续")
+
+
 def _delete_pl_transfer_voucher(db: Session, ledger_id: int, voucher_no: str) -> int:
     """删除指定账簿和凭证号的损益结转凭证及其分录。"""
     voucher = (
@@ -226,4 +294,148 @@ def reverse_pl_transfer(db: Session, ledger_id: int, period_id: int) -> dict[str
         "voucher_no": voucher_no,
         "deleted_lines": deleted_lines,
         "status": period.status,
+    }
+
+
+TRANSFERABLE_PERIOD_STATUSES = frozenset({"open", "reopened"})
+
+
+def _resolve_batch_pl_transfer_periods(
+    db: Session,
+    ledger_id: int,
+    *,
+    period_ids: list[int] | None = None,
+    from_period_id: int | None = None,
+    to_period_id: int | None = None,
+) -> list[AccountingPeriod]:
+    """解析批量结转目标期间，按 start_date 升序返回。"""
+    if period_ids:
+        seen: set[int] = set()
+        periods: list[AccountingPeriod] = []
+        for period_id in period_ids:
+            if period_id in seen:
+                continue
+            seen.add(period_id)
+            period = db.get(AccountingPeriod, period_id)
+            if not period:
+                raise LookupError(f"会计期间不存在: {period_id}")
+            if period.ledger_id != ledger_id:
+                raise ValueError(f"期间 {period.period_code} 不属于指定账簿")
+            periods.append(period)
+        return sorted(periods, key=lambda item: (item.start_date, item.id))
+
+    if from_period_id is not None and to_period_id is not None:
+        period_from = db.get(AccountingPeriod, from_period_id)
+        period_to = db.get(AccountingPeriod, to_period_id)
+        if not period_from or not period_to:
+            raise LookupError("起始或结束会计期间不存在")
+        if period_from.ledger_id != ledger_id or period_to.ledger_id != ledger_id:
+            raise ValueError("跨期间结转的起止期间必须属于同一账簿")
+        range_start = min(period_from.start_date, period_to.start_date)
+        range_end = max(period_from.end_date, period_to.end_date)
+        return (
+            db.query(AccountingPeriod)
+            .filter(
+                AccountingPeriod.ledger_id == ledger_id,
+                AccountingPeriod.start_date >= range_start,
+                AccountingPeriod.start_date <= range_end,
+            )
+            .order_by(AccountingPeriod.start_date, AccountingPeriod.id)
+            .all()
+        )
+
+    raise ValueError("请指定 period_ids，或同时指定 from_period_id 与 to_period_id")
+
+
+def batch_pl_transfer(
+    db: Session,
+    ledger_id: int,
+    *,
+    period_ids: list[int] | None = None,
+    from_period_id: int | None = None,
+    to_period_id: int | None = None,
+    stop_on_error: bool = True,
+    skip_transferred: bool = True,
+) -> dict[str, Any]:
+    """按期间顺序批量执行损益结转，支持勾选多期或起止跨期间连续结转。"""
+    periods = _resolve_batch_pl_transfer_periods(
+        db,
+        ledger_id,
+        period_ids=period_ids,
+        from_period_id=from_period_id,
+        to_period_id=to_period_id,
+    )
+    if not periods:
+        raise ValueError("未找到可结转的会计期间")
+
+    succeeded: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+
+    for period in periods:
+        if period.status == "closed":
+            skipped.append(
+                {
+                    "period_id": period.id,
+                    "period_code": period.period_code,
+                    "status": period.status,
+                    "reason": "已结账，跳过",
+                }
+            )
+            continue
+        if skip_transferred and period.status == "pl_transferred":
+            skipped.append(
+                {
+                    "period_id": period.id,
+                    "period_code": period.period_code,
+                    "status": period.status,
+                    "reason": "已结转损益，跳过",
+                }
+            )
+            continue
+        if period.status not in TRANSFERABLE_PERIOD_STATUSES:
+            skipped.append(
+                {
+                    "period_id": period.id,
+                    "period_code": period.period_code,
+                    "status": period.status,
+                    "reason": f"状态 {period.status} 不可结转，跳过",
+                }
+            )
+            continue
+
+        try:
+            result = auto_pl_transfer(db, ledger_id, period.id)
+            succeeded.append(
+                {
+                    "period_id": period.id,
+                    "period_code": period.period_code,
+                    "status": result.get("status", period.status),
+                    "voucher_no": result.get("voucher_no"),
+                    "lines": result.get("lines"),
+                    "net_profit": result.get("net_profit"),
+                }
+            )
+        except (LookupError, PermissionError, ValueError, VoucherValidationError) as exc:
+            failed.append(
+                {
+                    "period_id": period.id,
+                    "period_code": period.period_code,
+                    "status": period.status,
+                    "error": str(exc),
+                }
+            )
+            if stop_on_error:
+                break
+
+    return {
+        "ledger_id": ledger_id,
+        "total": len(periods),
+        "succeeded_count": len(succeeded),
+        "failed_count": len(failed),
+        "skipped_count": len(skipped),
+        "stopped_early": bool(stop_on_error and failed),
+        "succeeded": succeeded,
+        "failed": failed,
+        "skipped": skipped,
     }

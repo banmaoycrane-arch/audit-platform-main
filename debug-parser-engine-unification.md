@@ -1,6 +1,11 @@
 # Debug Session: parser-engine-unification
 
-Status: [OPEN]
+> **Status: SUPERSEDED（2026-07-06）**  
+> 本方向已与 [parser-dual-scenario-strategy.md](.trae/documents/parser-dual-scenario-strategy.md) **冲突**（序时簿场景 A 不应强制走 parser-engine）。  
+> 现行治理见 [development-convergence-charter.md](.trae/documents/development-convergence-charter.md) 问题簇 B4。  
+> 下文保留作历史记录，**不得**作为新需求依据。
+
+Status: [SUPERSEDED — was OPEN]
 
 ## Symptom
 

@@ -18,9 +18,11 @@ RUN pnpm --dir frontend build
 
 # 阶段 2：Caddy 提供静态文件 + 反代 + 自签 HTTPS
 FROM caddy:2-alpine
-RUN apk add --no-cache openssl
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
+    && apk add --no-cache openssl
 COPY --from=build /app/frontend/dist /srv/www
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY deploy/web-entrypoint.sh /usr/local/bin/web-entrypoint.sh
-RUN chmod +x /usr/local/bin/web-entrypoint.sh
+RUN chmod +x /usr/local/bin/web-entrypoint.sh \
+    && sed -i 's/\r$//' /usr/local/bin/web-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/web-entrypoint.sh"]

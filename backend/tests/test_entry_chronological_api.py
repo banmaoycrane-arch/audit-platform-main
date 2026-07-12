@@ -202,6 +202,146 @@ def test_chronological_entries_filter_by_account_and_voucher_word(client):
     assert ordered[0]["voucher_date"] <= ordered[-1]["voucher_date"]
 
 
+def test_chronological_account_code_exact_not_substring(client):
+    test_client, db_factory = client
+    headers, _ = _register(test_client, "exact_code_user", "13800139103")
+
+    team = test_client.post(
+        "/api/teams", json={"name": "精确科目团队", "type": "firm"}, headers=headers
+    ).json()
+    ledger = test_client.post(
+        "/api/ledgers",
+        json={"team_id": team["id"], "name": "精确科目账簿"},
+        headers=headers,
+    ).json()
+    ledger_id = ledger["id"]
+
+    db = db_factory()
+    org = Organization(name="精确科目企业", fiscal_year=2026)
+    db.add(org)
+    db.flush()
+    org_id = org.id
+    db.add_all(
+        [
+            AccountingEntry(
+                organization_id=org_id,
+                import_job_id=1,
+                ledger_id=ledger_id,
+                voucher_no="记-101",
+                voucher_date=date(2026, 1, 5),
+                summary="短期投资",
+                account_code="1101",
+                account_name="短期投资",
+                debit_amount=100,
+                credit_amount=0,
+                normalized_text="记-101 短期投资",
+                entry_line_no=1,
+            ),
+            AccountingEntry(
+                organization_id=org_id,
+                import_job_id=1,
+                ledger_id=ledger_id,
+                voucher_no="记-221",
+                voucher_date=date(2026, 1, 6),
+                summary="应付工资",
+                account_code="221101",
+                account_name="应付工资",
+                debit_amount=0,
+                credit_amount=200,
+                normalized_text="记-221 应付工资",
+                entry_line_no=1,
+            ),
+        ]
+    )
+    db.commit()
+    db.close()
+
+    fuzzy = test_client.get(
+        f"/api/entries/chronological?ledger_id={ledger_id}&account_code=1101",
+        headers=headers,
+    )
+    assert fuzzy.status_code == 200
+    assert fuzzy.json()["total"] == 2
+
+    exact = test_client.get(
+        f"/api/entries/chronological?ledger_id={ledger_id}&account_code=1101&account_code_match=exact",
+        headers=headers,
+    )
+    assert exact.status_code == 200
+    body = exact.json()
+    assert body["total"] == 1
+    assert body["items"][0]["account_code"] == "1101"
+
+
+def test_chronological_prefix_matches_flat_child_codes(client):
+    test_client, db_factory = client
+    headers, _ = _register(test_client, "prefix_code_user", "13800139104")
+
+    team = test_client.post(
+        "/api/teams", json={"name": "前缀科目团队", "type": "firm"}, headers=headers
+    ).json()
+    ledger = test_client.post(
+        "/api/ledgers",
+        json={"team_id": team["id"], "name": "前缀科目账簿"},
+        headers=headers,
+    ).json()
+    ledger_id = ledger["id"]
+
+    db = db_factory()
+    org = Organization(name="前缀科目企业", fiscal_year=2026)
+    db.add(org)
+    db.flush()
+    org_id = org.id
+    db.add_all(
+        [
+            AccountingEntry(
+                organization_id=org_id,
+                import_job_id=1,
+                ledger_id=ledger_id,
+                voucher_no="记-1002",
+                voucher_date=date(2022, 5, 1),
+                summary="银行存款",
+                account_code="100201",
+                account_name="工行",
+                debit_amount=100,
+                credit_amount=0,
+                normalized_text="记-1002 工行",
+                entry_line_no=1,
+            ),
+            AccountingEntry(
+                organization_id=org_id,
+                import_job_id=1,
+                ledger_id=ledger_id,
+                voucher_no="记-1003",
+                voucher_date=date(2022, 5, 2),
+                summary="其他",
+                account_code="2001",
+                account_name="短期借款",
+                debit_amount=0,
+                credit_amount=50,
+                normalized_text="记-1003",
+                entry_line_no=1,
+            ),
+        ]
+    )
+    db.commit()
+    db.close()
+
+    exact = test_client.get(
+        f"/api/entries/chronological?ledger_id={ledger_id}&account_code=1002&account_code_match=exact",
+        headers=headers,
+    )
+    assert exact.json()["total"] == 0
+
+    prefix = test_client.get(
+        f"/api/entries/chronological?ledger_id={ledger_id}&account_code=1002&account_code_match=prefix",
+        headers=headers,
+    )
+    assert prefix.status_code == 200
+    assert prefix.json()["total"] == 1
+    assert prefix.json()["items"][0]["account_code"] == "100201"
+
+
 def test_chronological_entries_requires_ledger_access(client):
     test_client, _ = client
     headers_a, _ = _register(test_client, "daybook_a", "13800139101")

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Form, Input, Button, Tabs, message, Alert } from 'antd'
 import { UserOutlined, LockOutlined, MobileOutlined, SafetyOutlined } from '@ant-design/icons'
@@ -20,6 +20,13 @@ export function LoginPage() {
   const [smsLoginError, setSmsLoginError] = useState<string | null>(null)
   const [showSetPassword, setShowSetPassword] = useState(false)
   const [displaySmsCode, setDisplaySmsCode] = useState<string | null>(null)
+  const [backendOk, setBackendOk] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    void api.health()
+      .then(() => setBackendOk(true))
+      .catch(() => setBackendOk(false))
+  }, [])
 
   const finishLogin = async (accessToken: string) => {
     localStorage.setItem('token', accessToken)
@@ -264,6 +271,15 @@ export function LoginPage() {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
       <div style={{ width: 400, padding: 40, background: '#fff', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
         <h2 style={{ textAlign: 'center', marginBottom: 24, fontWeight: 600 }}>财务向量审计系统</h2>
+        {backendOk === false && (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="后端服务未启动"
+            description="请先启动后端：在项目根目录执行 pnpm dev:backend，确认 http://127.0.0.1:8000/health 可访问后再登录。"
+          />
+        )}
         <Tabs activeKey={activeTab} onChange={(k) => { setActiveTab(k as 'password' | 'sms'); setSmsLoginError(null); setPasswordError(null) }} centered items={tabItems} />
         <div style={{ textAlign: 'center', marginTop: 16 }}>
           <span>还没有账号？</span>

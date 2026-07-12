@@ -4,6 +4,8 @@
 支持多种格式的自适应字段映射
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -13,6 +15,10 @@ from typing import Any
 import pandas as pd
 
 from app.money import parse_decimal
+from app.services.doc_parsing.day_book_parser import (
+    is_summary_row,
+    load_accounting_frame,
+)
 from app.services.doc_parsing.format_template import (
     STANDARD_FIELDS,
     detect_template,
@@ -87,40 +93,6 @@ def _normalize_text(value: Any) -> str:
     return str(value).strip()
 
 
-def _detect_header_row(frame: pd.DataFrame) -> int:
-    """
-    检测表头行
-
-    策略：
-    1. 查找包含多个标准字段关键词的行（如"凭证"、"摘要"、"金额"）
-    2. 跳过标题行（如"凭证序时簿"、"核算单位"等）
-    3. 查找与其他行格式明显不同的行
-    """
-    for i, row in frame.iterrows():
-        row_values = [str(v) for v in row.values if pd.notna(v)]
-        row_str = " ".join(v.lower() for v in row_values)
-        
-        # 跳过明显的标题行（只包含一个值且是标题）
-        if len(row_values) == 1 and len(row_values[0]) < 20:
-            title_keywords = ["序时簿", "核算单位", "单位：", "年月", "报表", "台账"]
-            if any(kw in row_values[0] for kw in title_keywords):
-                continue
-        
-        # 检查是否包含多个标准字段关键词
-        header_keywords = ["凭证", "摘要", "科目", "金额", "voucher", "summary", "account", "amount"]
-        matched_keywords = sum(1 for kw in header_keywords if kw in row_str)
-        if matched_keywords >= 2:
-            return int(i)
-        
-        # 检查是否为表头格式（文本较短且非空值较多）
-        non_null_count = len(row_values)
-        if non_null_count >= 3:
-            avg_len = sum(len(v) for v in row_values) / max(non_null_count, 1)
-            if avg_len < 20:
-                return int(i)
-    return 0  # 默认第一行
-
-
 def _parse_amount_with_sign(value: Any, debit_default: bool = True) -> tuple[Decimal, Decimal]:
     """
     功能描述：解析带符号的金额并拆分为借方/贷方
@@ -180,7 +152,7 @@ def _infer_amount_direction(row: dict[str, Any], has_debit: bool, has_credit: bo
     return amount, zero  # 默认借方
 
 
-def _build_mapping(frame: pd.DataFrame) -> tuple[dict[str, str], list[str]]:
+def _build_mapping(frame: pd.DataFrame, extra_aliases: dict[str, str] | None = None) -> tuple[dict[str, str], list[str]]:
     """
     构建字段映射
 
@@ -196,7 +168,11 @@ def _build_mapping(frame: pd.DataFrame) -> tuple[dict[str, str], list[str]]:
 
     for header in headers:
         normalized = _normalize_key(header)
-        matched = match_header(header)
+        matched = None
+        if extra_aliases and normalized in extra_aliases:
+            matched = extra_aliases[normalized]
+        if not matched:
+            matched = match_header(header)
 
         if matched:
             mapping[normalized] = matched
@@ -245,13 +221,26 @@ def _transform_row(row: dict[str, Any], has_debit: bool, has_credit: bool) -> di
 
     summary = _normalize_text(row.get("summary", ""))
     counterparty = _normalize_text(row.get("counterparty", ""))
+    source_preparer_name = _normalize_text(
+        row.get("source_preparer_name", "") or row.get("source_preparer", "")
+    )
 
     # 解析科目层级并生成建议 Tag
+    from app.config.account_tag_config import load_account_tag_config
     from app.services.doc_parsing.account_tag_resolution_service import (
         resolve_account_for_import,
     )
+    from app.services.doc_parsing.parse_context import get_parse_db, get_parse_ledger_id
 
-    resolved = resolve_account_for_import(account_code, account_name, summary)
+    parse_db = get_parse_db()
+    parse_ledger_id = get_parse_ledger_id()
+    tag_config = load_account_tag_config(parse_db, ledger_id=parse_ledger_id)
+    resolved = resolve_account_for_import(
+        account_code,
+        account_name,
+        summary,
+        config=tag_config,
+    )
 
     # 构建 normalized_text
     parts = [
@@ -271,8 +260,17 @@ def _transform_row(row: dict[str, Any], has_debit: bool, has_credit: bool) -> di
 
     normalized_text = " ".join(p for p in parts if p)
 
+    entry_line_no = None
+    raw_line_no = row.get("entry_line_no")
+    if raw_line_no is not None and not (isinstance(raw_line_no, float) and pd.isna(raw_line_no)):
+        try:
+            entry_line_no = int(str(raw_line_no).strip().split(".", 1)[0])
+        except (TypeError, ValueError):
+            entry_line_no = None
+
     return {
         "voucher_no": _normalize_text(row.get("voucher_no")),
+        "voucher_type": _normalize_text(row.get("voucher_type")),
         "voucher_date": voucher_date,
         "summary": summary,
         "account_code": account_code,
@@ -285,6 +283,8 @@ def _transform_row(row: dict[str, Any], has_debit: bool, has_credit: bool) -> di
         "debit_amount": debit_amount,
         "credit_amount": credit_amount,
         "counterparty": counterparty,
+        "entry_line_no": entry_line_no,
+        "source_preparer_name": source_preparer_name or None,
         "original_row": dict(row),
         "normalized_text": normalized_text,
     }
@@ -300,114 +300,257 @@ def _validate_row(row: dict[str, Any], required_fields: list[str]) -> tuple[bool
     return len(missing) == 0, missing
 
 
-def parse_entries(path: str) -> ParseResult:
-    """
-    解析会计分录文件
+def _empty_parse_result() -> ParseResult:
+    return ParseResult(
+        entries=[],
+        template_name=None,
+        matched_fields={},
+        unmatched_headers=[],
+        total_rows=0,
+        success_rows=0,
+        error_rows=0,
+        quality_score=0.0,
+    )
 
-    支持格式：
-    - Excel (.xlsx, .xls)
-    - CSV (.csv)
 
-    Returns:
-        ParseResult 包含解析结果和元数据
-    """
-    file_path = Path(path)
-    suffix = file_path.suffix.lower()
-
-    if suffix not in {".xlsx", ".xls", ".csv"}:
-        return ParseResult(
-            entries=[],
-            template_name=None,
-            matched_fields={},
-            unmatched_headers=[],
-            total_rows=0,
-            success_rows=0,
-            error_rows=0,
-            quality_score=0.0,
-        )
-
-    # 读取文件
-    try:
-        if suffix in {".xlsx", ".xls"}:
-            # 尝试自动检测表头行
-            frame = pd.read_excel(file_path, header=None)
-            header_row = _detect_header_row(frame)
-            frame = pd.read_excel(file_path, header=header_row)
-        else:
-            frame = pd.read_csv(file_path, header=None)
-            header_row = _detect_header_row(frame)
-            frame = pd.read_csv(file_path, header=header_row)
-    except Exception as e:
-        return ParseResult(
-            entries=[],
-            template_name=None,
-            matched_fields={},
-            unmatched_headers=[],
-            total_rows=0,
-            success_rows=0,
-            error_rows=0,
-            quality_score=0.0,
-        )
-
-    # 构建映射
+def _parse_frame_to_result(
+    frame: pd.DataFrame,
+    *,
+    db: Any = None,
+    extra_aliases: dict[str, str] | None = None,
+    engine_label: str = "adaptive_template",
+    data_row_excel_indices: list[int] | None = None,
+    amount_color_grid: dict[tuple[int, int], str] | None = None,
+) -> ParseResult:
     headers = list(frame.columns)
-    mapping, unmatched = _build_mapping(frame)
+    aliases: dict[str, str] = dict(extra_aliases or {})
+    if db is not None:
+        from app.services.doc_parsing.parser_engine.parser_evolution_service import (
+            get_active_column_header_aliases,
+        )
+
+        aliases.update(get_active_column_header_aliases(db, "accounting_entry"))
+
+    mapping, unmatched = _build_mapping(frame, extra_aliases=aliases or None)
     template_name, _ = detect_template(headers)
-
-    # 检测借贷字段
     has_debit, has_credit = _has_amount_field(headers)
-
-    # 获取必填字段
     required_fields = get_required_fields(template_name or "") if template_name else ["summary", "account_name"]
 
-    # 解析每行
     entries: list[dict[str, Any]] = []
     success_rows = 0
     error_rows = 0
-    last_voucher_no = ""
+    row_signals: list[dict[str, bool]] = []
+    last_voucher_type = ""
+    last_voucher_serial = ""
+    last_composed_voucher = ""
     last_voucher_date: date | None = None
 
-    for idx, row in frame.iterrows():
-        try:
-            # 映射原始数据
-            mapped = _map_row(row, mapping)
+    from app.services.doc_parsing.voucher_no_resolution import (
+        _cell_has_value,
+        assign_parse_group_keys,
+        resolve_voucher_no_from_parts,
+    )
+    from app.services.doc_parsing.excel_font_amount_service import infer_debit_credit_from_colored_row
 
-            # 转换格式
+    for frame_idx, (_, row) in enumerate(frame.iterrows()):
+        try:
+            if is_summary_row(row):
+                continue
+            mapped = _map_row(row, mapping)
+            row_signals.append(
+                {
+                    "raw_had_date": _cell_has_value(mapped.get("voucher_date")),
+                    "raw_had_voucher_no": _cell_has_value(mapped.get("voucher_no")),
+                }
+            )
+            if _cell_has_value(mapped.get("voucher_date")):
+                parsed_boundary_date = _date(mapped.get("voucher_date"))
+                if parsed_boundary_date and last_voucher_date and parsed_boundary_date != last_voucher_date:
+                    last_voucher_type = ""
+                    last_voucher_serial = ""
+                    last_composed_voucher = ""
+            composed, last_voucher_type, last_voucher_serial, last_composed_voucher = (
+                resolve_voucher_no_from_parts(
+                    raw_voucher_no=mapped.get("voucher_no"),
+                    raw_voucher_type=mapped.get("voucher_type"),
+                    last_type=last_voucher_type,
+                    last_serial=last_voucher_serial,
+                    last_composed=last_composed_voucher,
+                )
+            )
+            mapped["voucher_no"] = composed
             transformed = _transform_row(mapped, has_debit, has_credit)
-            if transformed.get("voucher_no"):
-                last_voucher_no = transformed["voucher_no"]
-            elif last_voucher_no:
-                transformed["voucher_no"] = last_voucher_no
+            if amount_color_grid is not None and data_row_excel_indices and frame_idx < len(data_row_excel_indices):
+                row_values = [row.iloc[col] if col < len(row) else None for col in range(len(headers))]
+                colored_debit, colored_credit, _used_color = infer_debit_credit_from_colored_row(
+                    row_values=row_values,
+                    headers=headers,
+                    excel_row_index=data_row_excel_indices[frame_idx],
+                    color_grid=amount_color_grid,
+                    has_debit_column=has_debit,
+                    has_credit_column=has_credit,
+                )
+                transformed["debit_amount"] = colored_debit
+                transformed["credit_amount"] = colored_credit
             if transformed.get("voucher_date"):
                 last_voucher_date = transformed["voucher_date"]
             elif last_voucher_date:
                 transformed["voucher_date"] = last_voucher_date
 
-            # 验证必填字段
-            is_valid, missing = _validate_row(transformed, required_fields)
-
-            if is_valid:
+            is_valid, _missing = _validate_row(transformed, required_fields)
+            zero = Decimal("0.00")
+            has_amount = transformed["debit_amount"] != zero or transformed["credit_amount"] != zero
+            if is_valid and has_amount:
                 entries.append(transformed)
                 success_rows += 1
             else:
                 error_rows += 1
+                row_signals.pop()
         except Exception:
             error_rows += 1
 
-    # 计算质量分数
+    assign_parse_group_keys(entries, row_signals)
+
     total_rows = len(frame)
     quality_score = (success_rows / max(total_rows, 1)) * 100
-
+    matched_fields = {v: k for k, v in mapping.items()}
+    matched_fields["engine"] = engine_label
     return ParseResult(
         entries=entries,
         template_name=template_name,
-        matched_fields={v: k for k, v in mapping.items()},
+        matched_fields=matched_fields,
         unmatched_headers=unmatched,
         total_rows=total_rows,
         success_rows=success_rows,
         error_rows=error_rows,
         quality_score=quality_score,
     )
+
+
+def _parse_entries_via_rule_engine(path: str, db: Any = None) -> ParseResult:
+    """规则引擎回退：与 parser_engine.accounting_entry 同一套表头/汇总行逻辑。"""
+    from app.services.doc_parsing.parser_engine.rule_parsers import parse_accounting_entry_rules
+
+    rule_data = parse_accounting_entry_rules("", file_path=path)
+    raw_entries = rule_data.get("entries") or []
+    if not raw_entries:
+        return _empty_parse_result()
+
+    entries: list[dict[str, Any]] = []
+    success_rows = 0
+    row_signals: list[dict[str, bool]] = []
+    last_voucher_type = ""
+    last_voucher_serial = ""
+    last_composed_voucher = ""
+    last_voucher_date: date | None = None
+
+    from app.services.doc_parsing.voucher_no_resolution import (
+        _cell_has_value,
+        assign_parse_group_keys,
+        resolve_voucher_no_from_parts,
+    )
+
+    for raw in raw_entries:
+        row_signals.append(
+            {
+                "raw_had_date": _cell_has_value(raw.get("date")),
+                "raw_had_voucher_no": _cell_has_value(raw.get("document_no")),
+            }
+        )
+        if _cell_has_value(raw.get("date")):
+            parsed_boundary_date = _date(raw.get("date"))
+            if parsed_boundary_date and last_voucher_date and parsed_boundary_date != last_voucher_date:
+                last_voucher_type = ""
+                last_voucher_serial = ""
+                last_composed_voucher = ""
+        composed, last_voucher_type, last_voucher_serial, last_composed_voucher = (
+            resolve_voucher_no_from_parts(
+                raw_voucher_no=raw.get("document_no"),
+                raw_voucher_type=raw.get("voucher_type"),
+                last_type=last_voucher_type,
+                last_serial=last_voucher_serial,
+                last_composed=last_composed_voucher,
+            )
+        )
+        mapped = {
+            "voucher_no": composed,
+            "voucher_date": raw.get("date"),
+            "summary": _normalize_text(raw.get("summary")),
+            "account_code": _normalize_text(raw.get("subject_code")),
+            "account_name": _normalize_text(raw.get("subject_name")),
+            "debit_amount": raw.get("debit_amount") or 0,
+            "credit_amount": raw.get("credit_amount") or 0,
+            "counterparty": _normalize_text(raw.get("counterparty_subject")),
+        }
+        transformed = _transform_row(mapped, True, True)
+        if transformed.get("voucher_date"):
+            last_voucher_date = transformed["voucher_date"]
+        elif last_voucher_date:
+            transformed["voucher_date"] = last_voucher_date
+        zero = Decimal("0.00")
+        if transformed["debit_amount"] != zero or transformed["credit_amount"] != zero:
+            entries.append(transformed)
+            success_rows += 1
+        else:
+            row_signals.pop()
+
+    assign_parse_group_keys(entries, row_signals)
+
+    columns = rule_data.get("columns") or []
+    return ParseResult(
+        entries=entries,
+        template_name="rule_engine_accounting_entry",
+        matched_fields={"engine": "rule_engine", "columns": ", ".join(columns[:12])},
+        unmatched_headers=[c for c in columns if c],
+        total_rows=len(raw_entries),
+        success_rows=success_rows,
+        error_rows=max(len(raw_entries) - success_rows, 0),
+        quality_score=(success_rows / max(len(raw_entries), 1)) * 100,
+    )
+
+
+def parse_structured_accounting_entries(
+    path: str,
+    db: Any = None,
+    parse_options: StructuredParseOptions | None = None,
+) -> ParseResult:
+    """
+    场景 A 统一结构化分录解析入口（序时簿/凭证 Excel/CSV）。
+
+    与 document-parsing-engine / adaptive-import-engine 设计一致：
+    1. 自适应模板 + evolution column_header 规则
+    2. 失败时回退 parser_engine 序时簿规则解析（同一数据模型输出）
+    """
+    from app.services.doc_parsing.structured_parse_options import get_parse_options
+    from app.services.doc_parsing.day_book_parser import resolve_structured_table
+
+    options = parse_options or get_parse_options()
+    layout = resolve_structured_table(path, parse_options=options)
+    if layout is None or layout.data_frame.empty:
+        return _empty_parse_result()
+
+    primary = _parse_frame_to_result(
+        layout.data_frame,
+        db=db,
+        engine_label="adaptive_template",
+        data_row_excel_indices=layout.data_row_excel_indices,
+        amount_color_grid=layout.amount_color_grid,
+    )
+    if primary.entries:
+        return primary
+
+    fallback = _parse_entries_via_rule_engine(path, db=db)
+    if fallback.entries:
+        return fallback
+
+    return primary if primary.total_rows >= fallback.total_rows else fallback
+
+
+def parse_entries(path: str, db: Any = None) -> ParseResult:
+    """
+    解析会计分录文件（兼容旧调用方，内部走统一入口）。
+    """
+    return parse_structured_accounting_entries(path, db=db)
 
 
 def extract_text(path: str) -> str:
@@ -435,15 +578,20 @@ def extract_text(path: str) -> str:
 
 def build_parse_diagnostics(parse_result: ParseResult) -> dict[str, Any]:
     """生成列映射诊断信息，供前端展示分列引导。"""
+    engine = parse_result.matched_fields.get("engine", "adaptive_template")
     return {
         "template_name": parse_result.template_name,
         "matched_fields": parse_result.matched_fields,
         "unmatched_headers": parse_result.unmatched_headers,
         "total_rows": parse_result.total_rows,
         "success_rows": parse_result.success_rows,
+        "error_rows": parse_result.error_rows,
+        "quality_score": round(parse_result.quality_score, 2),
+        "engine": engine,
         "expected_columns": list(STANDARD_FIELDS.values()),
         "guidance": (
             "请检查表头是否包含：凭证号、凭证日期、摘要、科目名称、借方金额、贷方金额等列。"
-            "若您的文件是序时簿/凭证表，请返回 Step1 选择「序时簿导入生成会计凭证」后重新上传。"
+            "系统已使用统一结构化解析引擎（自适应模板 + 规则引擎回退）。"
+            f"当前引擎分支：{engine}。"
         ),
     }

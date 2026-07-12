@@ -10,13 +10,29 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
-from app.db.models import AccountingEntry, ImportJob
+from app.db.models import AccountingEntry, ImportJob, StagingAccountingEntry
 from app.db.session import get_db
+from app.models.ledger import Ledger
+from app.services.accounting.export_filename_service import (
+    build_import_job_export_filename,
+    content_disposition_attachment,
+)
 
 router = APIRouter(prefix="/api/import-jobs", tags=["export"])
 
 SUPPORTED_FORMATS = {"xlsx", "csv", "json"}
 POSTABLE_REVIEW_STATUSES = {"verified", "ready"}
+
+
+def _entry_is_postable(entry: AccountingEntry) -> bool:
+    if entry.review_status in POSTABLE_REVIEW_STATUSES:
+        return True
+    # 序时簿确认入账后历史数据为 pending，允许 Step5 过账导出
+    return (
+        entry.review_status == "pending"
+        and entry.import_job_id is not None
+        and entry.entry_source == "auto"
+    )
 
 COLUMNS = [
     ("voucher_no", "凭证号"),
@@ -90,20 +106,26 @@ def post_import_job_entries(
         .all()
     )
     if not entries:
+        staging_count = (
+            db.query(StagingAccountingEntry)
+            .filter(StagingAccountingEntry.import_job_id == job_id)
+            .count()
+        )
+        if staging_count:
+            raise HTTPException(
+                status_code=400,
+                detail="尚未确认入账：请先在 Step4 完成凭证复核；本页导出将自动确认入账",
+            )
         raise HTTPException(status_code=400, detail="该导入任务下没有可入账的分录")
 
-    unreviewed_query = db.query(AccountingEntry.id).filter(
-        AccountingEntry.import_job_id == job_id,
-        AccountingEntry.review_status.notin_(POSTABLE_REVIEW_STATUSES),
-    )
-    unreviewed_count = unreviewed_query.count()
-    if unreviewed_count:
-        sample_ids = [row[0] for row in unreviewed_query.order_by(AccountingEntry.id).limit(20).all()]
+    unreviewed = [entry for entry in entries if not _entry_is_postable(entry)]
+    if unreviewed:
+        sample_ids = [entry.id for entry in unreviewed[:20]]
         raise HTTPException(
             status_code=400,
             detail={
                 "message": "存在未复核通过的分录（需 verified 或 ready）",
-                "unreviewed_count": unreviewed_count,
+                "unreviewed_count": len(unreviewed),
                 "sample_entry_ids": sample_ids,
             },
         )
@@ -115,6 +137,9 @@ def post_import_job_entries(
             entry.post_status = "posted"
             entry.posted_at = now
             posted_count += 1
+    if job.status == "preview":
+        job.status = "completed"
+        job.entry_count = len(entries)
     db.commit()
 
     return {
@@ -154,18 +179,21 @@ def export_import_job(
     if fmt == "xlsx":
         body = _entries_to_xlsx(entries)
         media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        filename = f"job_{job_id}_entries.xlsx"
     elif fmt == "csv":
         body = _entries_to_csv(entries)
         media = "text/csv; charset=utf-8"
-        filename = f"job_{job_id}_entries.csv"
     else:
         body = _entries_to_json(entries)
         media = "application/json; charset=utf-8"
-        filename = f"job_{job_id}_entries.json"
+
+    ledger_name = None
+    if job.ledger_id is not None:
+        ledger = db.get(Ledger, job.ledger_id)
+        ledger_name = ledger.name if ledger else None
+    filename = build_import_job_export_filename(job, ledger_name=ledger_name, fmt=fmt)
 
     return StreamingResponse(
         io.BytesIO(body),
         media_type=media,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition_attachment(filename)},
     )

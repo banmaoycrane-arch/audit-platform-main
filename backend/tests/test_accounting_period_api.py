@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db.models import AccountingEntry, ImportJob, Organization
+from app.db.models import AccountingEntry, ChartOfAccounts, ImportJob, Organization
 from app.db.session import Base, get_db
 from app.main import app
 
@@ -62,11 +62,11 @@ def seed_organization_with_entries(TestingSessionLocal):
                 AccountingEntry(
                     organization_id=organization.id,
                     import_job_id=import_job.id,
-                    voucher_date=date(2026, 1, 20),
+                    voucher_date=date(2026, 1, 5),
                     account_code="6001",
                     account_name="主营业务收入",
                     debit_amount=Decimal("0.00"),
-                    credit_amount=Decimal("30.00"),
+                    credit_amount=Decimal("100.00"),
                 ),
             ]
         )
@@ -117,6 +117,78 @@ def test_accounting_period_api_create_close_reopen_and_summary_source(client):
     assert live_summary["snapshot_status"] is None
     assert live_summary["snapshot_version"] == 0
 
+    db = TestingSessionLocal()
+    try:
+        from app.db.models import AccountingPeriod
+        from app.models.ledger import Ledger
+        from app.models.team import Team
+
+        period = db.get(AccountingPeriod, period_id)
+        import_job = db.query(ImportJob).filter(ImportJob.organization_id == organization_id).first()
+        import_job_id = import_job.id if import_job else 1
+        team = Team(name="API期间测试团队")
+        db.add(team)
+        db.flush()
+        ledger = Ledger(name="API期间测试账簿", team_id=team.id, organization_id=organization_id)
+        db.add(ledger)
+        db.flush()
+        period.ledger_id = ledger.id
+
+        for code, name, category, direction in [
+            ("1001", "库存现金", "asset", "debit"),
+            ("6001", "主营业务收入", "profit", "credit"),
+            ("4103", "本年利润", "equity", "credit"),
+        ]:
+            db.add(
+                ChartOfAccounts(
+                    code=code,
+                    name=name,
+                    parent_code=None,
+                    level=1,
+                    category=category,
+                    direction=direction,
+                    is_terminal=True,
+                    status="active",
+                    is_system=True,
+                    ledger_id=ledger.id,
+                )
+            )
+
+        for entry in db.query(AccountingEntry).filter(AccountingEntry.organization_id == organization_id).all():
+            entry.ledger_id = ledger.id
+
+        db.add(
+            AccountingEntry(
+                organization_id=organization_id,
+                ledger_id=ledger.id,
+                import_job_id=import_job_id,
+                voucher_date=period.end_date,
+                voucher_no="转-期末-API",
+                account_code="6001",
+                account_name="主营业务收入",
+                debit_amount=Decimal("100.00"),
+                credit_amount=Decimal("0.00"),
+            )
+        )
+        db.add(
+            AccountingEntry(
+                organization_id=organization_id,
+                ledger_id=ledger.id,
+                import_job_id=import_job_id,
+                voucher_date=period.end_date,
+                voucher_no="转-期末-API",
+                account_code="4103",
+                account_name="本年利润",
+                debit_amount=Decimal("0.00"),
+                credit_amount=Decimal("100.00"),
+            )
+        )
+
+        period.status = "pl_transferred"
+        db.commit()
+    finally:
+        db.close()
+
     close_response = test_client.post(
         f"/api/accounting-periods/{period_id}/close",
         json={"operator": "tester", "reason": "月结"},
@@ -143,8 +215,8 @@ def test_accounting_period_api_create_close_reopen_and_summary_source(client):
     assert reopen_response.status_code == 200
     reopened_period = reopen_response.json()
     assert reopened_period["status"] == "reopened"
-    assert reopened_period["snapshot_status"] == "invalidated"
-    assert reopened_period["snapshot_version"] == 1
+    assert reopened_period["snapshot_status"] is None
+    assert reopened_period["snapshot_version"] == 0
     assert reopened_period["source"] == "live_calculation"
 
     reopened_summary_response = test_client.get(f"/api/accounting-periods/{period_id}/summary?dimension_type=period_total")
@@ -152,8 +224,8 @@ def test_accounting_period_api_create_close_reopen_and_summary_source(client):
     reopened_summary = reopened_summary_response.json()
     assert reopened_summary["source"] == "live_calculation"
     assert reopened_summary["period_status"] == "reopened"
-    assert reopened_summary["snapshot_status"] == "invalidated"
-    assert reopened_summary["snapshot_version"] == 1
+    assert reopened_summary["snapshot_status"] is None
+    assert reopened_summary["snapshot_version"] == 0
 
 
 def test_accounting_period_recommendation_matches_open_period_and_suggests_month(client):

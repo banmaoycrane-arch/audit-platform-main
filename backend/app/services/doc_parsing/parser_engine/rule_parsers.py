@@ -292,7 +292,131 @@ def parse_invoice_rules(text: str, file_path: str = "") -> dict[str, Any]:
 # 银行流水规则解析器
 # =============================================================================
 
-def parse_bank_statement_rules(text: str, file_path: str = "") -> dict[str, Any]:
+def _normalize_bank_header(header: str) -> str:
+    return str(header).strip().lower().replace(" ", "")
+
+
+def _match_bank_column(header: str, header_aliases: dict[str, str] | None = None) -> str | None:
+    """将 Excel 表头映射到银行流水标准字段。"""
+    normalized = _normalize_bank_header(header)
+    if header_aliases:
+        for alias_key, field in header_aliases.items():
+            if normalized == _normalize_bank_header(alias_key):
+                return field
+    from app.services.doc_parsing.parser_engine.field_alias_catalog import get_field_aliases
+
+    aliases = get_field_aliases("bank_statement")
+    best_field: str | None = None
+    best_len = 0
+    for field_name, alias_list in aliases.items():
+        for alias in alias_list:
+            alias_norm = _normalize_bank_header(alias)
+            if normalized == alias_norm or alias_norm in normalized or normalized in alias_norm:
+                if len(alias_norm) > best_len:
+                    best_len = len(alias_norm)
+                    best_field = field_name
+    if normalized in {"摘要", "用途", "附言", "交易摘要"}:
+        return "summary"
+    return best_field
+
+
+def _detect_bank_header_row(frame: "pd.DataFrame") -> int:
+    import pandas as pd
+
+    keywords = ["交易日期", "日期", "对方", "摘要", "借方", "贷方", "发生额", "余额", "金额"]
+    for i in range(min(15, len(frame))):
+        row_values = [str(v) for v in frame.iloc[i].values if pd.notna(v)]
+        row_str = " ".join(row_values)
+        hits = sum(1 for kw in keywords if kw in row_str)
+        if hits >= 2:
+            return i
+    return 0
+
+
+def _parse_bank_statement_excel(file_path: str, header_aliases: dict[str, str] | None = None) -> dict[str, Any] | None:
+    """网银导出 Excel/CSV：按列名映射，区分对方单位与对方银行。"""
+    import pandas as pd
+    from pathlib import Path
+
+    path = Path(file_path)
+    suffix = path.suffix.lower()
+    if suffix not in {".xlsx", ".xls", ".csv"}:
+        return None
+
+    try:
+        if suffix == ".csv":
+            raw = pd.read_csv(file_path, header=None, encoding_errors="ignore")
+        else:
+            raw = pd.read_excel(file_path, header=None)
+    except Exception:
+        return None
+
+    if raw.empty:
+        return None
+
+    header_row = _detect_bank_header_row(raw)
+    frame = raw.iloc[header_row + 1 :].copy()
+    frame.columns = [str(c).strip() for c in raw.iloc[header_row].values]
+    frame = frame.dropna(how="all")
+    if frame.empty:
+        return None
+
+    col_map: dict[str, str] = {}
+    for col in frame.columns:
+        field = _match_bank_column(str(col), header_aliases)
+        if field and field not in col_map.values():
+            col_map[str(col)] = field
+
+    if not col_map:
+        return None
+
+    transactions: list[dict[str, Any]] = []
+    for _, row in frame.iterrows():
+        record: dict[str, Any] = {}
+        for col, field in col_map.items():
+            val = row.get(col)
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                continue
+            text_val = str(val).strip()
+            if not text_val or text_val.lower() == "nan":
+                continue
+            record[field] = text_val
+
+        if not record:
+            continue
+
+        amount = record.pop("transaction_amount", None) or record.pop("debit_amount", None) or record.pop("credit_amount", None)
+        tx_date = record.pop("transaction_date", None) or record.pop("date", None)
+        if not tx_date and not amount:
+            continue
+
+        transactions.append({
+            "transaction_date": tx_date,
+            "amount": amount,
+            "counterparty_name": record.get("counterparty_name"),
+            "counterparty_bank": record.get("counterparty_bank"),
+            "counterparty_account_no": record.get("counterparty_account_no"),
+            "summary": record.get("summary"),
+            "balance": record.get("balance"),
+        })
+
+    if not transactions:
+        return None
+
+    return {
+        "document_type": "bank_statement",
+        "transactions": transactions[:200],
+        "parse_mode": "excel_column_map",
+        "column_mapping": col_map,
+        "transaction_count": len(transactions),
+    }
+
+
+def parse_bank_statement_rules(
+    text: str,
+    file_path: str = "",
+    header_aliases: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """
     银行流水规则解析器
     
@@ -314,6 +438,11 @@ def parse_bank_statement_rules(text: str, file_path: str = "") -> dict[str, Any]
     Returns:
         dict: 结构化银行流水数据
     """
+    if file_path:
+        excel_result = _parse_bank_statement_excel(file_path, header_aliases=header_aliases)
+        if excel_result:
+            return excel_result
+
     data: dict[str, Any] = {
         "document_type": "bank_statement",
         "account_name": None,
@@ -1203,46 +1332,10 @@ def parse_receipt_rules(text: str, file_path: str = "") -> dict[str, Any]:
 
 import pandas as pd
 
-
-def _detect_header_row(df: pd.DataFrame) -> int:
-    """
-    检测 Excel/CSV 数据表中的真正表头行位置。
-
-    业务含义：
-        财务类表格常见习惯是前 4-5 行为标题、企业名称、制表时间、
-        货币单位等说明信息，真正字段名在下方。本函数通过统计每行
-        的字段名特征来定位表头。
-    """
-    if df.empty:
-        return 0
-
-    candidate_keywords = [
-        "凭证", "日期", "摘要", "科目", "借方", "贷方", "余额", "金额",
-        "序号", "年", "月", "日", "对方科目", "经办人", "审核人", "过账",
-        "voucher", "date", "summary", "subject", "debit", "credit", "balance",
-        "amount", "no", "serial",
-    ]
-    best_score = -1.0
-    best_index = 0
-
-    for idx in range(min(len(df), 15)):
-        row = df.iloc[idx]
-        text = " ".join(str(x).strip().lower() for x in row.values if pd.notna(x))
-        if not text:
-            continue
-        score = 0.0
-        for keyword in candidate_keywords:
-            if keyword in text:
-                score += 1.0
-        # 如果一行中包含大量非空单元格且看起来像字段名，给予更高权重
-        non_empty_count = sum(1 for x in row.values if pd.notna(x) and str(x).strip())
-        if non_empty_count >= 4:
-            score += non_empty_count * 0.5
-        if score > best_score:
-            best_score = score
-            best_index = idx
-
-    return best_index
+from app.services.doc_parsing.day_book_parser import (
+    iter_data_row_indices,
+    resolve_structured_table,
+)
 
 
 def _normalize_header_name(header: str) -> str:
@@ -1255,7 +1348,8 @@ def _normalize_header_name(header: str) -> str:
     text = text.strip("_")
 
     aliases = {
-        "document_no": ["凭证号", "凭证编号", "单据号", "单据编号", "记字号", "凭证字号", "voucher_no", "voucher_number", "doc_no", "no"],
+        "document_no": ["凭证号", "凭证编号", "单据号", "单据编号", "记字号", "凭证字号", "voucher_no", "voucher_number", "doc_no"],
+        "voucher_type": ["凭证字", "voucher_type", "voucher_word"],
         "date": ["日期", "凭证日期", "记账日期", "业务日期", "voucher_date", "doc_date"],
         "summary": ["摘要", "业务说明", "摘要说明", "abstract", "description", "summary"],
         "subject_code": ["科目代码", "科目编号", "科目编码", "account_code", "subject_code"],
@@ -1271,19 +1365,6 @@ def _normalize_header_name(header: str) -> str:
         if text in [v.lower() for v in variants] or text == standard:
             return standard
     return text
-
-
-def _is_summary_row(row: pd.Series) -> bool:
-    """判断一行是否为小计/合计/汇总行。"""
-    text = " ".join(str(x).strip() for x in row.values if pd.notna(x)).lower()
-    summary_keywords = ["合计", "小计", "总计", "汇总", "sum", "total", "subtotal"]
-    if any(keyword in text for keyword in summary_keywords):
-        return True
-    # 如果整行只有一个有效单元格且包含关键词，也视为汇总行
-    non_empty = [x for x in row.values if pd.notna(x) and str(x).strip()]
-    if len(non_empty) == 1 and any(k in str(non_empty[0]).lower() for k in summary_keywords):
-        return True
-    return False
 
 
 def _parse_amount_value(value: Any) -> float | None:
@@ -1310,7 +1391,7 @@ def parse_accounting_entry_rules(text: str, file_path: str = "") -> dict[str, An
         真正数据表头在下方 4-5 行，且数据中间可能夹杂小计/合计行。
         本解析器会自动定位表头、过滤汇总行并提取关键字段。
     """
-    import pandas as pd
+    from decimal import Decimal, ROUND_HALF_UP
 
     data: dict[str, Any] = {
         "document_type": "accounting_entry",
@@ -1327,40 +1408,21 @@ def parse_accounting_entry_rules(text: str, file_path: str = "") -> dict[str, An
     if not file_path or not Path(file_path).exists():
         return data
 
-    suffix = Path(file_path).suffix.lower()
-    try:
-        if suffix == ".csv":
-            df = pd.read_csv(file_path, dtype=str, keep_default_na=False)
-        else:
-            df = pd.read_excel(file_path, dtype=str, keep_default_na=False)
-    except Exception as e:
-        logger.warning(f"读取序时簿文件失败 {file_path}: {e}")
+    layout = resolve_structured_table(file_path)
+    if layout is None or layout.raw_frame.empty:
         return data
 
-    if df.empty:
-        return data
+    df = layout.raw_frame
+    data["company_name"] = layout.metadata.company_name
+    data["report_period"] = layout.metadata.report_period
+    data["currency_unit"] = layout.metadata.currency_unit or "元"
 
-    # 1. 尝试提取表头说明信息（企业名称、期间、货币单位）
-    for idx in range(min(len(df), 5)):
-        row_text = " ".join(str(x).strip() for x in df.iloc[idx].values if str(x).strip())
-        if not row_text:
-            continue
-        if "公司" in row_text or "企业" in row_text or "单位" in row_text:
-            data["company_name"] = row_text.strip()
-        if any(kw in row_text for kw in ["202", "期间", "年度", "月份", "会计期间"]):
-            data["report_period"] = row_text.strip()
-        if any(kw in row_text for kw in ["货币单位", "本位币", "币种", "单位："]):
-            data["currency_unit"] = row_text.strip()
+    header_row_index = layout.header_row_index
+    raw_headers = layout.raw_headers
 
-    # 2. 定位真正表头行
-    header_row_index = _detect_header_row(df)
-    raw_headers = df.iloc[header_row_index].values
-    headers = [_normalize_header_name(h) for h in raw_headers]
-
-    # 清理表头，确保不重复且非空
     seen: set[str] = set()
     clean_headers: list[str] = []
-    for h in headers:
+    for h in [_normalize_header_name(h) for h in raw_headers]:
         if h and h not in seen:
             seen.add(h)
             clean_headers.append(h)
@@ -1368,30 +1430,19 @@ def parse_accounting_entry_rules(text: str, file_path: str = "") -> dict[str, An
             clean_headers.append("")
     data["columns"] = [h for h in clean_headers if h]
 
-    # 3. 读取数据行
     entries: list[dict[str, Any]] = []
     total_debit = 0.0
     total_credit = 0.0
 
-    for idx in range(header_row_index + 1, len(df)):
-        row = df.iloc[idx]
-        if _is_summary_row(row):
-            # 对于汇总行，尝试累计借方/贷方合计
-            row_dict = {}
-            for col_idx, raw_header in enumerate(raw_headers):
-                if col_idx >= len(row):
-                    break
-                normalized = _normalize_header_name(raw_header)
-                row_dict[normalized] = row.iloc[col_idx]
-            d_val = _parse_amount_value(row_dict.get("debit_amount"))
-            c_val = _parse_amount_value(row_dict.get("credit_amount"))
-            if d_val is not None and d_val > 0:
-                total_debit += d_val
-            if c_val is not None and c_val > 0:
-                total_credit += c_val
-            continue
+    from app.services.doc_parsing.voucher_no_resolution import resolve_voucher_no_from_parts
 
-        # 跳过空行
+    last_voucher_type = ""
+    last_voucher_serial = ""
+    last_composed_voucher = ""
+
+    for idx in iter_data_row_indices(df, header_row_index):
+        row = df.iloc[idx]
+
         non_empty_values = [str(x).strip() for x in row.values if str(x).strip()]
         if not non_empty_values:
             continue
@@ -1405,26 +1456,47 @@ def parse_accounting_entry_rules(text: str, file_path: str = "") -> dict[str, An
                 continue
             entry_dict[normalized] = row.iloc[col_idx]
 
-        # 只保留至少包含一个关键字段的行
         key_fields = ["document_no", "date", "summary", "subject_code", "subject_name", "debit_amount", "credit_amount"]
         if not any(entry_dict.get(f) for f in key_fields):
             continue
 
+        composed, last_voucher_type, last_voucher_serial, last_composed_voucher = (
+            resolve_voucher_no_from_parts(
+                raw_voucher_no=entry_dict.get("document_no"),
+                raw_voucher_type=entry_dict.get("voucher_type"),
+                last_type=last_voucher_type,
+                last_serial=last_voucher_serial,
+                last_composed=last_composed_voucher,
+            )
+        )
+
         entry = {
-            "document_no": entry_dict.get("document_no") or None,
+            "document_no": composed or None,
             "date": entry_dict.get("date") or None,
             "summary": entry_dict.get("summary") or None,
             "subject_code": entry_dict.get("subject_code") or None,
             "subject_name": entry_dict.get("subject_name") or None,
-            "debit_amount": _parse_amount_value(entry_dict.get("debit_amount")),
-            "credit_amount": _parse_amount_value(entry_dict.get("credit_amount")),
             "balance": _parse_amount_value(entry_dict.get("balance")),
             "counterparty_subject": entry_dict.get("counterparty_subject") or None,
             "direction": entry_dict.get("direction") or None,
         }
 
-        # 如果金额列可以转为 Decimal，则保留 2 位小数
-        from decimal import Decimal, ROUND_HALF_UP
+        from app.services.doc_parsing.excel_font_amount_service import infer_debit_credit_from_colored_row
+
+        row_values = [row.iloc[col_idx] if col_idx < len(row) else None for col_idx in range(len(raw_headers))]
+        has_debit_column = any("借" in str(item) for item in raw_headers)
+        has_credit_column = any("贷" in str(item) for item in raw_headers)
+        colored_debit, colored_credit, _ = infer_debit_credit_from_colored_row(
+            row_values=row_values,
+            headers=[str(item) for item in raw_headers],
+            excel_row_index=idx,
+            color_grid=layout.amount_color_grid,
+            has_debit_column=has_debit_column,
+            has_credit_column=has_credit_column,
+        )
+        entry["debit_amount"] = float(colored_debit) if colored_debit else None
+        entry["credit_amount"] = float(colored_credit) if colored_credit else None
+
         for key in ("debit_amount", "credit_amount", "balance"):
             val = entry[key]
             if val is not None:
@@ -1435,7 +1507,6 @@ def parse_accounting_entry_rules(text: str, file_path: str = "") -> dict[str, An
 
         entries.append(entry)
 
-    # 4. 汇总
     data["entries"] = entries
     data["entry_count"] = len(entries)
     if total_debit > 0:
@@ -1454,6 +1525,7 @@ def parse_with_rules(
     document_type: str,
     text: str,
     file_path: str = "",
+    header_aliases: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """
     根据文档类型调用对应的规则解析器
@@ -1486,7 +1558,7 @@ def parse_with_rules(
     parser = parser_map.get(document_type)
     if parser:
         try:
-            return parser(text, file_path)
+            return parser(text, file_path, header_aliases=header_aliases) if document_type == "bank_statement" else parser(text, file_path)
         except Exception as e:
             logger.error(f"规则解析失败 {document_type}: {e}")
             return {"document_type": document_type}

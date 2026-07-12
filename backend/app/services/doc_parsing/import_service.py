@@ -47,7 +47,12 @@ from app.services.doc_parsing.import_routing_service import (
 from app.services.accounting.period_detection_service import suggest_period_for_job
 from app.services.shared.data_validator import EntryQuality, ImportQualityReport, generate_quality_report
 from app.services.accounting.entry_tags_service import build_semantic_text, generate_entry_tags
-from app.services.doc_parsing.file_parser_service import ParseResult, build_parse_diagnostics, extract_text, parse_entries
+from app.services.doc_parsing.file_parser_service import (
+    ParseResult,
+    build_parse_diagnostics,
+    extract_text,
+    parse_structured_accounting_entries,
+)
 from app.services.basic_data.source_document_service import SourceDocumentResult, classify_document
 from app.services.shared.logic_check_service import (
     BatchCheckReport,
@@ -70,7 +75,7 @@ from app.storage.local_storage import resolve_storage_path, save_upload
 
 
 # 会计凭证文件类型
-ACCOUNTING_FILE_TYPES = {".xlsx", ".xls", ".csv"}
+ACCOUNTING_FILE_TYPES = {".xlsx", ".xls", ".csv", ".tsv"}
 
 # 原始文件类型
 SOURCE_FILE_TYPES = {".pdf", ".txt", ".md", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".xml", ".ofd"}
@@ -494,15 +499,17 @@ def _process_accounting_file(
     7. 向量索引
     """
     try:
-        parse_result = parse_entries(resolve_storage_path(source_file.storage_path))
+        parse_result = parse_structured_accounting_entries(resolve_storage_path(source_file.storage_path), db=db)
 
         if not parse_result.entries:
+            diagnostics = build_parse_diagnostics(parse_result)
             return (
                 ProcessingResult(
                     file_type="accounting_entry",
                     filename=source_file.filename,
                     success=False,
-                    error_message="未解析到有效分录数据",
+                    error_message="未解析到有效分录数据，请检查表头列名是否包含凭证号、日期、摘要、科目、借贷金额",
+                    parse_diagnostics=diagnostics,
                 ),
                 [],
                 None,
@@ -841,7 +848,7 @@ def _process_structured_preview(db: Session, job: ImportJob, source_file: Source
     AI 路径下的结构化文件预览：解析但不落库，引导用户使用序时簿导入模式。
     """
     try:
-        parse_result = parse_entries(resolve_storage_path(source_file.storage_path))
+        parse_result = parse_structured_accounting_entries(resolve_storage_path(source_file.storage_path), db=db)
         entry_count = len(parse_result.entries)
         if entry_count == 0:
             _save_parse_feedback(
@@ -1168,7 +1175,9 @@ def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport
     failed_files = 0
 
     try:
-        day_result: DayBookProcessingResult = process_day_book_import(db, job)
+        from app.services.audit.audit_day_book_service import preview_day_book_import
+
+        day_result: DayBookProcessingResult = preview_day_book_import(db, job)
 
         for source_file in source_files:
             file_type = Path(source_file.filename or "").suffix.lower()
@@ -1181,6 +1190,7 @@ def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport
                 success=day_result.success,
                 entries_created=day_result.entries_created if day_result.success else 0,
                 error_message=day_result.error_message,
+                parse_diagnostics=day_result.parse_diagnostics,
             ))
 
         if day_result.success:
@@ -1188,6 +1198,15 @@ def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport
             total_entries = day_result.entries_created
         else:
             failed_files = len(file_results)
+
+        period_suggestion = None
+        if day_result.success and total_entries > 0:
+            try:
+                from app.services.accounting.period_detection_service import suggest_period_for_job
+
+                period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
+            except Exception:
+                period_suggestion = None
 
         return ImportReport(
             job_id=job.id,
@@ -1197,6 +1216,10 @@ def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport
             total_entries=total_entries,
             file_results=file_results,
             day_book_report=day_result.report,
+            error_message=day_result.error_message,
+            parse_diagnostics=day_result.parse_diagnostics,
+            period_suggestion=period_suggestion,
+            output_path=get_import_output_path(job.source_type),
         )
     except Exception as exc:
         for source_file in source_files:
@@ -1237,6 +1260,7 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
             "unbalanced_vouchers": [
                 {
                     "voucher_no": v.voucher_no,
+                    "voucher_date": v.voucher_date,
                     "debit_total": str(v.debit_total),
                     "credit_total": str(v.credit_total),
                     "difference": str(v.difference),
@@ -1252,6 +1276,8 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
         "failed_files": report.failed_files,
         "total_entries": report.total_entries,
         "output_path": report.output_path,
+        "error_message": report.error_message,
+        "parse_diagnostics": report.parse_diagnostics,
         "period_suggestion": report.period_suggestion,
         "day_book_report": day_book_summary,
         "register_summary": report.register_summary,
@@ -1264,6 +1290,7 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
                 "success": r.success,
                 "entries_created": r.entries_created,
                 "error_message": r.error_message,
+                "parse_diagnostics": r.parse_diagnostics,
                 "template_name": r.template_name,
                 "quality_score": r.quality_score,
                 "register_type": r.register_type,
@@ -1272,6 +1299,17 @@ def get_import_summary(report: ImportReport) -> dict[str, Any]:
                 "module_path": r.module_path,
                 "archive_path": r.archive_path,
                 "recommended_mode": r.recommended_mode,
+            }
+            for r in report.file_results
+        ],
+        # 兼容旧前端字段名
+        "file_summary": [
+            {
+                "filename": r.filename,
+                "success": r.success,
+                "error": r.error_message,
+                "error_message": r.error_message,
+                "parse_diagnostics": r.parse_diagnostics,
             }
             for r in report.file_results
         ],
