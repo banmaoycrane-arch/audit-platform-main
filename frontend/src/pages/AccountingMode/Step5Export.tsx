@@ -8,6 +8,8 @@ import { clearLedgerImportResume } from '../../utils/importJobContext'
 import { parseContentDispositionFilename } from '../../utils/downloadFilename'
 import { useAuthStore } from '../../stores/authStore'
 import { Step5CompletionGuide } from '../../components/ledger/Step5CompletionGuide'
+import { trackBookkeepingStep } from '../../utils/productAnalytics'
+import { useTrackBookkeepingStep } from '../../hooks/useTrackBookkeepingStep'
 
 const { Title } = Typography
 
@@ -20,6 +22,7 @@ export function Step5Export() {
   const stepPath = (step: number) => location.pathname.startsWith('/ledger/vouchers/step/') ? `/ledger/vouchers/step/${step}` : `/accounting/step/${step}`
   const [searchParams] = useSearchParams()
   const jobId = Number(searchParams.get('jobId') || 0)
+  useTrackBookkeepingStep('step5_post', jobId > 0 ? jobId : undefined)
   const periodId = Number(searchParams.get('periodId') || 0)
   const inputMode = searchParams.get('inputMode')
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
@@ -70,6 +73,9 @@ export function Step5Export() {
       URL.revokeObjectURL(url)
       message.success('确认入账与账簿导出成功')
       setExported(true)
+      if (jobId > 0) {
+        trackBookkeepingStep('step5_post', jobId)
+      }
       if (currentLedgerId) clearLedgerImportResume(currentLedgerId)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)

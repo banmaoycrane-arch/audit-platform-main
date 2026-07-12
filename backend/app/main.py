@@ -21,6 +21,7 @@ from app.api.routes_entries import router as entries_router
 from app.api.routes_entry_generation import router as entry_generation_router
 from app.api.routes_entry_tags import router as entry_tags_router
 from app.api.routes_analytics import router as analytics_router
+from app.api.routes_product_events import router as product_events_router
 from app.api.routes_export import router as export_router
 from app.api.routes_files import router as files_router
 from app.api.routes_imports import router as imports_router
@@ -462,6 +463,7 @@ application.include_router(reports_router)
 application.include_router(entry_generation_router)
 application.include_router(entry_tags_router)
 application.include_router(analytics_router)
+application.include_router(product_events_router)
 application.include_router(business_cycles_router)
 application.include_router(internal_controls_router)
 application.include_router(ledger_router)

@@ -14,13 +14,20 @@ import {
   message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LeftOutlined, RightOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { api, type AccountingEntry } from '../../api/client'
 import { describeMasterSync } from '../dimensions/masterSyncUtils'
 import { formatAmount } from '../../money'
 import { TagDisplayNameEditor } from './TagDisplayNameEditor'
 import { VoucherSignatureStrip, type VoucherSignatureInfo } from './VoucherSignatureStrip'
+import {
+  buildDraftLineSnapshots,
+  countDraftFields,
+  diffDraftAdoption,
+  trackAiVoucherDraftSaved,
+  trackAiVoucherDraftShown,
+} from '../../utils/productAnalytics'
 
 const { Text, Paragraph } = Typography
 
@@ -119,6 +126,9 @@ export function StagingVoucherReviewDrawer({
   const [complianceStreamThinking, setComplianceStreamThinking] = useState('')
   const [complianceStreamContent, setComplianceStreamContent] = useState('')
   const [configuredLlmModel, setConfiguredLlmModel] = useState<string | null>(null)
+  const draftShownAtRef = useRef<number | null>(null)
+  const initialSnapshotRef = useRef<ReturnType<typeof buildDraftLineSnapshots> | null>(null)
+  const draftTrackedKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -158,7 +168,8 @@ export function StagingVoucherReviewDrawer({
     void api
       .getPreviewVoucherLines(jobId, voucher.group_key)
       .then((result) => {
-        setLines(result.items as unknown as AccountingEntry[])
+        const loadedLines = result.items as unknown as AccountingEntry[]
+        setLines(loadedLines)
         setSignature(
           result.signature ?? {
             source_preparer_name: voucher.source_preparer_name,
@@ -167,6 +178,19 @@ export function StagingVoucherReviewDrawer({
             cross_reviewed_at: voucher.cross_reviewed_at,
           },
         )
+        const trackKey = `${jobId}:${voucher.group_key}`
+        if (draftTrackedKeyRef.current !== trackKey) {
+          const snapshots = buildDraftLineSnapshots(loadedLines)
+          initialSnapshotRef.current = snapshots
+          draftShownAtRef.current = Date.now()
+          draftTrackedKeyRef.current = trackKey
+          void trackAiVoucherDraftShown(
+            jobId,
+            voucher.anchor_entry_id,
+            countDraftFields(snapshots),
+            Boolean(configuredLlmModel),
+          )
+        }
       })
       .catch((error) => {
         message.error(error instanceof Error ? error.message : '加载凭证分录失败')
@@ -274,6 +298,16 @@ export function StagingVoucherReviewDrawer({
     setLocalReviewStatus(nextStatus)
     try {
       await api.updatePreviewEntry(jobId, voucher.anchor_entry_id, { review_status: nextStatus })
+      if (nextStatus === 'verified' && initialSnapshotRef.current) {
+        const stats = diffDraftAdoption(initialSnapshotRef.current, buildDraftLineSnapshots(lines))
+        const shownAt = draftShownAtRef.current ?? Date.now()
+        void trackAiVoucherDraftSaved(
+          jobId,
+          voucher.anchor_entry_id,
+          stats,
+          Math.max(0, Math.round((Date.now() - shownAt) / 1000)),
+        )
+      }
       message.success(nextStatus === 'draft' ? '已取消整张凭证复核' : '已标记本张凭证复核')
       onReviewStatusChanged?.(voucher.group_key, nextStatus)
       void api
@@ -286,7 +320,7 @@ export function StagingVoucherReviewDrawer({
     } finally {
       setSavingReview(false)
     }
-  }, [jobId, voucher, savingReview, localReviewStatus, onReviewStatusChanged])
+  }, [jobId, voucher, savingReview, localReviewStatus, onReviewStatusChanged, lines])
 
   const runComplianceForVoucher = useCallback(async () => {
     if (!jobId || !voucher?.group_key) {

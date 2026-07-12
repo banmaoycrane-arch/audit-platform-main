@@ -2233,6 +2233,8 @@ export const api = {
       conversationHistory?: Array<{ role: string; content: string }>
       autoExecuteTools?: boolean
       ledgerId?: number | null
+      sessionId?: string
+      roundIndex?: number
     },
   ) => {
     const normalizedLedgerId = typeof options?.ledgerId === 'number' && Number.isInteger(options.ledgerId) && options.ledgerId > 0
@@ -2249,6 +2251,8 @@ export const api = {
         message,
         conversation_history: options?.conversationHistory,
         auto_execute_tools: options?.autoExecuteTools ?? true,
+        session_id: options?.sessionId,
+        round_index: options?.roundIndex ?? 1,
       }),
     })
   },

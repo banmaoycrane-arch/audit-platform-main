@@ -4,6 +4,7 @@ import { Alert, Button, Card, Col, Collapse, List, Row, Select, Space, Tag, Typo
 import { ReloadOutlined, SendOutlined } from '@ant-design/icons'
 import { api, type AgentAssistResponse } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import { createAgentSessionId, trackSuggestedPathClick } from '../utils/productAnalytics'
 import './AgentChatPage.css'
 
 const { Title, Paragraph, Text } = Typography
@@ -166,6 +167,9 @@ export function AgentChatPage() {
   const [draftReviews, setDraftReviews] = useState<Record<number, AgentDraftReview>>({})
   const [reviewComments, setReviewComments] = useState<Record<number, string>>({})
   const [approvalLoadingKey, setApprovalLoadingKey] = useState<string | null>(null)
+  const [agentSessionId] = useState(() => createAgentSessionId())
+  const [agentRoundIndex, setAgentRoundIndex] = useState(0)
+  const [suggestedPathAt, setSuggestedPathAt] = useState<number | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
@@ -330,6 +334,8 @@ export function AgentChatPage() {
 
     setInput('')
     setLoading(true)
+    const roundIndex = agentRoundIndex + 1
+    setAgentRoundIndex(roundIndex)
     const nextMessages: ChatMessage[] = [...messages, { role: 'user', content: text }]
     setMessages(nextMessages)
     try {
@@ -340,7 +346,12 @@ export function AgentChatPage() {
       const result = await api.agentAssist(text, {
         conversationHistory,
         ledgerId: currentLedgerId,
+        sessionId: agentSessionId,
+        roundIndex,
       })
+      if (result.suggested_path) {
+        setSuggestedPathAt(Date.now())
+      }
       setMessages((items) => [...items, { role: 'assistant', content: result.reply, result }])
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
@@ -382,7 +393,15 @@ export function AgentChatPage() {
           message={
             <Space size="small" wrap>
               <span>建议：{result.suggested_path}</span>
-              <Link to={result.suggested_path}>前往</Link>
+              <Link
+                to={result.suggested_path}
+                onClick={() => {
+                  const seconds = suggestedPathAt ? Math.round((Date.now() - suggestedPathAt) / 1000) : 0
+                  trackSuggestedPathClick(agentSessionId, result.suggested_path!, seconds)
+                }}
+              >
+                前往
+              </Link>
             </Space>
           }
         />
@@ -422,6 +441,8 @@ export function AgentChatPage() {
         <Paragraph type="secondary" style={{ marginBottom: 0 }}>
           中间对话直接调用后端 API；右侧查看场景、交付物与待办提醒。
           {currentLedgerId ? ` 当前账簿：${currentLedgerId}` : ' 请先选择账簿。'}
+          {' '}
+          <Link to="/mvp-metrics">MVP 验证看板</Link>
         </Paragraph>
       </div>
 
@@ -545,7 +566,17 @@ export function AgentChatPage() {
                 type="info"
                 showIcon
                 style={{ marginBottom: 10, padding: '6px 10px' }}
-                message={<Link to={lastAssistantResult.suggested_path}>前往 {lastAssistantResult.suggested_path}</Link>}
+                message={
+                  <Link
+                    to={lastAssistantResult.suggested_path}
+                    onClick={() => {
+                      const seconds = suggestedPathAt ? Math.round((Date.now() - suggestedPathAt) / 1000) : 0
+                      trackSuggestedPathClick(agentSessionId, lastAssistantResult.suggested_path!, seconds)
+                    }}
+                  >
+                    前往 {lastAssistantResult.suggested_path}
+                  </Link>
+                }
               />
             )}
             {approvalRecords.length === 0 ? (

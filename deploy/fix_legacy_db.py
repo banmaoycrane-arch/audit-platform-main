@@ -143,8 +143,38 @@ def main() -> None:
     if "entry_tags" in existing_tables:
         print("entry_tags columns:", sorted(columns(conn, "entry_tags")))
     fix_chart_of_accounts_unique_index(conn)
+    ensure_product_events_table(conn)
     conn.commit()
     print("Done")
+
+
+def ensure_product_events_table(conn: sqlite3.Connection) -> None:
+    exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='product_events'"
+    ).fetchone()
+    if exists:
+        print("OK product_events table")
+        return
+    print("CREATE TABLE product_events")
+    conn.execute(
+        """
+        CREATE TABLE product_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_name VARCHAR(80) NOT NULL,
+            session_id VARCHAR(64),
+            user_id INTEGER,
+            team_id INTEGER,
+            ledger_id INTEGER,
+            job_id INTEGER,
+            properties JSON,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX ix_product_events_event_name ON product_events (event_name)")
+    conn.execute("CREATE INDEX ix_product_events_created_at ON product_events (created_at)")
+    conn.execute("CREATE INDEX ix_product_events_session_id ON product_events (session_id)")
+    conn.execute("CREATE INDEX ix_product_events_job_id ON product_events (job_id)")
 
 
 def fix_chart_of_accounts_unique_index(conn: sqlite3.Connection) -> None:

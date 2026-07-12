@@ -5,6 +5,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { api, type EntryDraft } from '../../api/client'
 import { FlowNav } from '../../components/FlowNav'
 import { formatAmount } from '../../money'
+import { useTrackBookkeepingStep } from '../../hooks/useTrackBookkeepingStep'
 
 const ACCOUNTING_JUDGMENT_OPTIONS = [
   {
@@ -51,6 +52,7 @@ return metadata.evidence_status === 'partial'
 }
 
 export function Step3GenerateEntries() {
+  useTrackBookkeepingStep('step3_generate')
 const navigate = useNavigate()
 const location = useLocation()
 const stepPath = (step: number) => location.pathname.startsWith('/ledger/vouchers/step/') ? `/ledger/vouchers/step/${step}` : `/accounting/step/${step}`

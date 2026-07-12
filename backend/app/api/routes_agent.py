@@ -26,6 +26,7 @@ from app.services.agent.agent_tool_registry import get_agent_tool
 from app.services.audit.audit_case_template_service import build_due_diligence_case_template
 from app.services.doc_parsing.execution_audit_service import create_execution_audit_log
 from app.services.agent.agent_assist_service import run_agent_assist
+from app.services.shared.product_event_service import record_product_event
 from app.services.agent.agent_model_resolver import resolve_agent_llm_config
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -39,6 +40,8 @@ class AgentAssistRequest(BaseModel):
     message: str
     conversation_history: list[dict[str, str]] | None = None
     auto_execute_tools: bool = True
+    session_id: str | None = None
+    round_index: int = 1
 
 
 class AgentToolRunRequest(BaseModel):
@@ -279,6 +282,27 @@ def agent_assist(
             ledger_id=ledger_id,
             conversation_history=payload.conversation_history,
             max_tool_rounds=2 if payload.auto_execute_tools else 0,
+        )
+        tool_executions = result.get("tool_executions") or []
+        record_product_event(
+            db,
+            event_name="agent_assist_session",
+            user_id=current_user.id,
+            team_id=current_user.team_id,
+            ledger_id=ledger_id,
+            session_id=payload.session_id,
+            properties={
+                "round_index": payload.round_index,
+                "intent": result.get("intent"),
+                "confidence": result.get("confidence"),
+                "source": result.get("source"),
+                "suggested_path": result.get("suggested_path"),
+                "tools_executed_success": sum(1 for t in tool_executions if t.get("status") == "success"),
+                "tools_executed_failed": sum(1 for t in tool_executions if t.get("status") == "failed"),
+                "tool_names": [t.get("tool_name") for t in tool_executions if t.get("tool_name")],
+                "message_length": len(message),
+                "woo_mode": result.get("woo_mode", False),
+            },
         )
     except ValueError as exc:
         _write_agent_audit_log(db, current_user, ledger_id, message, "agent_assist", "failed", error_message=str(exc))

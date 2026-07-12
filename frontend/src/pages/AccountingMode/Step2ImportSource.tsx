@@ -11,6 +11,7 @@ import { Money, parseDecimal } from '../../money'
 import { DocumentParserService } from '../../services/DocumentParserService'
 import { ImportResumeBanner } from '../../components/staging/ImportResumeBanner'
 import { persistLedgerImportResume } from '../../utils/importJobContext'
+import { useTrackBookkeepingStep } from '../../hooks/useTrackBookkeepingStep'
 
 const { Dragger } = Upload
 const { Title, Text } = Typography
@@ -225,6 +226,7 @@ const getCurrentCalendarMonthPeriod = () => {
 }
 
 export function Step2AccountingImportSource() {
+  useTrackBookkeepingStep('step2_import')
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()

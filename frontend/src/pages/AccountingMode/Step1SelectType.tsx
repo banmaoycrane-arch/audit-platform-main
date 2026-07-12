@@ -16,6 +16,7 @@ import {
   STRUCTURED_KIND_OPTIONS,
   resolveStructuredKind,
 } from '../../constants/structuredImportKinds'
+import { useTrackBookkeepingStep } from '../../hooks/useTrackBookkeepingStep'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -64,6 +65,7 @@ const MODE_OPTIONS: Array<{
 ]
 
 export function Step1AccountingSelectType() {
+  useTrackBookkeepingStep('step1_select')
   const navigate = useNavigate()
   const location = useLocation()
   const stepPath = (step: number) =>

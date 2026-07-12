@@ -55,6 +55,7 @@ function buildNavItems(isSuperAdmin: boolean) {
   return [
   { key: '/workspace', icon: <HomeOutlined />, label: <Link to="/workspace">工作台</Link> },
   { key: '/agent', icon: <RobotOutlined />, label: <Link to="/agent">Agent 助手</Link> },
+  { key: '/mvp-metrics', icon: <RobotOutlined />, label: <Link to="/mvp-metrics">MVP 验证看板</Link> },
   {
     key: 'ledger',
     icon: <BookOutlined />,

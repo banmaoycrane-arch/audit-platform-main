@@ -40,6 +40,7 @@ import {
   persistLedgerImportResume,
   persistImportJobContext,
 } from '../../utils/importJobContext'
+import { useTrackBookkeepingStep } from '../../hooks/useTrackBookkeepingStep'
 
 const { Title, Text } = Typography
 
@@ -104,6 +105,8 @@ type ReviewPhase = 'dimensions' | 'vouchers'
 const DAY_BOOK_SOURCE_TYPES = new Set(['ledger_day_book', 'audit_day_book'])
 
 export function Step4ReviewEntries() {
+  useTrackBookkeepingStep('step4_review')
+  useTrackBookkeepingStep('step4_review')
   const navigate = useNavigate()
   const location = useLocation()
   const stepPath = (step: number) =>

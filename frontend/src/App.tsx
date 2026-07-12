@@ -27,6 +27,7 @@ import { BalanceSheetPage } from './pages/Reports/BalanceSheetPage'
 import { IncomeStatementPage } from './pages/Reports/IncomeStatementPage'
 import { CashFlowStatementPage } from './pages/Reports/CashFlowStatementPage'
 import { FinancialReportsHubPage } from './pages/Reports/FinancialReportsHubPage'
+import { MvpMetricsPage } from './pages/MvpMetricsPage'
 import { AgentChatPage } from './pages/AgentChatPage'
 import { ModuleRegisterPage } from './pages/ModuleRegisterPage'
 import { PlaceholderModulePage } from './pages/PlaceholderModulePage'
@@ -229,6 +230,7 @@ function AppRoutes() {
         <Route path="/bank/cash-flow-ledger" element={<LedgerDataGuard><ModuleRegisterPage fixedModuleKey="bank_cash_flow" /></LedgerDataGuard>} />
         <Route path="/registers/:moduleKey" element={<LedgerDataGuard><ModuleRegisterPage /></LedgerDataGuard>} />
         <Route path="/agent" element={<AgentChatPage />} />
+        <Route path="/mvp-metrics" element={<MvpMetricsPage />} />
         <Route path="/entries" element={<Navigate to="/ledger/entries" replace />} />
         <Route path="/ledger/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
         <Route path="/ledger/books" element={<LedgerDataGuard><LedgerBooksPage /></LedgerDataGuard>} />

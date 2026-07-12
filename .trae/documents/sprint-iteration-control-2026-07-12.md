@@ -115,4 +115,5 @@ cd e:\projects\finance-vector-audit\audit-platform-main
 | [parser-dual-scenario-strategy.md](./parser-dual-scenario-strategy.md) | 解析相关需求 |
 | [bookkeeping-v1-decision-record.md](../../backend/docs/bookkeeping-v1-decision-record.md) | 记账发布范围 |
 | [evidence-cloud-and-icf-workbench/spec.md](../specs/evidence-cloud-and-icf-workbench/spec.md) | 云空间/工作台 |
+| [ai-four-principles-risk-matrix-mvp-validation.md](./ai-four-principles-risk-matrix-mvp-validation.md) | **AI 四原则风险矩阵 + 两周 WoO 验证** |
 | [DEPLOY_SYNC.md](../../deploy/DEPLOY_SYNC.md) | 上线步骤 |

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     ai_cloud_base_url: str = ""
     ai_cloud_model: str = ""
     ai_cloud_api_key: str = ""
+    agent_assist_woo_rules_only: bool = False
     embedding_dimension: int = 384
     secret_key: str | None = None
     super_admin_usernames: str = ""

@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.services.agent.agent_model_resolver import build_agent_llm_client, resolve_agent_llm_config
 from app.services.agent.agent_service import detect_intent
 from app.services.agent.agent_tool_execution_service import run_agent_tool_for_assist
@@ -199,9 +200,13 @@ def run_agent_assist(
     llm_config = resolve_agent_llm_config(db)
     client = build_agent_llm_client(db)
     history = conversation_history or []
+    woo_rules_only = get_settings().agent_assist_woo_rules_only
 
     plan: dict[str, Any]
-    if client.is_configured():
+    if woo_rules_only:
+        plan = _rules_assist_plan(message)
+        plan["woo_mode"] = True
+    elif client.is_configured():
         user_payload = {
             "user_message": message,
             "ledger_id": ledger_id,
@@ -244,7 +249,7 @@ def run_agent_assist(
         )
         executed_tools.extend(batch_executed)
         pending_tools.extend(batch_pending)
-        if rounds >= max_tool_rounds or not client.is_configured():
+        if rounds >= max_tool_rounds or not client.is_configured() or woo_rules_only:
             break
         follow_messages = [
             {"role": "system", "content": ASSIST_SYSTEM_PROMPT},
