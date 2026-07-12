@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { trackBookkeepingStep } from './productAnalytics'
+import { trackBookkeepingStep } from '../utils/productAnalytics'
 
 export type BookkeepingStepId =
   | 'step1_select'
