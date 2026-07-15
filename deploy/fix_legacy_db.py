@@ -144,6 +144,7 @@ def main() -> None:
         print("entry_tags columns:", sorted(columns(conn, "entry_tags")))
     fix_chart_of_accounts_unique_index(conn)
     ensure_product_events_table(conn)
+    ensure_tax_egress_tables(conn)
     conn.commit()
     print("Done")
 
@@ -175,6 +176,109 @@ def ensure_product_events_table(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX ix_product_events_created_at ON product_events (created_at)")
     conn.execute("CREATE INDEX ix_product_events_session_id ON product_events (session_id)")
     conn.execute("CREATE INDEX ix_product_events_job_id ON product_events (job_id)")
+
+
+def ensure_tax_egress_tables(conn: sqlite3.Connection) -> None:
+    ddl_statements = [
+        (
+            "tax_city_egress_pools",
+            """
+            CREATE TABLE tax_city_egress_pools (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                city_code VARCHAR(12) NOT NULL UNIQUE,
+                city_name VARCHAR(80) NOT NULL,
+                bureau_province VARCHAR(40) NOT NULL,
+                pool_policy VARCHAR(40) DEFAULT 'sticky_with_failover' NOT NULL,
+                max_rotate_per_taxpayer_7d INTEGER DEFAULT 2 NOT NULL,
+                cooling_hours INTEGER DEFAULT 24 NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+            )
+            """,
+        ),
+        (
+            "tax_egress_nodes",
+            """
+            CREATE TABLE tax_egress_nodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pool_id INTEGER NOT NULL,
+                node_key VARCHAR(40) NOT NULL UNIQUE,
+                egress_ip VARCHAR(64) NOT NULL,
+                worker_host VARCHAR(200),
+                provider VARCHAR(120),
+                asn_type VARCHAR(40) DEFAULT 'enterprise' NOT NULL,
+                status VARCHAR(20) DEFAULT 'active' NOT NULL,
+                max_tenants INTEGER DEFAULT 5 NOT NULL,
+                current_bindings INTEGER DEFAULT 0 NOT NULL,
+                health_score REAL DEFAULT 1.0 NOT NULL,
+                last_health_at DATETIME,
+                cooling_until DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                FOREIGN KEY(pool_id) REFERENCES tax_city_egress_pools(id)
+            )
+            """,
+        ),
+        (
+            "tax_egress_bindings",
+            """
+            CREATE TABLE tax_egress_bindings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                taxpayer_id VARCHAR(32) NOT NULL UNIQUE,
+                taxpayer_name VARCHAR(200) NOT NULL,
+                ledger_id INTEGER,
+                team_id INTEGER,
+                city_code VARCHAR(12) NOT NULL,
+                egress_node_id INTEGER NOT NULL,
+                lease_start DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                lease_end DATETIME NOT NULL,
+                rotate_count_7d INTEGER DEFAULT 0 NOT NULL,
+                last_rotate_at DATETIME,
+                session_state VARCHAR(20) DEFAULT 'idle' NOT NULL,
+                binding_status VARCHAR(20) DEFAULT 'healthy' NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                FOREIGN KEY(ledger_id) REFERENCES ledgers(id),
+                FOREIGN KEY(egress_node_id) REFERENCES tax_egress_nodes(id)
+            )
+            """,
+        ),
+        (
+            "tax_rotation_events",
+            """
+            CREATE TABLE tax_rotation_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                taxpayer_id VARCHAR(32) NOT NULL,
+                binding_id INTEGER,
+                old_node_id INTEGER,
+                new_node_id INTEGER,
+                old_egress_ip VARCHAR(64),
+                new_egress_ip VARCHAR(64),
+                trigger_code VARCHAR(40) NOT NULL,
+                reason_detail TEXT,
+                created_by VARCHAR(80) DEFAULT 'system' NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                FOREIGN KEY(binding_id) REFERENCES tax_egress_bindings(id)
+            )
+            """,
+        ),
+    ]
+    for table, ddl in ddl_statements:
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        if exists:
+            print(f"OK {table}")
+            continue
+        print(f"CREATE TABLE {table}")
+        conn.execute(ddl)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_tax_egress_nodes_pool_id ON tax_egress_nodes (pool_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_tax_egress_bindings_ledger_id ON tax_egress_bindings (ledger_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_tax_rotation_events_created_at ON tax_rotation_events (created_at)"
+    )
 
 
 def fix_chart_of_accounts_unique_index(conn: sqlite3.Connection) -> None:

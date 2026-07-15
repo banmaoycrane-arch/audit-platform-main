@@ -17,6 +17,7 @@ import {
   ShopOutlined,
   DatabaseOutlined,
   ApartmentOutlined,
+  ApiOutlined,
   UserOutlined,
   InboxOutlined,
   SettingOutlined,
@@ -28,6 +29,7 @@ import {
   CrownOutlined,
 } from '@ant-design/icons'
 import { LedgerSelector } from '../components/LedgerSelector'
+import { ModuleStatusNotices } from '../components/ModuleStatusNotices'
 import { RouteTabs } from '../components/RouteTabs'
 import { voucherFlowNavKey } from '../utils/voucherFlowRoutes'
 import { LEDGER_NAV_GROUPS } from '../utils/ledgerNavTaxonomy'
@@ -54,7 +56,15 @@ function buildNavItems(isSuperAdmin: boolean) {
 
   return [
   { key: '/workspace', icon: <HomeOutlined />, label: <Link to="/workspace">工作台</Link> },
-  { key: '/agent', icon: <RobotOutlined />, label: <Link to="/agent">Agent 助手</Link> },
+  {
+    key: '/agent',
+    icon: <RobotOutlined />,
+    label: (
+      <Link to="/agent">
+        Agent 助手 <span style={{ color: '#faad14', fontSize: 12 }}>(实验)</span>
+      </Link>
+    ),
+  },
   { key: '/mvp-metrics', icon: <RobotOutlined />, label: <Link to="/mvp-metrics">MVP 验证看板</Link> },
   {
     key: 'ledger',
@@ -86,7 +96,7 @@ function buildNavItems(isSuperAdmin: boolean) {
   {
     key: 'bank-module',
     icon: <BankOutlined />,
-    label: '银行模块',
+    label: '银行模块（未开发）',
     children: [
       { key: '/bank/workspace', icon: <HomeOutlined />, label: <Link to="/bank/workspace">工作台</Link> },
       { key: '/bank/accounts', label: <Link to="/bank/accounts">银行账户</Link> },
@@ -100,17 +110,18 @@ function buildNavItems(isSuperAdmin: boolean) {
   {
     key: 'tax-module',
     icon: <ExperimentOutlined />,
-    label: '税务模块',
+    label: '税务增值（可选）',
     children: [
       { key: '/tax/workspace', icon: <HomeOutlined />, label: <Link to="/tax/workspace">工作台</Link> },
-      { key: '/tax/invoices', label: <Link to="/tax/invoices">发票管理</Link> },
+      { key: '/tax/invoices', label: <Link to="/tax/invoices">发票文件管理</Link> },
+      { key: '/tax/connections', icon: <ApiOutlined />, label: <Link to="/tax/connections">税局直连（可选）</Link> },
       { key: '/tax/assistant', icon: <RobotOutlined />, label: <Link to="/tax/assistant">涉税助手</Link> },
     ],
   },
   {
     key: 'fixed-assets-module',
     icon: <CarOutlined />,
-    label: '固定资产模块',
+    label: '固定资产模块（未开发）',
     children: [
       { key: '/fixed-assets/workspace', icon: <HomeOutlined />, label: <Link to="/fixed-assets/workspace">工作台</Link> },
       { key: '/fixed-assets/cards', label: <Link to="/fixed-assets/cards">资产卡片（预留）</Link> },
@@ -120,7 +131,7 @@ function buildNavItems(isSuperAdmin: boolean) {
   {
     key: 'inventory-module',
     icon: <ShopOutlined />,
-    label: '进销存模块',
+    label: '进销存模块（未开发）',
     children: [
       { key: '/inventory/workspace', icon: <HomeOutlined />, label: <Link to="/inventory/workspace">工作台</Link> },
       { key: '/inventory/purchase-in', label: <Link to="/inventory/purchase-in">采购入库（预留）</Link> },
@@ -346,6 +357,7 @@ export function MainShell() {
               boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
             }}
           >
+            <ModuleStatusNotices />
             <Outlet />
           </Content>
         </Layout>

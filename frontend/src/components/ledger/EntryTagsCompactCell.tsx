@@ -1,6 +1,6 @@
 import { Popover, Space, Tag, Typography } from 'antd'
 
-import type { EntryTag } from '../api/client'
+import type { EntryTag } from '../../api/client'
 import type { TagCategoryMeta } from '../../utils/subsidiaryLedgerPrefs'
 
 const { Text } = Typography

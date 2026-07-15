@@ -10,6 +10,15 @@ if (-not (Test-Path $scriptPath)) {
     throw "Script not found: $scriptPath"
 }
 
+# Remove older duplicates that point to the same restart-services.bat
+Get-ChildItem -LiteralPath $desktop -Filter '*.lnk' | ForEach-Object {
+    $existing = $ws.CreateShortcut($_.FullName)
+    if ($existing.TargetPath -eq $batPath -and $_.FullName -ne $shortcutPath) {
+        Remove-Item -LiteralPath $_.FullName -Force
+        Write-Output "Removed duplicate shortcut: $($_.Name)"
+    }
+}
+
 $shortcut = $ws.CreateShortcut($shortcutPath)
 # Use .bat so double-click works even when PowerShell script association is restricted
 $shortcut.TargetPath = $batPath

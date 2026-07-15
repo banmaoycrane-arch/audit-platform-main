@@ -5,6 +5,7 @@ import { ReloadOutlined, SendOutlined } from '@ant-design/icons'
 import { api, type AgentAssistResponse } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
 import { createAgentSessionId, trackSuggestedPathClick } from '../utils/productAnalytics'
+import { ExperimentalAgentNotice } from '../components/ModuleStatusNotices'
 import './AgentChatPage.css'
 
 const { Title, Paragraph, Text } = Typography
@@ -436,10 +437,13 @@ export function AgentChatPage() {
 
   return (
     <div className="agent-console-page">
+      <ExperimentalAgentNotice />
       <div className="agent-console-header">
-        <Title level={3} style={{ marginBottom: 4 }}>Agent 助手</Title>
+        <Title level={3} style={{ marginBottom: 4 }}>
+          Agent 助手 <Tag color="gold">实验功能</Tag>
+        </Title>
         <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          中间对话直接调用后端 API；右侧查看场景、交付物与待办提醒。
+          中间对话直接调用后端 API；右侧查看场景、交付物与待办提醒。本页用于验证助手路径建议与只读查询，不替代记账向导。
           {currentLedgerId ? ` 当前账簿：${currentLedgerId}` : ' 请先选择账簿。'}
           {' '}
           <Link to="/mvp-metrics">MVP 验证看板</Link>

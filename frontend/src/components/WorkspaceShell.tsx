@@ -30,11 +30,11 @@ export interface WorkspaceShellProps {
 const workspaceTabs = [
   { key: 'ledger', label: '财务总账', path: '/ledger/workspace', icon: <BookOutlined /> },
   { key: 'audit', label: '审计', path: '/audit/workspace', icon: <FileSearchOutlined /> },
-  { key: 'bank', label: '银行', path: '/bank/workspace', icon: <BankOutlined /> },
-  { key: 'tax', label: '税务', path: '/tax/workspace', icon: <PieChartOutlined /> },
+  { key: 'bank', label: '银行（未开发）', path: '/bank/workspace', icon: <BankOutlined /> },
+  { key: 'tax', label: '税务增值（可选）', path: '/tax/workspace', icon: <PieChartOutlined /> },
   { key: 'basic', label: '基础资料', path: '/basic/workspace', icon: <InboxOutlined /> },
-  { key: 'inventory', label: '存货', path: '/inventory/workspace', icon: <ShoppingOutlined /> },
-  { key: 'fixed-assets', label: '固定资产', path: '/fixed-assets/workspace', icon: <SafetyOutlined /> },
+  { key: 'inventory', label: '存货（未开发）', path: '/inventory/workspace', icon: <ShoppingOutlined /> },
+  { key: 'fixed-assets', label: '固定资产（未开发）', path: '/fixed-assets/workspace', icon: <SafetyOutlined /> },
   { key: 'document-tags', label: '文档标签', path: '/document-tags', icon: <TagOutlined /> },
 ]
 

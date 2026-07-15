@@ -1956,6 +1956,75 @@ export type AgentToolExecution = {
   error?: string
 }
 
+export type TaxEgressNode = {
+  id: number
+  node_key: string
+  egress_ip: string
+  provider?: string | null
+  worker_host?: string | null
+  status: string
+  load: number
+  max_tenants: number
+  health_score: number
+  last_health_at?: string | null
+}
+
+export type TaxEgressCityPool = {
+  city_code: string
+  city_name: string
+  bureau_province: string
+  pool_policy: string
+  max_rotate_per_taxpayer_7d: number
+  cooling_hours: number
+  stats: { active_nodes: number; total_nodes: number; remaining_slots: number }
+  nodes: TaxEgressNode[]
+}
+
+export type TaxEgressPoolsResponse = {
+  pool_policy: string
+  config: {
+    seed_enabled: boolean
+    max_rotate_per_taxpayer_7d: number
+    cooling_hours: number
+    default_lease_days: number
+  }
+  cities: TaxEgressCityPool[]
+}
+
+export type TaxEgressBinding = {
+  id: number
+  taxpayer_id: string
+  taxpayer_name: string
+  ledger_id?: number | null
+  city_code: string
+  city_name: string
+  egress_ip?: string | null
+  node_id?: number | null
+  node_key?: string | null
+  lease_end?: string | null
+  rotate_count_7d: number
+  binding_status: string
+  session_state: string
+}
+
+export type TaxRotationEvent = {
+  id: number
+  time?: string | null
+  taxpayer_id: string
+  old_ip?: string | null
+  new_ip?: string | null
+  trigger: string
+  detail?: string | null
+  created_by?: string
+}
+
+export type TaxEgressSessionStart = {
+  binding_id: number
+  session_state: string
+  egress_ip?: string | null
+  message: string
+}
+
 export type AgentAssistResponse = {
   reply: string
   intent?: string
@@ -5052,4 +5121,42 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ patch_ids: patchIds, reason }),
     }),
+
+  getTaxEgressPools: (cityCode?: string) =>
+    request<TaxEgressPoolsResponse>(`/api/tax/egress/pools${cityCode ? `?city_code=${encodeURIComponent(cityCode)}` : ''}`),
+
+  listTaxEgressBindings: (cityCode?: string, ledgerId?: number | null) => {
+    const params = new URLSearchParams()
+    if (cityCode) params.set('city_code', cityCode)
+    const headers: Record<string, string> = {}
+    if (typeof ledgerId === 'number' && ledgerId > 0) headers['X-Ledger-Id'] = String(ledgerId)
+    const qs = params.toString()
+    return request<{ items: TaxEgressBinding[] }>(`/api/tax/egress/bindings${qs ? `?${qs}` : ''}`, { headers })
+  },
+
+  createTaxEgressBinding: (
+    payload: { taxpayer_id: string; taxpayer_name: string; city_code: string },
+    ledgerId?: number | null,
+  ) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (typeof ledgerId === 'number' && ledgerId > 0) headers['X-Ledger-Id'] = String(ledgerId)
+    return request<TaxEgressBinding>('/api/tax/egress/bindings', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    })
+  },
+
+  rotateTaxEgressBinding: (bindingId: number, reason?: string) =>
+    request<TaxEgressBinding>(`/api/tax/egress/bindings/${bindingId}/rotate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: reason || null }),
+    }),
+
+  startTaxEgressSession: (bindingId: number) =>
+    request<TaxEgressSessionStart>(`/api/tax/egress/bindings/${bindingId}/sessions`, { method: 'POST' }),
+
+  listTaxRotationEvents: (limit = 30) =>
+    request<{ items: TaxRotationEvent[] }>(`/api/tax/egress/rotation-events?limit=${limit}`),
 }

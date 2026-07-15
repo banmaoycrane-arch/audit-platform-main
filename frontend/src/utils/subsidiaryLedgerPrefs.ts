@@ -151,13 +151,11 @@ export function newHabitId(): string {
 
 export type TagCategoryMeta = { code: string; name: string }
 
-export function flattenTagCategoryMeta(
-  nodes: Array<{ code: string; name: string; children?: Array<{ code: string; name: string; children?: unknown[] }> }>,
-): TagCategoryMeta[] {
+type TagCategoryNode = { code: string; name: string; children?: TagCategoryNode[] }
+
+export function flattenTagCategoryMeta(nodes: TagCategoryNode[]): TagCategoryMeta[] {
   const rows: TagCategoryMeta[] = []
-  const walk = (
-    list: Array<{ code: string; name: string; children?: Array<{ code: string; name: string; children?: unknown[] }> }>,
-  ) => {
+  const walk = (list: TagCategoryNode[]) => {
     for (const node of list) {
       rows.push({ code: node.code, name: node.name })
       if (node.children?.length) walk(node.children)

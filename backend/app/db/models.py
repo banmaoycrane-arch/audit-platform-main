@@ -2507,6 +2507,82 @@ class AuditGeneralLedgerSummary(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class TaxCityEgressPool(Base):
+    """税务城市出口 IP 池元数据。"""
+
+    __tablename__ = "tax_city_egress_pools"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    city_code: Mapped[str] = mapped_column(String(12), unique=True, index=True)
+    city_name: Mapped[str] = mapped_column(String(80))
+    bureau_province: Mapped[str] = mapped_column(String(40))
+    pool_policy: Mapped[str] = mapped_column(String(40), default="sticky_with_failover")
+    max_rotate_per_taxpayer_7d: Mapped[int] = mapped_column(Integer, default=2)
+    cooling_hours: Mapped[int] = mapped_column(Integer, default=24)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TaxEgressNode(Base):
+    """城市池内单条出口 IP / Worker 节点。"""
+
+    __tablename__ = "tax_egress_nodes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    pool_id: Mapped[int] = mapped_column(ForeignKey("tax_city_egress_pools.id"), index=True)
+    node_key: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    egress_ip: Mapped[str] = mapped_column(String(64), index=True)
+    worker_host: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    asn_type: Mapped[str] = mapped_column(String(40), default="enterprise")
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    max_tenants: Mapped[int] = mapped_column(Integer, default=5)
+    current_bindings: Mapped[int] = mapped_column(Integer, default=0)
+    health_score: Mapped[float] = mapped_column(Float, default=1.0)
+    last_health_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cooling_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TaxEgressBinding(Base):
+    """纳税主体与出口节点粘性绑定。"""
+
+    __tablename__ = "tax_egress_bindings"
+    __table_args__ = (UniqueConstraint("taxpayer_id", name="uq_tax_egress_bindings_taxpayer"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    taxpayer_id: Mapped[str] = mapped_column(String(32), index=True)
+    taxpayer_name: Mapped[str] = mapped_column(String(200))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True, index=True)
+    city_code: Mapped[str] = mapped_column(String(12), index=True)
+    egress_node_id: Mapped[int] = mapped_column(ForeignKey("tax_egress_nodes.id"), index=True)
+    lease_start: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    lease_end: Mapped[datetime] = mapped_column(DateTime)
+    rotate_count_7d: Mapped[int] = mapped_column(Integer, default=0)
+    last_rotate_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    session_state: Mapped[str] = mapped_column(String(20), default="idle")
+    binding_status: Mapped[str] = mapped_column(String(20), default="healthy")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TaxRotationEvent(Base):
+    """出口 IP 轮换审计日志。"""
+
+    __tablename__ = "tax_rotation_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    taxpayer_id: Mapped[str] = mapped_column(String(32), index=True)
+    binding_id: Mapped[int | None] = mapped_column(ForeignKey("tax_egress_bindings.id"), nullable=True, index=True)
+    old_node_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    new_node_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    old_egress_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    new_egress_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    trigger_code: Mapped[str] = mapped_column(String(40), index=True)
+    reason_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(80), default="system")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 # 注册 app.models 下的模型，确保与 app.db.models 中 relationship 引用的类位于同一 Base metadata。
 # 这些模型在运行时仅依赖 app.db.session.Base，因此放在文件末尾可避免循环导入。
 from app.models import (  # noqa: E402,F401

@@ -12,10 +12,10 @@ export function PlaceholderModulePage({ title, description, items = [] }: Placeh
   return (
     <Card title={title}>
       <Alert
-        type="info"
+        type="warning"
         showIcon
-        title="预留功能，待接入真实数据"
-        description="当前页面用于说明业务边界和后续建设方向，暂不代表该模块已完成正式业务处理。"
+        title="功能尚未开发"
+        description="当前页面为产品规划占位，暂无正式业务处理能力。请使用「财务总账」或「审计系统」完成 MVP 验收路径。"
         style={{ marginBottom: 16 }}
       />
       <Paragraph>{description}</Paragraph>

@@ -27,6 +27,7 @@ import { BalanceSheetPage } from './pages/Reports/BalanceSheetPage'
 import { IncomeStatementPage } from './pages/Reports/IncomeStatementPage'
 import { CashFlowStatementPage } from './pages/Reports/CashFlowStatementPage'
 import { FinancialReportsHubPage } from './pages/Reports/FinancialReportsHubPage'
+import { TaxConnectionPage } from './pages/Tax/TaxConnectionPage'
 import { MvpMetricsPage } from './pages/MvpMetricsPage'
 import { AgentChatPage } from './pages/AgentChatPage'
 import { ModuleRegisterPage } from './pages/ModuleRegisterPage'
@@ -321,6 +322,7 @@ function AppRoutes() {
             />
           )}
         />
+        <Route path="/tax/connections" element={<LedgerDataGuard><TaxConnectionPage /></LedgerDataGuard>} />
         <Route
           path="/tax/invoices"
           element={(

@@ -70,7 +70,7 @@ const modules = [
   },
   {
     key: 'bank',
-    title: '银行模块',
+    title: '银行模块（未开发）',
     icon: <BankOutlined style={{ fontSize: 32, color: '#faad14' }} />,
     path: '/bank/workspace',
     stats: (d: DashboardData) => [
@@ -79,7 +79,7 @@ const modules = [
   },
   {
     key: 'tax',
-    title: '税务模块',
+    title: '税务增值（可选）',
     icon: <ExperimentOutlined style={{ fontSize: 32, color: '#eb2f96' }} />,
     path: '/tax/workspace',
     stats: (d: DashboardData) => [

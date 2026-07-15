@@ -60,8 +60,36 @@ logs/
 # Uploads & Storage
 storage/uploads/
 backend/storage/uploads/
+backend/app/storage/seals/
+backend/exports/
+exports/
 qdrant_local_storage/
 qdrant_embed_test/
+
+# Scratch scripts and local test artifacts
+**/fix_*.py
+*_output.txt
+*_errors.txt
+*_results.txt
+*_stats*.txt
+test_junit.xml
+seal_coverage.xml
+test_parse_output.json
+check_health.py
+test_llm_prompt.py
+test_ollama.py
+test_parse.py
+tsc_errors.txt
+backend/performance_test.py
+backend/batch_fix_*.py
+backend/add_timezone_imports.py
+backend/analyze_mypy.py
+backend/find_and_fix_*.py
+backend/replace_data_extract.py
+backend/run_p3_test.py
+backend/test_fix_*.py
+backend/validate_batch_replace.py
+backend/wrap_audit_services.py
 
 # Build outputs
 backend/dist/

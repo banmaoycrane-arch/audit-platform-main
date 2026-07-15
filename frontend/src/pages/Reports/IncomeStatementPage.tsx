@@ -84,7 +84,7 @@ export function IncomeStatementPage() {
         width: '48%',
         ellipsis: true,
         render: (label: string, row: FinancialStatementLine) => (
-          <span className={[4, 9, 14, 16].includes(row.line_no) ? 'classic-report-label-strong' : undefined}>
+          <span className={[4, 9, 14, 16].includes(Number(row.line_no)) ? 'classic-report-label-strong' : undefined}>
             {label}
           </span>
         ),

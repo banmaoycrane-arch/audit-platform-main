@@ -43,6 +43,8 @@ export function buildGeneralLedgerGroups(rows: TrialBalanceRow[]): GeneralLedger
         opening_credit: sum('opening_credit'),
         period_debit: sum('period_debit'),
         period_credit: sum('period_credit'),
+        ytd_debit: sum('ytd_debit'),
+        ytd_credit: sum('ytd_credit'),
         closing_debit: sum('closing_debit'),
         closing_credit: sum('closing_credit'),
         isGroup: bucket.length > 1 || key !== bucket[0]?.account_code,

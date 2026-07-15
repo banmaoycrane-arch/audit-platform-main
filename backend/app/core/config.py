@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     ai_cloud_model: str = ""
     ai_cloud_api_key: str = ""
     agent_assist_woo_rules_only: bool = False
+    tax_egress_seed_enabled: bool = True
+    tax_egress_max_rotate_per_taxpayer_7d: int = 2
+    tax_egress_cooling_hours: int = 24
+    tax_egress_default_lease_days: int = 90
     embedding_dimension: int = 384
     secret_key: str | None = None
     super_admin_usernames: str = ""
