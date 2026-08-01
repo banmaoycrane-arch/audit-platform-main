@@ -18,7 +18,7 @@ from app.services.accounting.export_filename_service import (
     content_disposition_attachment,
 )
 
-router = APIRouter(prefix="/api/import-jobs", tags=["export"])
+router = APIRouter(tags=["export"])
 
 SUPPORTED_FORMATS = {"xlsx", "csv", "json"}
 POSTABLE_REVIEW_STATUSES = {"verified", "ready"}

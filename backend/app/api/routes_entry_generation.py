@@ -17,7 +17,7 @@ from app.services.shared import lifecycle_service
 from app.services.audit.audit_day_book_service import process_day_book_import
 from app.services.doc_parsing.import_routing_service import is_day_book_source_type
 
-router = APIRouter(prefix="/api/import-jobs", tags=["entry-generation"])
+router = APIRouter(tags=["entry-generation"])
 
 
 #region debug-point generate-entries-runtime

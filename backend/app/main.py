@@ -458,10 +458,13 @@ application.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Ledger-Id", "X-Request-Id"],
 )
 application.include_router(auth_router)
+# import-jobs 主 Router 链式挂载子 Router（entry-generation / export），
+# 统一 prefix 定义点，符合 api-boundary-governance-plan.md §4.2 原则2（prefix 与 Router 文件 1:1）
+imports_router.include_router(entry_generation_router)
+imports_router.include_router(export_router)
 application.include_router(imports_router)
 application.include_router(unified_import_router)
 application.include_router(entries_router)
-application.include_router(export_router)
 application.include_router(files_router)
 application.include_router(risks_router)
 application.include_router(accounting_periods_router)
@@ -477,7 +480,6 @@ application.include_router(coa_router)
 application.include_router(counterparties_router)
 application.include_router(opening_balances_router)
 application.include_router(reports_router)
-application.include_router(entry_generation_router)
 application.include_router(entry_tags_router)
 application.include_router(analytics_router)
 application.include_router(data_debt_router)

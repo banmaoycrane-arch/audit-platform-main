@@ -192,7 +192,7 @@ Acceptance Level: 文档可指导后续 spec 与 PR；执行后 OpenAPI 主路�
 | 阶段 | 任务 | 优先级 | 验收 |
 |------|------|--------|------|
 | **Phase 0** | 本文档评审 + 登记 `requirements-domain-index` | P0 | 团队确认主路径表 |
-| **Phase 1** | 拆分 `import-jobs` 三 Router 为子前缀或合并文件 | P0 | OpenAPI 分组清晰；测试不变 |
+| **Phase 1** | 拆分 `import-jobs` 三 Router 为子前缀或合并文件 | P0 | ✅ 2026-08-01 完成（方案 C 链式挂载：`imports_router.include_router(entry_generation_router/export_router)`；prefix 唯一定义在 `routes_imports.py`；882/882 测试不变） |
 | **Phase 2** | 前端与测试迁移到 `/api/vouchers`；废弃 `/entries/vouchers/*` | P0 | 无前端调用旧路径 |
 | **Phase 3** | 标记 `/api/unified-import`、`/api/parse` deprecated | P1 | 响应头或文档注明 |
 | **Phase 4** | Tag 服务统一设计 spec | P1 | 新 spec 三件套 |
