@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
-from app.db.models import AccountingEntry, EntryTag, SourceFile, Voucher
+from app.db.models import AccountingEntry, EconomicEvent, EconomicEventEntry, EntryTag, SourceFile, Voucher
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.accounting_entry import AccountingEntryRead, TagUpdate
@@ -168,6 +168,60 @@ def _tag_to_dict(tag: EntryTag) -> dict[str, Any]:
     }
 
 
+def _load_entry_event_map(
+    db: Session, entry_ids: list[int]
+) -> dict[int, tuple[int, str]]:
+    """批量查询分录→所属经济事件映射。
+
+    财务实务角度：一行分录通常属于一个经济事件工单。EconomicEventEntry 允许多关联，
+    这里 primary 关系优先（'p' < 'r' 字典序，ASC 排序后 primary 先入 map），取到的就是主关联事件。
+    返回 dict[entry_id -> (event_id, event_no)]，未关联的分录不在 map 中。
+    """
+    if not entry_ids:
+        return {}
+    rows = (
+        db.query(
+            EconomicEventEntry.accounting_entry_id,
+            EconomicEvent.id,
+            EconomicEvent.event_no,
+            EconomicEventEntry.relation_type,
+        )
+        .join(EconomicEvent, EconomicEventEntry.event_id == EconomicEvent.id)
+        .filter(EconomicEventEntry.accounting_entry_id.in_(entry_ids))
+        .order_by(
+            EconomicEventEntry.accounting_entry_id.asc(),
+            EconomicEventEntry.relation_type.asc(),
+        )
+        .all()
+    )
+    result: dict[int, tuple[int, str]] = {}
+    for entry_id, event_id, event_no, _rel in rows:
+        if entry_id not in result:
+            result[entry_id] = (int(event_id), str(event_no))
+    return result
+
+
+def _to_entry_dtos(
+    db: Session, items: list[AccountingEntry]
+) -> list[AccountingEntryRead]:
+    """将 ORM 分录对象转为 DTO，并批量填充所属事件（event_id + event_no）。
+
+    为什么在 route 层做：service 层查询逻辑稳定、用例多，改 join 会放大影响面；
+    schema 加可选字段后，route 层批量补充是改动最小、风险最低的做法。
+    批量查询避免 N+1（一次 IN 查询替代逐条 join）。
+    """
+    event_map = _load_entry_event_map(db, [item.id for item in items])
+    dtos: list[AccountingEntryRead] = []
+    for item in items:
+        dto = AccountingEntryRead.model_validate(item)
+        link = event_map.get(item.id)
+        if link:
+            dto.event_id = link[0]
+            dto.event_no = link[1]
+        dtos.append(dto)
+    return dtos
+
+
 @router.get("/review-stats", response_model=EntryReviewStatsResponse)
 def get_entry_review_stats(
     import_job_id: int | None = None,
@@ -229,7 +283,7 @@ def list_entries(
         .limit(limit)
         .all()
     )
-    return EntryListResponse(items=[AccountingEntryRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)
+    return EntryListResponse(items=_to_entry_dtos(db, items), total=total, limit=limit, offset=offset)
 
 
 @router.get("/chronological", response_model=ChronologicalEntryListResponse)
@@ -298,7 +352,7 @@ def list_chronological_entries(
         offset=offset,
     )
     return ChronologicalEntryListResponse(
-        items=[AccountingEntryRead.model_validate(item) for item in items],
+        items=_to_entry_dtos(db, items),
         total=total,
         limit=limit,
         offset=offset,
@@ -598,8 +652,8 @@ def get_voucher_lines(
         voucher_date=voucher_date,
     )
     if not lines:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="凭证不存在")
-    return VoucherLinesResponse(items=[VoucherLineRead.model_validate(line) for line in lines])
+        raise HTTPException(status_code=404, detail="凭证不存在")
+    return VoucherLinesResponse(items=_to_entry_dtos(db, lines))
 
 
 @router.get("/{entry_id}/source-evidence")

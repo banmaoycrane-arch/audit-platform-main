@@ -154,6 +154,17 @@ const VOUCHER_LINE_COLUMNS: ColumnsType<AccountingEntry> = [
     render: (v: number) => (v > 0 ? formatMoney(v) : '-'),
   },
   {
+    title: '事件',
+    key: 'event',
+    width: 120,
+    render: (_, row) =>
+      row.event_no && row.event_id ? (
+        <Link to={`/ledger/events/${row.event_id}`}>{row.event_no}</Link>
+      ) : (
+        '-'
+      ),
+  },
+  {
     title: '证据',
     key: 'evidence',
     width: 100,
@@ -283,7 +294,7 @@ const VoucherCardView = memo(function VoucherCardView({
           loading={linesLoading && !lines}
           columns={VOUCHER_LINE_COLUMNS}
           dataSource={lines || []}
-          scroll={{ x: 720 }}
+          scroll={{ x: 840 }}
         />
       )}
     </Card>

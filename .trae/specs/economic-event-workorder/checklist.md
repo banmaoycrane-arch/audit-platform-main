@@ -1,7 +1,7 @@
 # 经济事件工单 — 验收清单
 
 > 对应 [spec.md](./spec.md)  
-> 总状态：E0 规格已立 · E1+ 未开工
+> 总状态：E0 规格已立 · E1 事件壳完成（待生产 schema 审计）· E2+ 未开工
 
 ## E0 规格
 
@@ -15,8 +15,8 @@
 - [x] `/api/economic-events` CRUD / 关联 / transition / steps
 - [x] 查询不创建事件（自动化或手工用例）
 - [x] 前端列表 + 详情卡 + 时间轴
-- [ ] 分录列表显示所属事件
-- [ ] 生产 schema 审计 PASS
+- [x] 分录列表显示所属事件（2026-08-01：`AccountingEntryRead` 加 event_id/event_no，凭证展开行显示 E-xxx 并可跳转详情）
+- [ ] 生产 schema 审计 PASS（阻塞：生产 stamp 仍 0028，需部署升到 0034 后复验）
 
 ## E2 导入聚类
 

@@ -119,6 +119,9 @@ export type AccountingEntry = {
   entry_line_no: number
   review_status: string
   source_file_id?: number | null
+  // 所属经济事件工单：event_no 展示业务编号 E-xxx，event_id 用于跳转事件详情页
+  event_id?: number | null
+  event_no?: string | null
   compliance_hint?: string | null
   compliance_severity?: string
   spot_check_flag?: boolean

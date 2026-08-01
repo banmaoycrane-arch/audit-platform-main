@@ -202,6 +202,19 @@ def test_attach_entry_and_file(client: TestClient):
     assert detail["entry_count"] == 1
     assert detail["file_count"] == 1
 
+    # E1 收尾验收：从分录侧反查所属事件（event_id + event_no 闭环）
+    event_no = create.json()["event_no"]
+    lines = client.get(
+        "/api/entries/vouchers/lines",
+        headers=headers,
+        params={"ledger_id": ledger_id, "voucher_no": "V-001"},
+    )
+    assert lines.status_code == 200
+    line_items = lines.json()["items"]
+    assert len(line_items) >= 1
+    assert line_items[0]["event_id"] == event_id
+    assert line_items[0]["event_no"] == event_no
+
 
 def test_transition_valid(client: TestClient):
     headers, _ = _create_ledger(client, _auth_headers(client))

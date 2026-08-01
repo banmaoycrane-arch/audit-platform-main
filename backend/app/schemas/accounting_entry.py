@@ -25,6 +25,10 @@ class AccountingEntryRead(BaseModel):
     posted_by: int | None = None
     source_file_id: int | None = None
     created_at: datetime
+    # 所属经济事件工单（一行分录通常关联 0 或 1 个事件；多关联时取 primary）。
+    # event_id 用于跳转事件详情页，event_no 用于展示业务编号 E-xxx。
+    event_id: int | None = None
+    event_no: str | None = None
 
     model_config = {"from_attributes": True}
 
