@@ -218,10 +218,22 @@
 | S1-2 | 前端无 deprecated API 新调用 | ✅ 已核验（存量 0） |
 | S1-3 | Step1/2/3 文案三分法 | ✅ 已完成 |
 | S1-4 | `debug-parser-engine-unification` superseded | ✅ 已完成 |
-| S1-5 | pytest 全绿 | ✅ 已完成 — 677 passed, 0 failed（2026-07-06）；见 code-truth §四 |
+| S1-5 | pytest 全绿 | ✅ 已完成 — 677 passed, 0 failed（2026-07-06）；2026-08-02 升级为 905 passed |
 | S1-L6 | L6 人工路径签字 | 📋 模板 — [l6-acceptance-checklist.md](./l6-acceptance-checklist.md) |
 
-**阶段 2 冻结**：在 S1-5 全绿 + L6 双路径签字前，不启动 API 拆分与 DDD 物理分包。
+## 阶段 2 执行状态（2026-08-02，债务收敛）
+
+> **范围说明**：章程 §七「L6 未签字时停扩功能只修债务」— S2-2 + S2-4 属债务收敛（减冗余、清双轨、去品牌暗示），不扩新功能，因此放行；S2-1（import-jobs Router 拆分）、S2-3（品牌 README）已前置完成或不阻塞。
+
+| ID | 任务 | 状态 |
+|----|------|------|
+| S2-1 | `import-jobs` 三 Router 拆分或合并文件 | ✅ 已在 api-boundary Phase 1 完成（2026-08-01） |
+| S2-2 | `vouchers` 为凭证唯一聚合根；`/entries/vouchers/*` deprecated | ✅ 2026-08-02 完成：6 端点四重注明（OpenAPI `deprecated=True` + docstring `.. deprecated:: 2026-08-01` + tags `deprecated:entries-vouchers` + 响应头 `Deprecation: true` / `Sunset` / `Link: </api/vouchers>`）；不做 307（复合键与 Voucher.id 非双射）；client.ts 6 方法 JSDoc `@deprecated` |
+| S2-3 | 对外文档统一「资料解析中心」品牌 + 子能力表 | 📋 README / 帮助文案后置到发布前打包；核心已通过 client.ts 中性命名推进 |
+| S2-4 | `client.ts` 重命名：`parseSourceFileWithEngine` → 中性名 | ✅ 2026-08-02 完成：`parseImportedSourceFile` 转正 + `parseUploadedFile` alias；新增 `getParsingRuntimeStatus`（替 `getParserEngineStatus`）+ `getDocumentParsingConfig`（替 `getParserEngineConfig`）+ `saveDocumentParsingConfig`（替 `saveParserEngineConfig`）；旧名保留 alias 至 2027-02-01 |
+| S2-5 | pytest 全绿 | ✅ 2026-08-02 实测 905 passed, 0 failed |
+
+**阶段 3 冻结**：DDD 物理分包（解析域试点）待 L6 双路径签字后启动。
 
 ---
 

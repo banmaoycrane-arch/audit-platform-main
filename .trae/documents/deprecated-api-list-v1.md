@@ -12,9 +12,30 @@
 |------|------|------------|----------|--------|
 | IMP-B | `/api/unified-import` | `/api/import-jobs` | `routes_unified_import.py` | `Deprecation: true` + `Sunset` + `Link` |
 | IMP-C | `/api/parse/*` | `/api/import-jobs` + `/api/parser-engine` | `routes_document_parsing.py` | `Deprecation: true` + `Sunset` + `Link` |
+| **ENTRIES-V1** | `/api/entries/vouchers/*`（6 端点） | `/api/vouchers`（Voucher 聚合根） | `routes_entries.py` | `Deprecation: true` + `Sunset` + `Link`（Phase 2 2026-08-02） |
 | TAG-A | `GET /api/entries/{entry_id}/tags` | `GET /api/entry-tags/tags?entry_id=...` | `routes_entries.py` | 307 重定向（Phase 5 印章模式） |
 | TAG-A | `POST /api/entries/{entry_id}/tags` | `POST /api/entry-tags/tags` | `routes_entries.py` | 307 重定向（Phase 5 印章模式） |
 | TAG-A | `DELETE /api/entries/{entry_id}/tags/{tag_id}` | `DELETE /api/entry-tags/tags/{tag_id}` | `routes_entries.py` | 307 重定向（Phase 5 印章模式） |
+
+### ENTRIES-V1 详细说明（2026-08-02 新增，Phase 2）
+
+- **废弃原因**：AGENTS.md §1.2 要求「Voucher 为聚合根、Entry 为子资源」。
+  `/api/entries/vouchers/*` 属「复合键凭证模型」（直接从 AccountingEntry 按 voucher_no+voucher_date 聚合，**无真实 Voucher 表**），
+  与 `/api/vouchers`（真实 Voucher 表，使用 Voucher.id 作为主键）双轨并行，
+  造成代码重复、测试面扩大、DDD 物理分包受阻。
+- **替代路径**：全部走 `/api/vouchers` Voucher 聚合根（创建 / 列表 / 详情 / 更新 / 删除 / 复核 / 入账 / 取消）。
+- **不做 307 重定向**：复合键 `(voucher_no, voucher_date)` 与 Voucher.id 非双射（同复合键可能匹配多 voucher.id 或不存在），重定向会破坏复合键查询场景。
+- **6 个端点清单**：
+  1. `GET /api/entries/vouchers` — list_voucher_cards（按凭证聚合展示）
+  2. `GET /api/entries/vouchers/lines` — get_voucher_lines（按复合键展开分录行）
+  3. `POST /api/entries/vouchers/batch-delete` — batch_delete_vouchers
+  4. `POST /api/entries/vouchers/{voucher_id}/review` — review_voucher_endpoint
+  5. `POST /api/entries/vouchers/review-batch` — review_vouchers_batch_endpoint
+  6. `POST /api/entries/vouchers/{voucher_id}/unreview` — unreview_voucher_endpoint
+- **保留端点**：`PATCH /api/entries/{id}`、`GET /api/entries/{id}`、`POST /api/entries/batch-review` 等纯分录行 API 保留（符合「Entry 为子资源」）。
+- **前端约束**：client.ts 中 `queryVouchers` / `getVoucherLines` / `deleteVouchersBatch` / `reviewVoucher` / `reviewVouchersBatch` / `unreviewVoucher` 已加 `@deprecated` JSDoc；存量 3 处调用不强制迁移（功能不等价），新建功能必须使用 `/api/vouchers`。
+- **OpenAPI 标注**：6 端点 `deprecated=True` + docstring `.. deprecated:: 2026-08-01` + tags 含 `deprecated:entries-vouchers`，Swagger UI 自动标灰。
+- **HTTP 响应头**：Deprecation 中间件命中 `/api/entries/vouchers` 前缀，响应头 `Deprecation: true` + `Sunset: Mon, 01 Feb 2027 00:00:00 GMT` + `Link: </api/vouchers>; rel="successor-version"`。
 
 ### TAG-A 详细说明（2026-08-01 新增）
 

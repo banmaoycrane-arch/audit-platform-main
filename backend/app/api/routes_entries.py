@@ -542,7 +542,12 @@ def _voucher_card_from_group(group: Any, *, include_lines: bool = False) -> Vouc
     )
 
 
-@router.get("/vouchers", response_model=VoucherQueryResponse)
+@router.get(
+    "/vouchers",
+    response_model=VoucherQueryResponse,
+    deprecated=True,
+    tags=["entries", "deprecated:entries-vouchers"],
+)
 def list_voucher_cards(
     ledger_id: int = Query(..., description="账簿 ID"),
     period_id: int | None = Query(None, description="会计期间 ID"),
@@ -569,7 +574,13 @@ def list_voucher_cards(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> VoucherQueryResponse:
-    """凭证查询：按凭证聚合展示，支持按行或整体筛选。"""
+    """凭证查询：按凭证聚合展示，支持按行或整体筛选。
+
+    .. deprecated:: 2026-08-01
+        `/api/entries/vouchers` 属 ENTRIES-V1 复合键凭证模型，AGENTS.md §1.2 要求
+        Voucher 为聚合根、Entry 为子资源；请改用 `/api/vouchers` 主路径。
+        只读兼容到 2027-02-01。
+    """
     if filter_mode not in {"line", "voucher"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="filter_mode 必须为 line 或 voucher")
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
@@ -608,7 +619,12 @@ def list_voucher_cards(
     )
 
 
-@router.get("/vouchers/lines", response_model=VoucherLinesResponse)
+@router.get(
+    "/vouchers/lines",
+    response_model=VoucherLinesResponse,
+    deprecated=True,
+    tags=["entries", "deprecated:entries-vouchers"],
+)
 def get_voucher_lines(
     ledger_id: int = Query(..., description="账簿 ID"),
     voucher_no: str | None = Query(None, description="凭证号"),
@@ -616,7 +632,13 @@ def get_voucher_lines(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> VoucherLinesResponse:
-    """按单张凭证加载分录明细（凭证查询页展开时按需调用）。"""
+    """按单张凭证加载分录明细（凭证查询页展开时按需调用）。
+
+    .. deprecated:: 2026-08-01
+        `/api/entries/vouchers/lines` 属 ENTRIES-V1 复合键模型；请通过
+        `GET /api/vouchers/{voucher_id}` 返回凭证详情内的分录行，或使用
+        Voucher 聚合根对应子资源 API。只读兼容到 2027-02-01。
+    """
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, ledger_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该账簿")
     lines = load_voucher_lines(
@@ -691,13 +713,24 @@ def get_entry_source_evidence(
     }
 
 
-@router.post("/vouchers/batch-delete", response_model=VoucherBatchDeleteResponse)
+@router.post(
+    "/vouchers/batch-delete",
+    response_model=VoucherBatchDeleteResponse,
+    deprecated=True,
+    tags=["entries", "deprecated:entries-vouchers"],
+)
 def batch_delete_vouchers(
     payload: VoucherBatchDeleteRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> VoucherBatchDeleteResponse:
-    """按整张凭证批量删除分录，单事务提交，避免只删部分行导致借贷不平衡。"""
+    """按整张凭证批量删除分录，单事务提交，避免只删部分行导致借贷不平衡。
+
+    .. deprecated:: 2026-08-01
+        `/api/entries/vouchers/batch-delete` 属 ENTRIES-V1 复合键模型；请改用
+        `DELETE /api/vouchers/{voucher_id}`（Voucher 为聚合根）。
+        只读兼容到 2027-02-01。
+    """
     if not payload.vouchers:
         return VoucherBatchDeleteResponse(deleted_vouchers=0, deleted_entries=0)
     if not ledger_management_service.user_has_ledger_access(db, current_user.id, payload.ledger_id):
@@ -721,8 +754,19 @@ class VoucherReviewBatchRequest(BaseModel):
     voucher_ids: list[int]
 
 
-@router.post("/vouchers/{voucher_id}/review")
+@router.post(
+    "/vouchers/{voucher_id}/review",
+    deprecated=True,
+    tags=["entries", "deprecated:entries-vouchers"],
+)
 def review_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+    """复核凭证（ENTRIES-V1 复合键模型，已废弃）。
+
+    .. deprecated:: 2026-08-01
+        `/api/entries/vouchers/{voucher_id}/review` 属 ENTRIES-V1 复合键模型；
+        请改用 `POST /api/vouchers/{voucher_id}/verify`（Voucher 聚合根的复核 API）。
+        只读兼容到 2027-02-01。
+    """
     try:
         voucher = review_voucher(db, voucher_id)
     except ValueError as exc:
@@ -730,12 +774,23 @@ def review_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db), curr
     return {"voucher_id": voucher.id, "status": voucher.status, "reviewed": True}
 
 
-@router.post("/vouchers/review-batch")
+@router.post(
+    "/vouchers/review-batch",
+    deprecated=True,
+    tags=["entries", "deprecated:entries-vouchers"],
+)
 def review_vouchers_batch_endpoint(
     payload: VoucherReviewBatchRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """批量复核凭证（ENTRIES-V1 复合键模型，已废弃）。
+
+    .. deprecated:: 2026-08-01
+        `/api/entries/vouchers/review-batch` 属 ENTRIES-V1 复合键模型；
+        请对每张凭证独立调用 `POST /api/vouchers/{id}/verify`。
+        只读兼容到 2027-02-01。
+    """
     try:
         count = review_vouchers_batch(db, payload.voucher_ids)
     except ValueError as exc:
@@ -743,8 +798,19 @@ def review_vouchers_batch_endpoint(
     return {"reviewed_count": count}
 
 
-@router.post("/vouchers/{voucher_id}/unreview")
+@router.post(
+    "/vouchers/{voucher_id}/unreview",
+    deprecated=True,
+    tags=["entries", "deprecated:entries-vouchers"],
+)
 def unreview_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+    """取消复核凭证（ENTRIES-V1 复合键模型，已废弃）。
+
+    .. deprecated:: 2026-08-01
+        `/api/entries/vouchers/{voucher_id}/unreview` 属 ENTRIES-V1 复合键模型；
+        请改用 Voucher 聚合根对应状态流转 API。
+        只读兼容到 2027-02-01。
+    """
     try:
         voucher = unreview_voucher(db, voucher_id)
     except ValueError as exc:

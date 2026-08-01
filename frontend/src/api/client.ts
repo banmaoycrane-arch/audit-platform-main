@@ -2492,10 +2492,18 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(parseOptions),
     }),
+  /** 解析导入任务内的单个原始文件（场景 A 结构化导入链路）。
+   *  @alias api.parseUploadedFile 旧名，兼容到 2027-02-01。
+   *  @deprecated 2026-08-01 去除 Engine 暗示的命名，请使用 `parseImportedSourceFile`（功能完全同源）。
+   */
   parseSourceFileWithEngine: (jobId: number, fileId: number) =>
     request<SourceFileRead>(`/api/import-jobs/${jobId}/files/${fileId}/parse`, { method: 'POST' }),
+  /** @deprecated 2026-08-01 旧别名，请使用 `parseImportedSourceFile`（功能完全同源）。 */
   parseUploadedFile: (jobId: number, fileId: number) =>
-    api.parseSourceFileWithEngine(jobId, fileId),
+    api.parseImportedSourceFile(jobId, fileId),
+  /** 解析导入任务内的单个原始文件（场景 A 结构化导入链路）。S2-4 中性名，替代 parseSourceFileWithEngine。 */
+  parseImportedSourceFile: (jobId: number, fileId: number) =>
+    request<SourceFileRead>(`/api/import-jobs/${jobId}/files/${fileId}/parse`, { method: 'POST' }),
   listImportFiles: (jobId: number) => request<SourceFileRead[]>(`/api/import-jobs/${jobId}/files`),
   processImportJob: (jobId: number) => request<ImportJob>(`/api/import-jobs/${jobId}/process`, { method: 'POST' }),
   processImportJobSync: (jobId: number) =>
@@ -2976,17 +2984,20 @@ export const api = {
       }>
     }
   },
+  /** @deprecated 2026-08-01 /api/entries/vouchers/* 属 ENTRIES-V1 复合键模型已废弃；请改用 `POST /api/vouchers/{id}/verify`。 */
   reviewVoucher: (voucherId: number) =>
     request<{ voucher_id: number; status: string; reviewed: boolean }>(
       `/api/entries/vouchers/${voucherId}/review`,
       { method: 'POST' },
     ),
+  /** @deprecated 2026-08-01 /api/entries/vouchers/* 属 ENTRIES-V1 复合键模型已废弃；请逐张调用 `/api/vouchers/{id}/verify`。 */
   reviewVouchersBatch: (voucherIds: number[]) =>
     request<{ reviewed_count: number }>(`/api/entries/vouchers/review-batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ voucher_ids: voucherIds }),
     }),
+  /** @deprecated 2026-08-01 /api/entries/vouchers/* 属 ENTRIES-V1 复合键模型已废弃；请改用 Voucher 聚合根状态流转 API。 */
   unreviewVoucher: (voucherId: number) =>
     request<{ voucher_id: number; status: string; reviewed: boolean }>(
       `/api/entries/vouchers/${voucherId}/unreview`,
@@ -3128,6 +3139,7 @@ export const api = {
     }
     return response.blob()
   },
+  /** @deprecated 2026-08-01 `/api/entries/vouchers` 属 ENTRIES-V1 复合键模型已废弃；请改用 `/api/vouchers`（Voucher 聚合根）。 */
   queryVouchers: (filters: VoucherQueryFilters) => {
     const params = new URLSearchParams()
     params.set('ledger_id', String(filters.ledger_id))
@@ -3155,6 +3167,7 @@ export const api = {
     if (filters.offset != null) params.set('offset', String(filters.offset))
     return request<VoucherQueryResponse>(`/api/entries/vouchers?${params.toString()}`)
   },
+  /** @deprecated 2026-08-01 `/api/entries/vouchers/lines` 属 ENTRIES-V1 复合键模型已废弃；请改用 `GET /api/vouchers/{id}` 返回分录行。 */
   getVoucherLines: (ledgerId: number, voucherNo: string | null, voucherDate: string | null) => {
     const params = new URLSearchParams()
     params.set('ledger_id', String(ledgerId))
@@ -3162,6 +3175,7 @@ export const api = {
     if (voucherDate) params.set('voucher_date', voucherDate)
     return request<VoucherLinesResponse>(`/api/entries/vouchers/lines?${params.toString()}`)
   },
+  /** @deprecated 2026-08-01 `/api/entries/vouchers/batch-delete` 属 ENTRIES-V1 复合键模型已废弃；请改用 `DELETE /api/vouchers/{id}`。 */
   deleteVouchersBatch: (ledgerId: number, vouchers: VoucherDeleteKey[]) =>
     request<VoucherBatchDeleteResponse>('/api/entries/vouchers/batch-delete', {
       method: 'POST',
@@ -4386,9 +4400,12 @@ export const api = {
   },
 
   // ==========================================================================
-  // 解析引擎 API
+  // 解析运行时与配置 API（S2-4：去除 Engine 品牌暗示，双场景 Charter 区分 A/B 链路）
   // ==========================================================================
-  getParserEngineStatus: () =>
+  /** @deprecated 2026-08-01 去除 Engine 暗示命名；请使用 `getParsingRuntimeStatus`。 */
+  getParserEngineStatus: () => api.getParsingRuntimeStatus(),
+  /** 解析运行时状态（场景 B raw-document parser-engine）：S2-4 中性名替代 getParserEngineStatus。 */
+  getParsingRuntimeStatus: () =>
     request<{
       status: string
       llm_multi_engine_enabled: boolean
@@ -4471,9 +4488,13 @@ export const api = {
     ),
 
   // ==========================================================================
-  // 配置管理 API
+  // 配置管理 API（S2-4 中性名：去除 Engine 品牌暗示
+  // 解析配置属「资料解析中心 · 场景 B 原始资料解析
   // ==========================================================================
-  getParserEngineConfig: () =>
+  /** @deprecated 2026-08-01 去除 Engine 暗示命名；请使用 `getDocumentParsingConfig`。 */
+  getParserEngineConfig: () => api.getDocumentParsingConfig(),
+  /** 读取资料解析中心 · 场景 B 原始资料解析配置：S2-4 中性名替代 getParserEngineConfig。 */
+  getDocumentParsingConfig: () =>
     request<{
       ai_provider: string
       ai_base_url: string
@@ -4501,7 +4522,10 @@ export const api = {
       llm_save_all_results: boolean
     }>('/api/config/parser-engine'),
 
-  saveParserEngineConfig: (config: Record<string, unknown>) =>
+  /** @deprecated 2026-08-01 去除 Engine 暗示命名；请使用 `saveDocumentParsingConfig`。 */
+  saveParserEngineConfig: (config: Record<string, unknown>) => api.saveDocumentParsingConfig(config),
+  /** 保存资料解析中心 · 场景 B 原始资料解析配置：S2-4 中性名替代 saveParserEngineConfig。 */
+  saveDocumentParsingConfig: (config: Record<string, unknown>) =>
     request<{ success: boolean; message: string; config?: Record<string, unknown> }>(
       '/api/config/parser-engine',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) }

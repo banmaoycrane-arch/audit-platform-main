@@ -99,7 +99,7 @@ backend/app/services/
 | 标签/AI | 70 | `entry-tags`, `document-tags`, `agent`, `llm-resolution`, `config` |
 | 组织/基础 | 69 | `teams`, `projects`, `ledgers`, `coa`, `entities` |
 
-**重叠结论**（详见 `api-boundary-governance-plan.md`）: 导入 5 链路（IMP-B/C 已 deprecated + 响应头，IMP-A/D/E 主路径，Phase 1/3 完成）、entries/vouchers 双轨（Phase 2 受 L6 阻塞）、entry-tags/document-tags 同构（**Phase 4 完成**：`/api/entries/{id}/tags` GET/POST/DELETE 三端点已 307 重定向到 `/api/entry-tags`，OpenAPI `deprecated=True`；表未合并 D1 决定；DocumentTag `ledger_id` 实串库后置 D2 决定）。
+**重叠结论**（详见 `api-boundary-governance-plan.md`）: 导入 5 链路（IMP-B/C 已 deprecated + 响应头，IMP-A/D/E 主路径，Phase 1/3 完成）、**entries/vouchers 双轨（Phase 2 完成：/entries/vouchers 6 端点 deprecated 四重注明 + Deprecation/Sunset/Link 响应头 + Link 指向 /api/vouchers + client.ts @deprecated JSDoc；纯 entries 子资源 API 保留；不做 307 重定向因复合键非双射）**、entry-tags/document-tags 同构（**Phase 4 完成**：`/api/entries/{id}/tags` GET/POST/DELETE 三端点已 307 重定向到 `/api/entry-tags`，OpenAPI `deprecated=True`；表未合并 D1 决定；DocumentTag `ledger_id` 实串库后置 D2 决定）。
 
 ---
 
@@ -205,11 +205,11 @@ backend/app/services/
 
 ### P0 — 阻塞发布
 
-1. ~~**全量 pytest 跑绿**~~ ✅ 2026-08-01 实测 894/894 passed（Phase 4 Tag 服务统一净增 12）
-2. ~~**提交 git 变更**~~ ✅ 2026-08-01 push `3f7706d` 到 `origin/main`；早些时候 4 提交（9579069/344eff7/4f30bf1/4b42cc6）+ Phase 4 Tag 服务统一 1 提交（3f7706d）已入库；工作区仅剩 2 个 CRLF-only 文件
+1. ~~**全量 pytest 跑绿**~~ ✅ 2026-08-02 实测 **905/905** passed（Phase 2 API 收敛 deprecation 10 测试 + E2 6 测试）
+2. ~~**提交 git 变更**~~ ✅ 2026-08-02 push E2 导入聚类 `d10a1b1` 到 `origin/main`；Phase 2 API 收敛提交紧随其后；此前基线 3f7706d（Phase 4 Tag 统一）/ 9c52c6f（E1 事件壳 + truth 回填）均已入库
 3. **记账 v1.0 L6 人工验收**（路径 A 签字；**先验收再修** — 见 [bookkeeping-v1-decision-record.md](../backend/docs/bookkeeping-v1-decision-record.md)）— **需会计专业用户签字，技术方不可代签**
 4. **审计 L6 路径 B**（与记账 v1.0 独立，可并行）— **需会计专业用户签字，技术方不可代签**
-5. **API 收敛 Phase 2**：统一 vouchers 主路径 — **L6 签字后**（章程冻结，见 [api-boundary-governance-plan.md](./api-boundary-governance-plan.md) §五）
+5. ~~**API 收敛 Phase 2**：统一 vouchers 主路径~~ ✅ 2026-08-02 完成（章程 §四 S2-2 + S2-4：`/entries/vouchers 6 端点 deprecated 四重注明 + Deprecation/Sunset/Link 响应头指向 /api/vouchers + client.ts JSDoc + 不做 307（因复合键非双射）；S2-4 client.ts 去除 Engine 暗示（getParsingRuntimeStatus / getDocumentParsingConfig / saveDocumentParsingConfig，旧名 alias 保留）；10/10 deprecation 测试通过）
 6. **生产 Alembic 收口**：部署前将 stamp 从 0028 升级到 0034，并在 staging 复验 — **需运维操作**
 
 ### P1 — 主线质量
@@ -217,7 +217,7 @@ backend/app/services/
 7. **解析 P2 验收**：修正回流 + 96% 稳定性指标（非新功能）
 8. ~~**Money 前端迁移**~~ ✅ 已完成（见 TECH_DEBT TD-002）
 9. ~~**清理服务层根目录重复文件**~~ ✅ 已完成（`4f30bf1` 删除 6 个根目录重复文件；grep 确认无旧路径导入残留）
-10. **API 边界治理 Phase 1–6**：导入链路收敛、entry-tags/document-tags 合并（~~Phase 1~~ ✅ 2026-08-01 完成：`import-jobs` 三 Router 链式挂载，prefix 唯一定义；882/882 测试不变；~~Phase 3~~ ✅ 2026-08-01 完成：`/api/unified-import`、`/api/parse` 已四重注明 deprecated + 响应头中间件 `Deprecation: true` + `Sunset` + `Link`，5 个新测试，887/887 通过；~~Phase 4~~ ✅ 2026-08-01 完成：Tag 服务统一 spec 三件套 `.trae/specs/tag-unification/` + 实施（`/api/entries/{id}/tags` GET/POST/DELETE 三端点 307 重定向到 `/api/entry-tags`，OpenAPI `deprecated=True` + tags `deprecated:entries-tags`；DocumentTag 向量 `ledger_id` 参数位预留；4 redirect + 4 ledger_id 回归 + 4 旧测试改写，894/894 通过）；~~Phase 5~~ ✅ 2026-08-01 完成：印章 prefix `/api/v1` → `/api/seals`，子路径去重（`/api/seals/{id}`），旧路径 `compat_router` 307 重定向兼容，前端 3 处迁移，4 个新测试；~~Phase 6~~ ✅ 2026-08-01 完成：`module-refactoring-plan` 任务5 状态改已完成、「API 不变」原则修订；Phase 2 受 L6 阻塞）
+10. **API 边界治理 Phase 1–6**：导入链路收敛、entry-tags/document-tags 合并（~~Phase 1~~ ✅ 2026-08-01 完成：`import-jobs` 三 Router 链式挂载，prefix 唯一定义；882/882 测试不变；~~Phase 2~~ ✅ 2026-08-02 完成：S2-2 entries/vouchers 双轨收敛（6 端点 deprecated 四重注明 + Deprecation/Sunset/Link 响应头指向 /api/vouchers + client.ts JSDoc；S2-4 client.ts 去除 Engine 暗示（parseImportedSourceFile / getParsingRuntimeStatus / getDocumentParsingConfig / saveDocumentParsingConfig）；spec 三件套 `.trae/specs/api-boundary-convergence/`；10/10 deprecation 测试全绿；~~Phase 3~~ ✅ 2026-08-01 完成：`/api/unified-import`、`/api/parse` 已四重注明 deprecated + 响应头中间件 `Deprecation: true` + `Sunset` + `Link`；~~Phase 4~~ ✅ 2026-08-01 完成：Tag 服务统一 spec 三件套 `.trae/specs/tag-unification/` + 实施（`/api/entries/{id}/tags` GET/POST/DELETE 三端点 307 重定向到 `/api/entry-tags`；~~Phase 5~~ ✅ 2026-08-01 完成：印章 prefix `/api/v1` → `/api/seals`；~~Phase 6~~ ✅ 2026-08-01 完成：`module-refactoring-plan` 任务5 状态改已完成）
 
 ### P2 — 治理与文档
 
