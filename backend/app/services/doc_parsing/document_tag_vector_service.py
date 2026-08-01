@@ -82,6 +82,10 @@ class DocumentTagVectorService:
                     "tag_type": tag.tag_type,
                     "confidence": tag.confidence,
                     "source": tag.source,
+                    # 预留账簿隔离位：当前 DocumentTag 模型无 ledger_id 字段，
+                    # 值暂为 None；后置迁移（Alembic 收口 0028→0034 后）回填真实值，
+                    # 检索时即可按账簿过滤，消除跨公司串库风险。
+                    "ledger_id": None,
                 },
             )
             tag.vector_id = f"doc_tag_{tag.id}"
@@ -124,6 +128,7 @@ class DocumentTagVectorService:
         query_text: str,
         document_type: str | None = None,
         tag_type: str | None = None,
+        ledger_id: int | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
         """
@@ -133,6 +138,9 @@ class DocumentTagVectorService:
             query_text: 查询文本
             document_type: 文档类型过滤
             tag_type: 标签类型过滤
+            ledger_id: 账簿隔离过滤（预留位，默认 None 不过滤；
+                当前 DocumentTag 模型无 ledger_id 字段，传入时因 payload
+                中 ledger_id 为 None 会被过滤，为后置迁移铺路，不报错）
             limit: 返回数量限制
 
         Returns:
@@ -152,6 +160,8 @@ class DocumentTagVectorService:
             if document_type and payload.get("document_type") != document_type:
                 continue
             if tag_type and payload.get("tag_type") != tag_type:
+                continue
+            if ledger_id is not None and payload.get("ledger_id") != ledger_id:
                 continue
             filtered_results.append(result)
 

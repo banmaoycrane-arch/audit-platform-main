@@ -26,6 +26,8 @@ from app.services.doc_parsing.document_tag_service import (
     update_document_tag,
 )
 from app.services.doc_parsing.document_tag_indexer import DocumentTagIndexer
+from app.db.models import DocumentTag
+from app.services.doc_parsing.document_tag_vector_service import DocumentTagVectorService
 
 
 @pytest.fixture
@@ -524,3 +526,76 @@ class TestDocumentTagIndexer:
         assert "入库类型:采购入库" in tag_values
         assert "商品:原材料A" in tag_values
         assert "供应商:供应商C" in tag_values
+
+
+class TestDocumentTagVectorServiceLedgerIsolation:
+    """DocumentTag 向量服务 ledger_id 参数位回归（api-boundary-governance-plan Phase 4）。
+
+    预留位目的：当前 DocumentTag 模型无 ledger_id 字段，向量检索全局共享存在
+    跨账簿串库风险；本轮先在服务层预留参数位与 payload 字段（行为不变），
+    待生产 Alembic 收口 0028→0034 后再补迁移回填真实 ledger_id。
+    """
+
+    def test_search_without_ledger_id_no_error(self, db_session, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.doc_parsing.document_tag_vector_service.safe_vector_store",
+            lambda: None,
+        )
+        svc = DocumentTagVectorService(db_session)
+        result = svc.search_similar_tags(query_text="差旅", ledger_id=None)
+        assert result == []
+
+    def test_search_with_ledger_id_no_error(self, db_session, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.doc_parsing.document_tag_vector_service.safe_vector_store",
+            lambda: None,
+        )
+        svc = DocumentTagVectorService(db_session)
+        result = svc.search_similar_tags(query_text="差旅", ledger_id=5)
+        assert result == []
+
+    def test_search_with_ledger_id_filters_payload(self, db_session, monkeypatch):
+        class FakeStore:
+            def search(self, text, limit):
+                return [
+                    {"payload": {"tag": "a", "ledger_id": None}, "score": 0.9},
+                    {"payload": {"tag": "b", "ledger_id": 5}, "score": 0.8},
+                    {"payload": {"tag": "c"}, "score": 0.7},
+                ]
+
+        monkeypatch.setattr(
+            "app.services.doc_parsing.document_tag_vector_service.safe_vector_store",
+            lambda: FakeStore(),
+        )
+        svc = DocumentTagVectorService(db_session)
+        result = svc.search_similar_tags(query_text="差旅", ledger_id=5)
+        assert len(result) == 1
+        assert result[0]["payload"]["tag"] == "b"
+
+    def test_sync_tag_to_vector_payload_has_ledger_id(self, db_session, monkeypatch):
+        captured = {}
+
+        class FakeStore:
+            def upsert_text(self, point_id, text, payload):
+                captured["payload"] = payload
+                return True
+
+        monkeypatch.setattr(
+            "app.services.doc_parsing.document_tag_vector_service.safe_vector_store",
+            lambda: FakeStore(),
+        )
+        svc = DocumentTagVectorService(db_session)
+        tag = DocumentTag(
+            document_id=1,
+            document_type="invoice",
+            tag="test",
+            tag_type="business",
+            confidence=0.9,
+            source="rule",
+        )
+        db_session.add(tag)
+        db_session.flush()
+        ok = svc.sync_tag_to_vector(tag)
+        assert ok is True
+        assert "ledger_id" in captured["payload"]
+        assert captured["payload"]["ledger_id"] is None

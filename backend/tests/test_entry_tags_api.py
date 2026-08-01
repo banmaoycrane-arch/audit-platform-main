@@ -96,82 +96,47 @@ def _seed(TestingSessionLocal):
         db.close()
 
 
-def test_get_tags_empty_list(client):
-    test_client, TestingSessionLocal = client
-    entry_id, _ = _seed(TestingSessionLocal)
+def test_get_entries_tags_redirects_to_entry_tags(client):
+    """GET /api/entries/{id}/tags 废弃后 307 重定向到 /api/entry-tags（api-boundary-governance-plan Phase 4）。"""
+    test_client, _ = client
+    resp = test_client.get("/api/entries/123/tags", follow_redirects=False)
+    assert resp.status_code == 307
+    location = resp.headers["location"]
+    assert "/api/entry-tags/tags" in location
+    assert "entry_id=123" in location
 
-    resp = test_client.get(f"/api/entries/{entry_id}/tags")
 
-    assert resp.status_code == 200
-    assert resp.json() == []
-
-
-def test_post_tag_returns_full_fields_and_vector_pending(client):
-    test_client, TestingSessionLocal = client
-    entry_id, _ = _seed(TestingSessionLocal)
-
+def test_post_entries_tags_redirects_to_entry_tags(client):
+    """POST /api/entries/{id}/tags 废弃后 307 重定向（body 结构不同，调用方应迁移至 /api/entry-tags）。"""
+    test_client, _ = client
     resp = test_client.post(
-        f"/api/entries/{entry_id}/tags",
-        json={"tag_type": "counterparty", "tag_value": "供应商A"},
+        "/api/entries/123/tags",
+        json={"tag_value": "x"},
+        follow_redirects=False,
     )
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["entry_id"] == entry_id
-    assert body["tag_name"] == "供应商A"
-    assert body["tag_type"] == "counterparty"
-    assert body["tag_value"] == "供应商A"
-    assert body["tag_value_normalized"] == "供应商a"
-    assert body["tag_source"] == "manual"
-    assert body["confidence"] == 1.0
-    assert body["reviewed_by_user"] is True
-    assert body["vector_pending"] is True
-    assert body["created_at"]
+    assert resp.status_code == 307
+    assert "/api/entry-tags/tags" in resp.headers["location"]
 
 
-def test_get_tags_returns_created_tag(client):
-    test_client, TestingSessionLocal = client
-    entry_id, _ = _seed(TestingSessionLocal)
-    created = test_client.post(
-        f"/api/entries/{entry_id}/tags",
-        json={"tag_name": "项目一期", "tag_type": "project", "tag_value": "项目一期"},
-    ).json()
-
-    resp = test_client.get(f"/api/entries/{entry_id}/tags")
-
-    assert resp.status_code == 200
-    tags = resp.json()
-    assert len(tags) == 1
-    assert tags[0]["id"] == created["id"]
-    assert tags[0]["tag_type"] == "project"
+def test_delete_entries_tags_redirects_to_entry_tags(client):
+    """DELETE /api/entries/{id}/tags/{tag_id} 废弃后 307 重定向。"""
+    test_client, _ = client
+    resp = test_client.delete("/api/entries/123/tags/5", follow_redirects=False)
+    assert resp.status_code == 307
+    assert "/api/entry-tags/tags/5" in resp.headers["location"]
 
 
-def test_delete_tag_success(client):
-    test_client, TestingSessionLocal = client
-    entry_id, _ = _seed(TestingSessionLocal)
-    tag_id = test_client.post(
-        f"/api/entries/{entry_id}/tags",
-        json={"tag_type": "department", "tag_value": "财务部"},
-    ).json()["id"]
-
-    resp = test_client.delete(f"/api/entries/{entry_id}/tags/{tag_id}")
-
-    assert resp.status_code == 200
-    assert resp.json() == {"deleted": 1}
-    assert test_client.get(f"/api/entries/{entry_id}/tags").json() == []
-
-
-def test_delete_tag_not_belonging_to_entry_returns_404(client):
-    test_client, TestingSessionLocal = client
-    entry_id, other_entry_id = _seed(TestingSessionLocal)
-    tag_id = test_client.post(
-        f"/api/entries/{other_entry_id}/tags",
-        json={"tag_type": "project", "tag_value": "其他项目"},
-    ).json()["id"]
-
-    resp = test_client.delete(f"/api/entries/{entry_id}/tags/{tag_id}")
-
-    assert resp.status_code == 404
+def test_entries_tags_redirect_preserves_query(client):
+    """旧路径 307 重定向保留 query 参数。"""
+    test_client, _ = client
+    resp = test_client.get(
+        "/api/entries/123/tags?category_code=project",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 307
+    location = resp.headers["location"]
+    assert "entry_id=123" in location
+    assert "category_code=project" in location
 
 
 def test_patch_tags_legacy_api_sets_vector_pending(client):
@@ -197,10 +162,26 @@ def test_patch_tags_legacy_api_sets_vector_pending(client):
 def test_sync_vector_unavailable_returns_200_and_keeps_pending(client, monkeypatch):
     test_client, TestingSessionLocal = client
     entry_id, _ = _seed(TestingSessionLocal)
-    tag_id = test_client.post(
-        f"/api/entries/{entry_id}/tags",
-        json={"tag_type": "counterparty", "tag_value": "供应商A"},
-    ).json()["id"]
+    # 直接 DB 写入 EntryTag（vector_pending=True），不再走已废弃的旧 POST 端点
+    db = TestingSessionLocal()
+    try:
+        tag = EntryTag(
+            entry_id=entry_id,
+            tag_name="counterparty:供应商A",
+            tag_type="counterparty",
+            tag_value="供应商A",
+            tag_value_normalized="供应商a",
+            tag_source="manual",
+            confidence=1.0,
+            reviewed_by_user=True,
+            vector_pending=True,
+        )
+        db.add(tag)
+        db.commit()
+        db.refresh(tag)
+        tag_id = tag.id
+    finally:
+        db.close()
     monkeypatch.setattr("app.services.accounting.entry_tag_vector_service.safe_vector_store", lambda: None)
 
     resp = test_client.post("/api/entry-tags/sync-vector", params={"limit": 100})
@@ -218,15 +199,18 @@ def test_sync_vector_unavailable_returns_200_and_keeps_pending(client, monkeypat
         db.close()
 
 
-def test_unknown_entry_get_and_post_tags_return_404(client):
-    test_client, TestingSessionLocal = client
-    _seed(TestingSessionLocal)
-
-    get_resp = test_client.get("/api/entries/9999/tags")
-    post_resp = test_client.post("/api/entries/9999/tags", json={"tag_value": "不存在"})
-
-    assert get_resp.status_code == 404
-    assert post_resp.status_code == 404
+def test_openapi_marks_entries_tags_deprecated(client):
+    """OpenAPI schema 标记 /api/entries/{id}/tags 端点为 deprecated。"""
+    test_client, _ = client
+    resp = test_client.get("/openapi.json")
+    schema = resp.json()
+    found_deprecated = False
+    for path, methods in schema["paths"].items():
+        if path.startswith("/api/entries/{entry_id}/tags"):
+            for op in methods.values():
+                if isinstance(op, dict) and op.get("deprecated"):
+                    found_deprecated = True
+    assert found_deprecated, "entries 内嵌 tags 端点应标记 deprecated"
 
 
 def _seed_ledger(TestingSessionLocal) -> int:

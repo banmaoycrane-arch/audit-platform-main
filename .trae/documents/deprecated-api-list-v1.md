@@ -4,6 +4,7 @@
 > **章程**: [development-convergence-charter.md](./development-convergence-charter.md) 阶段 1  
 > **保留策略**: 只读兼容 ≥1 版本周期，**禁止前端新增调用**  
 > **Phase 3 收口**: 2026-08-01（[api-boundary-governance-plan.md](./api-boundary-governance-plan.md) §五）
+> **Phase 4 收口**: 2026-08-01（Tag 服务统一；entries 内嵌 tags 三端点废弃 + 307 重定向到 `/api/entry-tags`）
 
 ## 已标记 deprecated
 
@@ -11,6 +12,18 @@
 |------|------|------------|----------|--------|
 | IMP-B | `/api/unified-import` | `/api/import-jobs` | `routes_unified_import.py` | `Deprecation: true` + `Sunset` + `Link` |
 | IMP-C | `/api/parse/*` | `/api/import-jobs` + `/api/parser-engine` | `routes_document_parsing.py` | `Deprecation: true` + `Sunset` + `Link` |
+| TAG-A | `GET /api/entries/{entry_id}/tags` | `GET /api/entry-tags/tags?entry_id=...` | `routes_entries.py` | 307 重定向（Phase 5 印章模式） |
+| TAG-A | `POST /api/entries/{entry_id}/tags` | `POST /api/entry-tags/tags` | `routes_entries.py` | 307 重定向（Phase 5 印章模式） |
+| TAG-A | `DELETE /api/entries/{entry_id}/tags/{tag_id}` | `DELETE /api/entry-tags/tags/{tag_id}` | `routes_entries.py` | 307 重定向（Phase 5 印章模式） |
+
+### TAG-A 详细说明（2026-08-01 新增）
+
+- **废弃原因**: `/api/entries/{id}/tags` 内嵌标签端点与 `/api/entry-tags` 主路径功能重叠；AGENTS.md §1.2 要求「Voucher 为聚合根、Entry 为子资源」，标签应统一走 `entry-tags` 服务。
+- **替代路径**: 全部走 `/api/entry-tags`（20 端点 CRUD + 向量同步 + 搜索）。`/api/entries/{id}/tags` 的 GET/POST/DELETE 三端点统一 307 重定向到对应 `/api/entry-tags/tags` 端点，保留 query。
+- **保留端点**: `PATCH /api/entries/{entry_id}/tags` 暂保留（前序 spec 决定，用于批量更新分录标签；待 `entry-tags` 扩展 PATCH 后再废弃）。
+- **前端约束**: 前端 `client.ts` 早前已全量迁移至 `/api/entry-tags`，无残留调用（2026-08-01 grep 确认）。
+- **OpenAPI 标注**: 三端点 `deprecated=True` + docstring `.. deprecated::` + tags 含 `deprecated:entries-tags`，Swagger UI 自动标灰。
+- **未补 HTTP 响应头**: 307 重定向端点不直接返回 `Deprecation: true` 等响应头（重定向后由替代路径响应）；与 Phase 5 印章 `compat_router` 模式一致。
 
 ## deprecated 标注四重点（每条 deprecated 路由均满足）
 

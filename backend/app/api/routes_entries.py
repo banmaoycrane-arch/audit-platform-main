@@ -3,8 +3,8 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -30,16 +30,6 @@ router = APIRouter(prefix="/api/entries", tags=["entries"])
 
 
 VALID_ENTRY_REVIEW_STATUSES = {"draft", "verified", "ready"}
-
-
-class EntryTagCreate(BaseModel):
-    tag_name: str | None = None
-    tag_type: str | None = None
-    tag_value: str | None = None
-    tag_value_normalized: str | None = None
-    tag_source: str = "manual"
-    confidence: float = 1.0
-    reviewed_by_user: bool = True
 
 
 class EntryReviewUpdate(BaseModel):
@@ -150,22 +140,6 @@ def _validate_entry_amounts(debit_amount: Decimal | None, credit_amount: Decimal
         raise HTTPException(status_code=400, detail="同一分录不能同时填写借方和贷方金额")
     if debit == 0 and credit == 0:
         raise HTTPException(status_code=400, detail="分录至少需要填写借方或贷方金额")
-
-
-def _tag_to_dict(tag: EntryTag) -> dict[str, Any]:
-    return {
-        "id": tag.id,
-        "entry_id": tag.entry_id,
-        "tag_name": tag.tag_name,
-        "tag_type": tag.tag_type,
-        "tag_value": tag.tag_value,
-        "tag_value_normalized": tag.tag_value_normalized,
-        "tag_source": tag.tag_source,
-        "confidence": tag.confidence,
-        "reviewed_by_user": tag.reviewed_by_user,
-        "vector_pending": tag.vector_pending,
-        "created_at": tag.created_at.isoformat() if tag.created_at else None,
-    }
 
 
 def _load_entry_event_map(
@@ -863,50 +837,63 @@ def similar_search(entry_id: int, db: Session = Depends(get_db), current_user: U
         return {"results": [], "message": str(exc)}
 
 
-@router.get("/{entry_id}/tags")
-def list_tags(entry_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> list[dict[str, Any]]:
-    entry = db.get(AccountingEntry, entry_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="分录不存在")
-    tags = db.query(EntryTag).filter(EntryTag.entry_id == entry_id).all()
-    return [_tag_to_dict(tag) for tag in tags]
+@router.get(
+    "/{entry_id}/tags",
+    deprecated=True,
+    tags=["entries", "deprecated:entries-tags"],
+)
+async def list_tags_redirect(entry_id: int, request: Request) -> RedirectResponse:
+    """分录标签列表（已废弃）。
+
+    .. deprecated:: 2026-08-01
+        该端点已由 ``GET /api/entry-tags/tags?entry_id=...`` 取代
+        （api-boundary-governance-plan.md Phase 4：Tag 服务统一）。
+        旧路径返回 307 重定向到新路径，保留 query；至少保留一个版本周期。
+    """
+    target = f"/api/entry-tags/tags?entry_id={entry_id}"
+    if request.url.query:
+        target = f"{target}&{request.url.query}"
+    return RedirectResponse(url=target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
-@router.post("/{entry_id}/tags")
-def create_tag(entry_id: int, payload: EntryTagCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
-    entry = db.get(AccountingEntry, entry_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="分录不存在")
-    tag_name = payload.tag_name or payload.tag_value or payload.tag_type or "manual_tag"
-    normalize_source = payload.tag_value or tag_name
-    tag = EntryTag(
-        entry_id=entry_id,
-        tag_name=tag_name,
-        tag_type=payload.tag_type,
-        tag_value=payload.tag_value,
-        tag_value_normalized=payload.tag_value_normalized or normalize_source.strip().lower(),
-        tag_source=payload.tag_source,
-        confidence=payload.confidence,
-        reviewed_by_user=payload.reviewed_by_user,
-        vector_pending=True,
-    )
-    db.add(tag)
-    db.commit()
-    db.refresh(tag)
-    return _tag_to_dict(tag)
+@router.post(
+    "/{entry_id}/tags",
+    deprecated=True,
+    tags=["entries", "deprecated:entries-tags"],
+)
+async def create_tag_redirect(entry_id: int, request: Request) -> RedirectResponse:
+    """分录标签创建（已废弃）。
+
+    .. deprecated:: 2026-08-01
+        该端点已由 ``POST /api/entry-tags/tags`` 取代
+        （api-boundary-governance-plan.md Phase 4：Tag 服务统一）。
+        旧路径返回 307 重定向到新路径。注意：新端点 body 结构不同
+        （需 entry_id/ledger_id/category_code/tag_value），307 保留原 body
+        会导致 422，请调用方迁移至新端点。
+    """
+    target = "/api/entry-tags/tags"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    return RedirectResponse(url=target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
-@router.delete("/{entry_id}/tags/{tag_id}")
-def delete_tag(entry_id: int, tag_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
-    entry = db.get(AccountingEntry, entry_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="分录不存在")
-    tag = db.get(EntryTag, tag_id)
-    if not tag or tag.entry_id != entry_id:
-        raise HTTPException(status_code=404, detail="标签不存在")
-    db.delete(tag)
-    db.commit()
-    return {"deleted": 1}
+@router.delete(
+    "/{entry_id}/tags/{tag_id}",
+    deprecated=True,
+    tags=["entries", "deprecated:entries-tags"],
+)
+async def delete_tag_redirect(entry_id: int, tag_id: int, request: Request) -> RedirectResponse:
+    """分录标签删除（已废弃）。
+
+    .. deprecated:: 2026-08-01
+        该端点已由 ``DELETE /api/entry-tags/tags/{entry_tag_id}`` 取代
+        （api-boundary-governance-plan.md Phase 4：Tag 服务统一）。
+        旧路径返回 307 重定向到新路径，保留 query。
+    """
+    target = f"/api/entry-tags/tags/{tag_id}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    return RedirectResponse(url=target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 @router.patch("/{entry_id}/review", response_model=AccountingEntryRead)

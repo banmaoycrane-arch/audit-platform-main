@@ -220,12 +220,13 @@ def sync_pending_tags_api(db: Session = Depends(get_db)) -> Any:
 
 
 @router.post("/search", response_model=list[dict[str, Any]])
-def search_similar_tags_api(query_text: str, document_type: str | None = None, tag_type: str | None = None, limit: int = 10, db: Session = Depends(get_db)) -> Any:
+def search_similar_tags_api(query_text: str, document_type: str | None = None, tag_type: str | None = None, ledger_id: int | None = None, limit: int = 10, db: Session = Depends(get_db)) -> Any:
     vector_service = DocumentTagVectorService(db)
     results = vector_service.search_similar_tags(
         query_text=query_text,
         document_type=document_type,
         tag_type=tag_type,
+        ledger_id=ledger_id,
         limit=limit,
     )
     return results

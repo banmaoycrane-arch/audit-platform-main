@@ -1,8 +1,8 @@
 # 代码真值状态（Code Truth Status）
 
 > **文档类型**: 项目状态唯一真值来源
-> **更新日期**: 2026-08-01（全量 pytest 882 绿、4 提交已 push 到 `origin/main`、Alembic head 0034、E1 事件工单后端+前端落地后修订）
-> **代码基准**: Git `main` @ `4b42cc6`（已与 `origin/main` 对齐；含数据/运维负债修复、pytest 失败修复、安全修复、0028–0034 迁移、E1 事件工单）
+> **更新日期**: 2026-08-01（Phase 4 Tag 服务统一：spec 三件套 + 实施落地，全量 pytest 894 绿；E1 事件工单后端+前端、Alembic head 0034 已于本日早些 push）
+> **代码基准**: Git `main` @ `4b42cc6`（已与 `origin/main` 对齐；含数据/运维负债修复、pytest 失败修复、安全修复、0028–0034 迁移、E1 事件工单）；**工作区**: Phase 4 Tag 服务统一变更待 commit/push（5 文件改 + spec 三件套新增 + 3 文档同步）
 > **人读总览**: [project-status-overview.md](./project-status-overview.md)（三层真值 · 下一步）  
 > **维护规则**: 任何规划文档、spec checklist、进度结论 **不得与此文冲突**；冲突时以本文 + 代码为准
 
@@ -36,7 +36,7 @@
 
 详见 [project-status-overview.md §4](./project-status-overview.md)。要点：
 
-- **工作区状态**: 2026-08-01 push 后 `git status --porcelain` 为空；此前登记的「未入库文档 / 未入库迁移 / 未提交代码」均已进入 `origin/main`（OS 总纲、实施排期、事件工单规格、`0028`–`0034` 迁移、模块登记增强、`Contract.deep_analysis` 等）
+- **工作区状态**: 2026-08-01 Phase 4 Tag 服务统一 spec 三件套 + 实施代码（5 文件改 + 3 文档同步）已完成，**待 commit/push**；此前 4 提交（含 OS 总纲、实施排期、事件工单规格、`0028`–`0034` 迁移、模块登记增强、`Contract.deep_analysis` 等）已 push 到 `origin/main`，基线 `4b42cc6` 与远程对齐
 - **勿提交**: `backend/*test*.txt`、`mypy_output_full.txt` 等临时日志（已在 `.gitignore` 或待清理）
 
 ---
@@ -67,7 +67,7 @@ cd audit-platform-main\backend
 | HTTP 端点 | **~366+** | `@router.get/post/...` |
 | 系统端点 | **2** | `/`, `/health` |
 | **API 合计** | **~370+** | `main.py` 注册 router |
-| 后端测试用例 | **882** | `backend/tests/` |
+| 后端测试用例 | **894** | `backend/tests/` |
 | 前端页面组件 | **77+** | `frontend/src/pages/**/*.tsx` |
 | 服务层文件 | **123** | `backend/app/services/**/*.py` |
 | 活跃 spec 目录 | **60** | `.trae/specs/*/spec.md` |
@@ -99,7 +99,7 @@ backend/app/services/
 | 标签/AI | 70 | `entry-tags`, `document-tags`, `agent`, `llm-resolution`, `config` |
 | 组织/基础 | 69 | `teams`, `projects`, `ledgers`, `coa`, `entities` |
 
-**重叠结论**（详见 `api-boundary-governance-plan.md`）: 导入 5 链路、entries/vouchers 双轨、entry-tags/document-tags 同构 — **代码仍存在，尚未收敛**。
+**重叠结论**（详见 `api-boundary-governance-plan.md`）: 导入 5 链路（IMP-B/C 已 deprecated + 响应头，IMP-A/D/E 主路径，Phase 1/3 完成）、entries/vouchers 双轨（Phase 2 受 L6 阻塞）、entry-tags/document-tags 同构（**Phase 4 完成**：`/api/entries/{id}/tags` GET/POST/DELETE 三端点已 307 重定向到 `/api/entry-tags`，OpenAPI `deprecated=True`；表未合并 D1 决定；DocumentTag `ledger_id` 实串库后置 D2 决定）。
 
 ---
 
@@ -178,7 +178,7 @@ backend/app/services/
 | 能力 | L 级 | 代码证据 | 建议优先级 |
 |------|------|----------|------------|
 | 印章识别 | **L4** | `routes_seals.py` + basic_data/seal_* + 测试 | P2，不压过 P2/P3 主线 |
-| 文档标签 | **L4–L5** | `routes_document_tags.py` + DocumentTagsPage | 与 entry-tags 重叠，待合并 |
+| 文档标签 | **L4–L5** | `routes_document_tags.py` + DocumentTagsPage | 与 entry-tags 重叠端点已废弃（`/api/entries/{id}/tags` GET/POST/DELETE 三端点 307 重定向到 `/api/entry-tags`，Phase 4 完成）；**表未合并**（D1 决定：EntryTag 辅助核算维度 ≠ DocumentTag 资料检索）；DocumentTag 向量 `ledger_id` 参数位已预留（值 None），**实串库待生产 Alembic 0028→0034 收口后**（D2 决定） |
 | Agent / LLM | **L4** | `routes_agent`, `llm-resolution`；前端标「实验功能」 | 增强项，非主路径 |
 | 税务城市出口池 | **L4** | `routes_tax_egress` + `0028_tax_city_egress_pool`；**未接真实税局** | 可选增值；主线仍为文件导入记账 |
 | 经济事件工单 | **L5**（E1 后端+前端落地） | `routes_economic_events.py` + `economic_event_service.py` + `0034` 迁移 + `EconomicEventsPage`/`EconomicEventDetailPage`；10/10 后端测试通过 | E1 事件壳完成（创建/列表/详情/挂分录/挂证据/状态推进/时间轴）；E2 导入聚类、E3 Agent、E4 向量待开工；spec 见 [economic-event-workorder](../specs/economic-event-workorder/spec.md) |
@@ -191,8 +191,8 @@ backend/app/services/
 
 | 项 | 状态 | 说明 |
 |----|------|------|
-| 测试收集 | **882** | `pytest tests --collect-only` |
-| 全量通过 | **882 passed, 0 failed** | 2026-08-01 实测；~450s |
+| 测试收集 | **894** | `pytest tests --collect-only`（882 基线 + Phase 4 Tag 净增 12） |
+| 全量通过 | **894 passed, 0 failed** | 2026-08-01 实测（Phase 4 Tag 服务统一：4 redirect + 4 ledger_id 回归 + 4 旧测试改写）；~450s |
 | 阶段1修复摘要 | 见下 | 已修复：close_period 自动损益结转、counterparty/TagCategory 进程缓存污染兜底、entry_generation_api 认证 headers、A10/A11 冒烟流程 |
 | mypy | **0 错** | 276 source files，Success: no issues found |
 | 覆盖率 | **~39%** | `TECH_DEBT.md` TD-003；核心服务已补充 90 个测试 |
@@ -205,8 +205,8 @@ backend/app/services/
 
 ### P0 — 阻塞发布
 
-1. ~~**全量 pytest 跑绿**~~ ✅ 2026-08-01 实测 882/882 passed
-2. ~~**提交 git 变更**~~ ✅ 2026-08-01 push `4b42cc6` 到 `origin/main`；4 提交（9579069/344eff7/4f30bf1/4b42cc6）已入库；工作区干净
+1. ~~**全量 pytest 跑绿**~~ ✅ 2026-08-01 实测 894/894 passed（Phase 4 Tag 服务统一净增 12）
+2. ~~**提交 git 变更（早些时候 4 提交）**~~ ✅ 2026-08-01 push `4b42cc6` 到 `origin/main`；4 提交（9579069/344eff7/4f30bf1/4b42cc6）已入库。**Phase 4 Tag 服务统一变更待 commit/push**（5 文件改 + spec 三件套新增 + 3 文档同步）
 3. **记账 v1.0 L6 人工验收**（路径 A 签字；**先验收再修** — 见 [bookkeeping-v1-decision-record.md](../backend/docs/bookkeeping-v1-decision-record.md)）— **需会计专业用户签字，技术方不可代签**
 4. **审计 L6 路径 B**（与记账 v1.0 独立，可并行）— **需会计专业用户签字，技术方不可代签**
 5. **API 收敛 Phase 2**：统一 vouchers 主路径 — **L6 签字后**（章程冻结，见 [api-boundary-governance-plan.md](./api-boundary-governance-plan.md) §五）
@@ -217,12 +217,12 @@ backend/app/services/
 7. **解析 P2 验收**：修正回流 + 96% 稳定性指标（非新功能）
 8. ~~**Money 前端迁移**~~ ✅ 已完成（见 TECH_DEBT TD-002）
 9. ~~**清理服务层根目录重复文件**~~ ✅ 已完成（`4f30bf1` 删除 6 个根目录重复文件；grep 确认无旧路径导入残留）
-10. **API 边界治理 Phase 1–6**：导入链路收敛、entry-tags/document-tags 合并（~~Phase 1~~ ✅ 2026-08-01 完成：`import-jobs` 三 Router 链式挂载，prefix 唯一定义；882/882 测试不变；~~Phase 3~~ ✅ 2026-08-01 完成：`/api/unified-import`、`/api/parse` 已四重注明 deprecated + 响应头中间件 `Deprecation: true` + `Sunset` + `Link`，5 个新测试，887/887 通过；~~Phase 5~~ ✅ 2026-08-01 完成：印章 prefix `/api/v1` → `/api/seals`，子路径去重（`/api/seals/{id}`），旧路径 `compat_router` 307 重定向兼容，前端 3 处迁移，4 个新测试；~~Phase 6~~ ✅ 2026-08-01 完成：`module-refactoring-plan` 任务5 状态改已完成、「API 不变」原则修订；Phase 2 受 L6 阻塞；Phase 4 Tag 服务统一 spec 待做）
+10. **API 边界治理 Phase 1–6**：导入链路收敛、entry-tags/document-tags 合并（~~Phase 1~~ ✅ 2026-08-01 完成：`import-jobs` 三 Router 链式挂载，prefix 唯一定义；882/882 测试不变；~~Phase 3~~ ✅ 2026-08-01 完成：`/api/unified-import`、`/api/parse` 已四重注明 deprecated + 响应头中间件 `Deprecation: true` + `Sunset` + `Link`，5 个新测试，887/887 通过；~~Phase 4~~ ✅ 2026-08-01 完成：Tag 服务统一 spec 三件套 `.trae/specs/tag-unification/` + 实施（`/api/entries/{id}/tags` GET/POST/DELETE 三端点 307 重定向到 `/api/entry-tags`，OpenAPI `deprecated=True` + tags `deprecated:entries-tags`；DocumentTag 向量 `ledger_id` 参数位预留；4 redirect + 4 ledger_id 回归 + 4 旧测试改写，894/894 通过）；~~Phase 5~~ ✅ 2026-08-01 完成：印章 prefix `/api/v1` → `/api/seals`，子路径去重（`/api/seals/{id}`），旧路径 `compat_router` 307 重定向兼容，前端 3 处迁移，4 个新测试；~~Phase 6~~ ✅ 2026-08-01 完成：`module-refactoring-plan` 任务5 状态改已完成、「API 不变」原则修订；Phase 2 受 L6 阻塞）
 
 ### P2 — 治理与文档
 
 11. 更新各 spec checklist：**不得写与本文矛盾的「已完成」**
-12. 合并 entry-tags / document-tags 设计 spec
+12. ~~合并 entry-tags / document-tags 设计 spec~~ ✅ 2026-08-01 完成（[tag-unification](../specs/tag-unification/spec.md) 三件套定稿 + 实施落地：D1 决定**不合并表**（EntryTag 辅助核算维度 ≠ DocumentTag 资料检索）；D2 决定 DocumentTag `ledger_id` 后置到生产 Alembic 0028→0034 收口后；D3 决定废弃 `/api/entries/{id}/tags` 三端点 → 307 重定向到 `/api/entry-tags`，`PATCH` 暂保留）。**后置任务（P2）**：生产 Alembic 收口后，给 `DocumentTag` 模型加 `ledger_id` 字段 + 迁移 + 实串库（向量 payload 真实写入、filter 真实生效）；同时视需要给 `entry-tags` 扩展 PATCH 端点以废弃 `PATCH /api/entries/{id}/tags`。
 13. ~~经济事件工单（D14）E1 事件壳~~ ✅ 后端+前端落地（2026-08-01）；E2 导入聚类 / E3 Agent / E4 向量待开工
 
 ### 明确不做（当前 Sprint）
@@ -239,13 +239,13 @@ backend/app/services/
 |-------------|----------|
 | `current-risks` 风险2：B1–B7 未开发 | ❌ 已有 `parser-voucher` + 预览页 |
 | `module-refactoring-plan` 任务1「待执行」 | ❌ 已执行（99a15db），残留清理待做 |
-| `next-execution-roadmap` checklist「88 passed」 | ❌ 现为 **882** 用例（2026-08-01 全绿） |
+| `next-execution-roadmap` checklist「88 passed」 | ❌ 现为 **894** 用例（2026-08-01 全绿，含 Phase 4 Tag 净增 12） |
 | `development-plan` P1「待做 embedding 修复」 | ✅ 已迁至 `doc_parsing/embedding_service.py` |
 | 多个 spec「L5 全部完成」 | ⚠️ 仅 API/页面存在，L6 未统一验收 |
 | 「生产无 alembic_version / 仅 116 表」 | ❌ **已过时**：2026-07-21 为 122 表 + 生产 stamp **`0028`** |
 | 「Git head 迁移仍是 0028/0029」 | ❌ **已过时**：2026-08-01 push `4b42cc6` 后 `origin/main` 迁移尖端已是 **`0034`**；本机与远程对齐 |
 | 「事件工单 / OS 排期尚未进 origin/main」 | ❌ **已过时**：2026-08-01 push `4b42cc6` 后 E1 后端+前端+spec+迁移均已入库 |
-| pytest 全量仍有 1 失败 | ❌ 2026-08-01 实测 **882/882 passed** |
+| pytest 全量仍有 1 失败 | ❌ 2026-08-01 实测 **894/894 passed** |
 
 ---
 
