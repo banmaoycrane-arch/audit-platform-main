@@ -2,7 +2,7 @@
 
 > **文档类型**: 项目状态唯一真值来源
 > **更新日期**: 2026-08-01（Phase 4 Tag 服务统一：spec 三件套 + 实施落地，全量 pytest 894 绿；E1 事件工单后端+前端、Alembic head 0034 已于本日早些 push）
-> **代码基准**: Git `main` @ `4b42cc6`（已与 `origin/main` 对齐；含数据/运维负债修复、pytest 失败修复、安全修复、0028–0034 迁移、E1 事件工单）；**工作区**: Phase 4 Tag 服务统一变更待 commit/push（5 文件改 + spec 三件套新增 + 3 文档同步）
+> **代码基准**: Git `main` @ `3f7706d`（已与 `origin/main` 对齐；含 `4b42cc6` 基线 + Phase 4 Tag 服务统一提交：`/api/entries/{id}/tags` 三端点废弃 + DocumentTag 向量 `ledger_id` 参数位 + spec 三件套 + 3 文档真值同步）
 > **人读总览**: [project-status-overview.md](./project-status-overview.md)（三层真值 · 下一步）  
 > **维护规则**: 任何规划文档、spec checklist、进度结论 **不得与此文冲突**；冲突时以本文 + 代码为准
 
@@ -36,7 +36,7 @@
 
 详见 [project-status-overview.md §4](./project-status-overview.md)。要点：
 
-- **工作区状态**: 2026-08-01 Phase 4 Tag 服务统一 spec 三件套 + 实施代码（5 文件改 + 3 文档同步）已完成，**待 commit/push**；此前 4 提交（含 OS 总纲、实施排期、事件工单规格、`0028`–`0034` 迁移、模块登记增强、`Contract.deep_analysis` 等）已 push 到 `origin/main`，基线 `4b42cc6` 与远程对齐
+- **工作区状态**: 2026-08-01 push `3f7706d` 后 `git status --porcelain` 仅剩 2 个 CRLF-only 文件（`backend/app/main.py`、`.trae/documents/project-status-overview.md`，无内容变化）；此前 4 提交（含 OS 总纲、实施排期、事件工单规格、`0028`–`0034` 迁移、模块登记增强、`Contract.deep_analysis` 等）+ Phase 4 Tag 服务统一 1 提交均已 push 到 `origin/main`
 - **勿提交**: `backend/*test*.txt`、`mypy_output_full.txt` 等临时日志（已在 `.gitignore` 或待清理）
 
 ---
@@ -206,7 +206,7 @@ backend/app/services/
 ### P0 — 阻塞发布
 
 1. ~~**全量 pytest 跑绿**~~ ✅ 2026-08-01 实测 894/894 passed（Phase 4 Tag 服务统一净增 12）
-2. ~~**提交 git 变更（早些时候 4 提交）**~~ ✅ 2026-08-01 push `4b42cc6` 到 `origin/main`；4 提交（9579069/344eff7/4f30bf1/4b42cc6）已入库。**Phase 4 Tag 服务统一变更待 commit/push**（5 文件改 + spec 三件套新增 + 3 文档同步）
+2. ~~**提交 git 变更**~~ ✅ 2026-08-01 push `3f7706d` 到 `origin/main`；早些时候 4 提交（9579069/344eff7/4f30bf1/4b42cc6）+ Phase 4 Tag 服务统一 1 提交（3f7706d）已入库；工作区仅剩 2 个 CRLF-only 文件
 3. **记账 v1.0 L6 人工验收**（路径 A 签字；**先验收再修** — 见 [bookkeeping-v1-decision-record.md](../backend/docs/bookkeeping-v1-decision-record.md)）— **需会计专业用户签字，技术方不可代签**
 4. **审计 L6 路径 B**（与记账 v1.0 独立，可并行）— **需会计专业用户签字，技术方不可代签**
 5. **API 收敛 Phase 2**：统一 vouchers 主路径 — **L6 签字后**（章程冻结，见 [api-boundary-governance-plan.md](./api-boundary-governance-plan.md) §五）
