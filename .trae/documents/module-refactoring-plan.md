@@ -15,10 +15,10 @@
 | 2 | 建立清晰的模块依赖规则 | 高 | 🔄 **部分** — 见 `module-dependency-rules.md`，import 仍待清理 |
 | 3 | 为未来拆分预留接口边界 | 中 | 🔄 **部分** — API 未收敛，见 `api-boundary-governance-plan.md` |
 | 4 | 优化文档解析模块的异步处理能力 | 高 | 🔄 **部分** — `doc_parsing/async_parsing_service.py` 已存在 |
-| 5 | 清理根目录残留重复服务 | 高 | ⏳ **待做** — `seal_*`、`project_service.py` 等与子包重复 |
+| 5 | 清理根目录残留重复服务 | 高 | ✅ **已完成**（P1.9，`4f30bf1`）— 删除 6 个根目录重复文件：`project_service` / `seal_detection` / `seal_extraction` / `ledger_management` / `platform_permission` / `summary_template`；grep 确认无旧路径导入残留 |
 
 ### 1.3 核心原则
-- **不破坏现有功能**：重构过程中保持所有 API 接口不变
+- **不破坏现有功能**：重构过程中保持主路径 API 接口对外行为不变；deprecated API（`/api/unified-import`、`/api/parse`，见 [api-boundary-governance-plan.md](./api-boundary-governance-plan.md) Phase 3）已标记废弃，将在 Sunset 日期（2027-02-01）后移除；不新增等价 API 入口
 - **渐进式演进**：先建立边界，再逐步迁移
 - **预留拆分点**：为文档解析 + 向量检索模块预留独立部署能力
 
