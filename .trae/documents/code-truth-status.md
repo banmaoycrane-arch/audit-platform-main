@@ -84,10 +84,10 @@ backend/app/services/
 ├── basic_data/      # 科目、往来、合同、印章 OCR
 ├── doc_parsing/     # 导入、parser_engine、向量、文档标签
 ├── shared/          # 账簿、项目、生命周期、模块登记
-└── （根目录残留）    # project_service.py 等，与 shared/ 部分重复 ⚠️
+└── tax/             # 税务出口池
 ```
 
-**重构状态**: 领域目录 **已提交**（`99a15db`）；根目录仍有少量重复服务文件，属技术债。
+**重构状态**: 领域目录 **已提交**（`99a15db`）；根目录残留已于 `4f30bf1` 清理完毕（删除 `project_service.py`/`seal_detection_service.py`/`seal_extraction_service.py`/`ledger_management_service.py`/`platform_permission_service.py`/`summary_template_service.py` 6 个重复文件）；全量 grep 确认无旧路径导入残留。
 
 ### 2.2 API 前缀分布（摘要）
 
@@ -216,8 +216,8 @@ backend/app/services/
 
 7. **解析 P2 验收**：修正回流 + 96% 稳定性指标（非新功能）
 8. ~~**Money 前端迁移**~~ ✅ 已完成（见 TECH_DEBT TD-002）
-9. **清理服务层根目录重复文件**（seal_*、project_service 等）
-10. **API 边界治理 Phase 1–3**：导入链路收敛、entry-tags/document-tags 合并
+9. ~~**清理服务层根目录重复文件**~~ ✅ 已完成（`4f30bf1` 删除 6 个根目录重复文件；grep 确认无旧路径导入残留）
+10. **API 边界治理 Phase 1–3**：导入链路收敛、entry-tags/document-tags 合并（Phase 1 可独立做；Phase 2/3 受 L6 阻塞）
 
 ### P2 — 治理与文档
 

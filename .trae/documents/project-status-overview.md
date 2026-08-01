@@ -116,7 +116,7 @@
 | ~~**P0**~~ | ~~事件工单 E1：表 → API → 事件卡 UI → steps~~ | **M1** ✅ 2026-08-01 后端+前端落地 |
 | **P0** | 生产 Alembic 收口：stamp 0028 → 0034 + staging 复验 — **需运维** | 部署前必须 |
 | **P0** | L6 人工签字（路径 A + 路径 B）→ 解冻 API 收敛 Phase 2 — **需会计专业用户** | M0 收尾 |
-| **P1** | 清理服务层根目录重复文件（`seal_*`、`project_service` 等） | 技术债 |
+| ~~**P1**~~ | ~~清理服务层根目录重复文件（`seal_*`、`project_service` 等）~~ | ✅ `4f30bf1` 已清理 6 个重复文件 |
 | **P1** | API 边界治理 Phase 1（拆 `import-jobs` 三 Router）— Phase 2/3 受 L6 阻塞 | 结构整理 |
 | **P1** | 解析 P2 验收（修正回流 + 96% 稳定性） | 非新功能 |
 | 并行 | Instructor 合同字段 + LlamaIndex→Qdrant | **M2** |
