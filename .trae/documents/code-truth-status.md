@@ -1,8 +1,8 @@
 # 代码真值状态（Code Truth Status）
 
 > **文档类型**: 项目状态唯一真值来源
-> **更新日期**: 2026-08-01（全量 pytest 882 绿、Alembic head 0034、E1 事件工单后端+前端落地后修订）
-> **代码基准**: Git `main` @ `9579069`（含数据/运维负债、pytest 失败、安全修复；未含未跟踪 0028-0034 迁移文件）
+> **更新日期**: 2026-08-01（全量 pytest 882 绿、4 提交已 push 到 `origin/main`、Alembic head 0034、E1 事件工单后端+前端落地后修订）
+> **代码基准**: Git `main` @ `4b42cc6`（已与 `origin/main` 对齐；含数据/运维负债修复、pytest 失败修复、安全修复、0028–0034 迁移、E1 事件工单）
 > **人读总览**: [project-status-overview.md](./project-status-overview.md)（三层真值 · 下一步）  
 > **维护规则**: 任何规划文档、spec checklist、进度结论 **不得与此文冲突**；冲突时以本文 + 代码为准
 
@@ -26,9 +26,9 @@
 
 | 层 | Alembic 尖端 | 说明 |
 |----|--------------|------|
-| Git `origin/main` 文件树 | **`0027_cash_flow_item`** | 远程仍停留在 `4d8dd89`；本地工作区已前进到 `9579069` |
-| 本机工作区 / 测试环境 | **`0034_add_economic_event_workorder`** | `9579069` 已包含 `0028`–`0034`；已通过 `alembic upgrade head` 对齐 |
-| 生产 stamp（2026-07-21） | **`0028_tax_city_egress_pool`** | 与 Git 文件树脱节；**下次部署前必须收口到 0034** |
+| Git `origin/main` 文件树 | **`0034_add_economic_event_workorder`** | 2026-08-01 push `4b42cc6` 后已与本地对齐；`0028`–`0034` 全部入库 |
+| 本机工作区 / 测试环境 | **`0034_add_economic_event_workorder`** | 已通过 `alembic upgrade head` 对齐；工作区干净（`git status --porcelain` 空） |
+| 生产 stamp（2026-07-21） | **`0028_tax_city_egress_pool`** | 与 Git 文件树脱节 6 个迁移（`0029`–`0034`）；**下次部署前必须收口到 0034** |
 
 **上线纪律**：改模型必须同时更新 Alembic **与** `deploy/fix_legacy_db.py`，并用 `prod_deploy_full.sh` / `apply_prod_schema.sh`（见 [DEPLOY_SYNC.md](../../deploy/DEPLOY_SYNC.md)）。本次新增 `0030`–`0033` 涉及性能索引、数据完整性约束、脏数据清理；`0034` 新增经济事件工单 4 表，部署前需在 staging 复验。
 
@@ -36,10 +36,8 @@
 
 详见 [project-status-overview.md §4](./project-status-overview.md)。要点：
 
-- **未入库文档**: OS 总纲、实施排期、事件工单规格、端口/域名规划  
-- **未入库迁移**: `0028`、`0029`  
-- **未提交代码**: 模块登记增强、部署 8443 相关、`Contract.deep_analysis` 等  
-- **勿提交**: `backend/*test*.txt`、`mypy_output_full.txt` 等临时日志
+- **工作区状态**: 2026-08-01 push 后 `git status --porcelain` 为空；此前登记的「未入库文档 / 未入库迁移 / 未提交代码」均已进入 `origin/main`（OS 总纲、实施排期、事件工单规格、`0028`–`0034` 迁移、模块登记增强、`Contract.deep_analysis` 等）
+- **勿提交**: `backend/*test*.txt`、`mypy_output_full.txt` 等临时日志（已在 `.gitignore` 或待清理）
 
 ---
 
@@ -208,11 +206,11 @@ backend/app/services/
 ### P0 — 阻塞发布
 
 1. ~~**全量 pytest 跑绿**~~ ✅ 2026-08-01 实测 882/882 passed
-2. **提交 git 变更**：已修改代码 + 未跟踪规划文档 + Alembic 0028–0034 迁移 + E1 事件工单 → 进入 `origin/main`
-3. **记账 v1.0 L6 人工验收**（路径 A 签字；**先验收再修** — 见 [bookkeeping-v1-decision-record.md](../backend/docs/bookkeeping-v1-decision-record.md)）
-4. **审计 L6 路径 B**（与记账 v1.0 独立，可并行）
-5. **API 收敛 Phase 2**：统一 vouchers 主路径 — **L6 签字后**（章程冻结）
-6. **生产 Alembic 收口**：部署前将 stamp 从 0028 升级到 0034，并在 staging 复验
+2. ~~**提交 git 变更**~~ ✅ 2026-08-01 push `4b42cc6` 到 `origin/main`；4 提交（9579069/344eff7/4f30bf1/4b42cc6）已入库；工作区干净
+3. **记账 v1.0 L6 人工验收**（路径 A 签字；**先验收再修** — 见 [bookkeeping-v1-decision-record.md](../backend/docs/bookkeeping-v1-decision-record.md)）— **需会计专业用户签字，技术方不可代签**
+4. **审计 L6 路径 B**（与记账 v1.0 独立，可并行）— **需会计专业用户签字，技术方不可代签**
+5. **API 收敛 Phase 2**：统一 vouchers 主路径 — **L6 签字后**（章程冻结，见 [api-boundary-governance-plan.md](./api-boundary-governance-plan.md) §五）
+6. **生产 Alembic 收口**：部署前将 stamp 从 0028 升级到 0034，并在 staging 复验 — **需运维操作**
 
 ### P1 — 主线质量
 
@@ -245,8 +243,8 @@ backend/app/services/
 | `development-plan` P1「待做 embedding 修复」 | ✅ 已迁至 `doc_parsing/embedding_service.py` |
 | 多个 spec「L5 全部完成」 | ⚠️ 仅 API/页面存在，L6 未统一验收 |
 | 「生产无 alembic_version / 仅 116 表」 | ❌ **已过时**：2026-07-21 为 122 表 + 生产 stamp **`0028`** |
-| 「Git head 迁移已是 0028/0029」 | ❌ **错误**：`origin/main` 迁移文件尖端仍是 **`0027`**；本机 head 已到 **`0034`** |
-| 「事件工单 / OS 排期已在远程」 | ⚠️ 规格在本机；E1 后端+前端已落地（`routes_economic_events` + 2 个前端页），尚未进 `origin/main` |
+| 「Git head 迁移仍是 0028/0029」 | ❌ **已过时**：2026-08-01 push `4b42cc6` 后 `origin/main` 迁移尖端已是 **`0034`**；本机与远程对齐 |
+| 「事件工单 / OS 排期尚未进 origin/main」 | ❌ **已过时**：2026-08-01 push `4b42cc6` 后 E1 后端+前端+spec+迁移均已入库 |
 | pytest 全量仍有 1 失败 | ❌ 2026-08-01 实测 **882/882 passed** |
 
 ---

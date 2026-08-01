@@ -22,15 +22,15 @@
 
 | 层 | 指什么 | 当前尖端 | 怎么用 |
 |----|--------|----------|--------|
-| **A. Git `origin/main`** | 已推远程、可协作的代码 | **`9579069`**（本机 `main` @ `4f30bf1` 领先 3 commit，待 push） | 对外进度、回滚基准 |
-| **B. 本机工作区** | A + 未提交/未跟踪改动 | 见 §4；含 `0028`–`0034` 迁移、OS 总纲、排期、事件规格、E1 事件工单 | 你正在改的内容；**不等于已上线** |
+| **A. Git `origin/main`** | 已推远程、可协作的代码 | **`4b42cc6`**（2026-08-01 push，4 提交已对齐；含 0028–0034 迁移、OS 总纲、排期、事件规格、E1 事件工单） | 对外进度、回滚基准 |
+| **B. 本机工作区** | A + 未提交/未跟踪改动 | 工作区干净（`git status --porcelain` 空）；A/B 已对齐 | 你正在改的内容；**不等于已上线** |
 | **C. 生产 `47.122.117.76`** | Docker 里跑的实例 | HTTPS **`:8443`**；库约 **122 表**；记录为 alembic **`0028`**（2026-07-21） | 用户实际访问面；下次部署需升到 **0034** |
 
 ```text
 聊天里「我们定了 OS / 排期 / 事件规格」
-        ↓ 多数在 B 层文档里，尚未进 A
+        ↓ 2026-08-01 push 后已全部进入 A 层
 生产「能打开登录、结构齐、样例账少」
-        ↓ C 层；L6 脚本已过、人工签字未做，Alembic 与 A/B 脱节
+        ↓ C 层；L6 脚本已过、人工签字未做，Alembic 与 A/B 脱节 6 个迁移
 ```
 
 ---
@@ -55,36 +55,27 @@
 
 ## 4. 本机相对 `main` 多出来什么（B − A）
 
-### 4.1 已改未提交（modified）
+### 4.1 工作区状态
 
-| 区域 | 内容直觉 |
-|------|----------|
-| 模块登记 | 前后端增强（`ModuleRegisterPage`、ingestion/register 服务、API client） |
-| 部署 | Caddy / compose **8443**、DEPLOY_SYNC、fix_legacy、同步脚本 |
-| 文档 | code-truth、requirements 域索引、README、DEPLOYMENT |
-| 模型 | `Contract.deep_analysis` 字段（工作区） |
+**2026-08-01 push `4b42cc6` 后**：`git status --porcelain` 为空，本机工作区与 `origin/main` 完全对齐。此前登记的「已改未提交」「未跟踪」内容（模块登记增强、部署 8443、`Contract.deep_analysis`、OS 总纲、实施排期、事件工单规格、`0028`–`0034` 迁移）**均已入库**。
 
-### 4.2 未跟踪（untracked）——方向已定、仓库未收口
+### 4.2 勿提交清单（待清理或已 gitignore）
 
 | 路径 | 性质 |
 |------|------|
-| `ai-native-finance-os-definition.md` | OS 总纲 |
-| `implementation-plan-and-schedule.md` | M0–M6 排期 |
-| `economic-event-workorder/` | D14 事件工单规格 |
-| `deploy/SERVER_PORTS.md` · `DOMAIN_PLAN.md` | 端口与域名 `puqing.cn` |
-| `0028_tax_city_egress_pool.py` | 税务池正式迁移文件 |
-| `0029_add_contract_deep_analysis.py` | 合同深度分析字段迁移 |
-| `backend/*test*.txt` 等 | **日志垃圾，勿提交** |
+| `backend/*test*.txt`、`backend/pytest_*.log`、`backend/mypy_*.txt` | 日志垃圾，勿提交 |
+| `backend/tmp_*.py` | 临时脚本，待清理 |
+| `backend/finance_audit*.db*` | 本地数据库，已 gitignore |
 
 ### 4.3 Alembic 务必读懂的一点
 
 | 位置 | Alembic 文件尖端 | 说明 |
 |------|------------------|------|
-| Git `HEAD` | **`0034_add_economic_event_workorder`** | `4f30bf1` 已纳入 0028–0034（origin/main 仍停 0027，待 push） |
+| Git `HEAD` / `origin/main` | **`0034_add_economic_event_workorder`** | 2026-08-01 push 后已与远程对齐 |
 | 本机 | **`0034_add_economic_event_workorder`** | 已通过 `alembic upgrade head` 对齐 |
-| 生产记录（7/21） | stamp **`0028`** | 与 Git 文件树脱节 |
+| 生产记录（7/21） | stamp **`0028`** | 与 Git 文件树脱节 6 个迁移（`0029`–`0034`） |
 
-> 下次收口：push 后在生产执行 `alembic upgrade 0034`（新增经济事件 4 表），staging 复验后部署。
+> 下次收口：在生产执行 `alembic upgrade 0034`（新增经济事件 4 表），staging 复验后部署。**需运维操作**。
 
 ---
 
@@ -92,7 +83,7 @@
 
 | 目录 | 角色 | 是否主开发 |
 |------|------|------------|
-| **`audit-platform-main`** | 主线 · `main` @ `4f30bf1` | **是** |
+| **`audit-platform-main`** | 主线 · `main` @ `4b42cc6`（已与 `origin/main` 对齐） | **是** |
 | `audit-platform-agent` | Agent 实验 worktree | 否（tip 偏旧） |
 | `audit-platform-sandbox` | 沙箱 | 否 |
 | `audit-platform-d08-report-fix` | 报表实验 | 否 |
@@ -119,12 +110,15 @@
 
 | 优先级 | 事项 | 里程碑 |
 |--------|------|--------|
-| **先收口** | push `4f30bf1`（含 E1 事件工单 + 0028–0034 迁移 + OS/排期文档）到 `origin/main` | 文档/迁移真值 |
+| ~~**先收口**~~ | ~~push `4b42cc6`（含 E1 事件工单 + 0028–0034 迁移 + OS/排期文档）到 `origin/main`~~ | ✅ 2026-08-01 已 push |
 | ~~**P0**~~ | ~~记账 L6 路径 A 脚本验收~~ | **M0** ✅ 2026-08-01 脚本 16/16；**人工签字待办** |
 | ~~**P0**~~ | ~~审计 L6 路径 B 脚本验收~~ | **M0** ✅ 2026-08-01 脚本 13/13；**人工签字待办** |
 | ~~**P0**~~ | ~~事件工单 E1：表 → API → 事件卡 UI → steps~~ | **M1** ✅ 2026-08-01 后端+前端落地 |
-| **P0** | 生产 Alembic 收口：stamp 0028 → 0034 + staging 复验 | 部署前必须 |
-| **P0** | L6 人工签字（路径 A + 路径 B）→ 解冻 API 收敛 Phase 2 | M0 收尾 |
+| **P0** | 生产 Alembic 收口：stamp 0028 → 0034 + staging 复验 — **需运维** | 部署前必须 |
+| **P0** | L6 人工签字（路径 A + 路径 B）→ 解冻 API 收敛 Phase 2 — **需会计专业用户** | M0 收尾 |
+| **P1** | 清理服务层根目录重复文件（`seal_*`、`project_service` 等） | 技术债 |
+| **P1** | API 边界治理 Phase 1（拆 `import-jobs` 三 Router）— Phase 2/3 受 L6 阻塞 | 结构整理 |
+| **P1** | 解析 P2 验收（修正回流 + 96% 稳定性） | 非新功能 |
 | 并行 | Instructor 合同字段 + LlamaIndex→Qdrant | **M2** |
 | 随后 | 合同双 Skill（合规 / 入账准备，人不点不过账） | **M3** |
 | 明确不做（本季） | 税局直连、固资生产化、先开 SFT/图谱抢主线 | — |
@@ -152,7 +146,7 @@
 | 事件工单 | [../specs/economic-event-workorder/spec.md](../specs/economic-event-workorder/spec.md) |
 | 需求域 D01–D14 | [requirements-domain-index.md](./requirements-domain-index.md) |
 | L6 怎么验 | [l6-acceptance-checklist.md](./l6-acceptance-checklist.md) |
-| 端口 | [../deploy/SERVER_PORTS.md](../deploy/SERVER_PORTS.md) |
+| 端口 / 部署同步 | [../deploy/DEPLOY_SYNC.md](../deploy/DEPLOY_SYNC.md)（生产 HTTPS `:8443`，详见 §8） |
 
 ---
 
@@ -162,3 +156,4 @@
 |------|------|
 | 2026-07-29 | 首版：三层真值 + 本机漂移 + 主线完成度 + 下一步 |
 | 2026-08-01 | 修订：E1 事件工单落地、L6 脚本通过、Alembic 0034、main @ 4f30bf1、阻塞项明确 |
+| 2026-08-01 | 二次修订：4 提交已 push 到 `origin/main` @ `4b42cc6`；工作区干净；§2/§4/§5/§7 同步真值；阻塞项细化责任方 |
