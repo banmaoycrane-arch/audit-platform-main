@@ -82,6 +82,8 @@ import DocumentTagsPage from './pages/DocumentTagsPage'
 import { LedgerDimensionsPage } from './pages/LedgerDimensionsPage'
 import { ControlDefectsPage } from './pages/ControlDefectsPage'
 import { ImportJobManagePage } from './pages/ImportJobManagePage'
+import { EconomicEventsPage } from './pages/EconomicEvents/EconomicEventsPage'
+import { EconomicEventDetailPage } from './pages/EconomicEvents/EconomicEventDetailPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useAuthStore()
@@ -234,6 +236,8 @@ function AppRoutes() {
         <Route path="/mvp-metrics" element={<MvpMetricsPage />} />
         <Route path="/entries" element={<Navigate to="/ledger/entries" replace />} />
         <Route path="/ledger/entries" element={<LedgerDataGuard><EntriesPageRoute /></LedgerDataGuard>} />
+        <Route path="/ledger/events" element={<LedgerDataGuard><EconomicEventsPage /></LedgerDataGuard>} />
+        <Route path="/ledger/events/:eventId" element={<LedgerDataGuard><EconomicEventDetailPage /></LedgerDataGuard>} />
         <Route path="/ledger/books" element={<LedgerDataGuard><LedgerBooksPage /></LedgerDataGuard>} />
         <Route path="/ledger/dimensions" element={<LedgerDataGuard><LedgerDimensionsPage /></LedgerDataGuard>} />
         <Route path="/ledger/import-jobs" element={<LedgerDataGuard><ImportJobManagePage /></LedgerDataGuard>} />

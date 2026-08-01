@@ -2666,6 +2666,92 @@ class TaxRotationEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive, index=True)
 
 
+# ==================== 经济事件工单（Economic Event Workorder）====================
+
+class EconomicEvent(Base):
+    """经济事件工单：一等公民对象，聚合分录、证据与状态机。"""
+
+    __tablename__ = "economic_events"
+    __table_args__ = (
+        Index("ix_economic_events_ledger_status", "ledger_id", "status"),
+        CheckConstraint(
+            "status IN ('draft', 'collecting', 'pending_review', 'pending_post', 'posted', 'closed', 'failed', 'cancelled')",
+            name="ck_economic_event_status_valid",
+        ),
+        CheckConstraint(
+            "source IN ('manual', 'import', 'agent')",
+            name="ck_economic_event_source_valid",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_no: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    event_type: Mapped[str] = mapped_column(String(80), default="manual")  # revenue_recognition, purchase, receipt, manual, import_cluster
+    status: Mapped[str] = mapped_column(String(40), default="draft")
+    occurred_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)  # 仅展示，以关联分录汇总为准
+    currency: Mapped[str] = mapped_column(String(10), default="CNY")
+    source: Mapped[str] = mapped_column(String(20), default="manual")  # manual | import | agent
+    source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 触发源 ID，如 import_job_id
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    assignee_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+
+
+class EconomicEventEntry(Base):
+    """经济事件与会计分录的多对多关联。"""
+
+    __tablename__ = "economic_event_entries"
+    __table_args__ = (UniqueConstraint("event_id", "accounting_entry_id", name="uq_event_entry"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("economic_events.id", ondelete="CASCADE"), index=True)
+    accounting_entry_id: Mapped[int] = mapped_column(ForeignKey("accounting_entries.id", ondelete="CASCADE"), index=True)
+    relation_type: Mapped[str] = mapped_column(String(40), default="primary")  # primary | related
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+
+
+class EconomicEventFile(Base):
+    """经济事件与源文件关联。"""
+
+    __tablename__ = "economic_event_files"
+    __table_args__ = (UniqueConstraint("event_id", "source_file_id", name="uq_event_file"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("economic_events.id", ondelete="CASCADE"), index=True)
+    source_file_id: Mapped[int] = mapped_column(ForeignKey("source_files.id", ondelete="CASCADE"), index=True)
+    relation_type: Mapped[str] = mapped_column(String(40), default="evidence")  # evidence | attachment
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+
+
+class EconomicEventStep(Base):
+    """事件事务步骤日志：状态推进、API 调用、审批、Agent 操作均可记录。"""
+
+    __tablename__ = "economic_event_steps"
+    __table_args__ = (Index("ix_economic_event_steps_event_id_seq", "event_id", "sequence"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("economic_events.id", ondelete="CASCADE"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=1)
+    step_code: Mapped[str] = mapped_column(String(80))  # create, attach_entry, transition, api_call, agent_suggest, manual_review
+    step_name: Mapped[str] = mapped_column(String(200))
+    api_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    payload_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)  # 参数摘要或哈希
+    result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_type: Mapped[str] = mapped_column(String(40), default="user")  # user | agent | system
+    model_provider: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    from_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+
+
 # 注册 app.models 下的模型，确保与 app.db.models 中 relationship 引用的类位于同一 Base metadata。
 # 这些模型在运行时仅依赖 app.db.session.Base，因此放在文件末尾可避免循环导入。
 from app.models import (  # noqa: E402,F401

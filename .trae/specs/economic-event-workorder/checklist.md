@@ -11,11 +11,11 @@
 
 ## E1 事件壳
 
-- [ ] 模型 + Alembic + fix_legacy_db
-- [ ] `/api/economic-events` CRUD / 关联 / transition / steps
-- [ ] 前端列表 + 详情卡 + 时间轴
+- [x] 模型 + Alembic + fix_legacy_db
+- [x] `/api/economic-events` CRUD / 关联 / transition / steps
+- [x] 查询不创建事件（自动化或手工用例）
+- [x] 前端列表 + 详情卡 + 时间轴
 - [ ] 分录列表显示所属事件
-- [ ] 查询不创建事件（自动化或手工用例）
 - [ ] 生产 schema 审计 PASS
 
 ## E2 导入聚类

@@ -5234,4 +5234,148 @@ export const api = {
 
   listTaxRotationEvents: (limit = 30) =>
     request<{ items: TaxRotationEvent[] }>(`/api/tax/egress/rotation-events?limit=${limit}`),
+
+  // ==========================================================================
+  // Economic Event Workorder API（经济事件工单 — 账簿隔离 via X-Ledger-Id）
+  // ==========================================================================
+  listEconomicEvents: (ledgerId: number, params?: {
+    status?: string
+    event_type?: string
+    keyword?: string
+    offset?: number
+    limit?: number
+  }) => {
+    const searchParams = new URLSearchParams()
+    if (params?.status) searchParams.set('status', params.status)
+    if (params?.event_type) searchParams.set('event_type', params.event_type)
+    if (params?.keyword) searchParams.set('keyword', params.keyword)
+    if (params?.offset != null) searchParams.set('offset', String(params.offset))
+    if (params?.limit != null) searchParams.set('limit', String(params.limit))
+    const qs = searchParams.toString()
+    return request<EconomicEvent[]>(
+      `/api/economic-events/${qs ? `?${qs}` : ''}`,
+      { headers: { 'X-Ledger-Id': String(ledgerId) } },
+    )
+  },
+
+  getEconomicEvent: (ledgerId: number, eventId: number) =>
+    request<EconomicEventDetail>(`/api/economic-events/${eventId}`, {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+
+  createEconomicEvent: (ledgerId: number, payload: {
+    title: string
+    event_type?: string
+    occurred_on?: string | null
+    summary?: string | null
+    source?: string
+    source_id?: number | null
+    assignee_user_id?: number | null
+  }) =>
+    request<EconomicEvent>('/api/economic-events/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+
+  attachEconomicEventEntry: (
+    ledgerId: number,
+    eventId: number,
+    payload: { accounting_entry_id: number; relation_type?: string },
+  ) =>
+    request<EconomicEventEntryLink>(`/api/economic-events/${eventId}/entries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+
+  attachEconomicEventFile: (
+    ledgerId: number,
+    eventId: number,
+    payload: { source_file_id: number; relation_type?: string },
+  ) =>
+    request<EconomicEventFileLink>(`/api/economic-events/${eventId}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+
+  transitionEconomicEvent: (
+    ledgerId: number,
+    eventId: number,
+    payload: { to_status: string; reason?: string | null; actor_type?: string },
+  ) =>
+    request<EconomicEvent>(`/api/economic-events/${eventId}/transition`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+
+  listEconomicEventSteps: (ledgerId: number, eventId: number) =>
+    request<EconomicEventStep[]>(`/api/economic-events/${eventId}/steps`, {
+      headers: { 'X-Ledger-Id': String(ledgerId) },
+    }),
+}
+
+// ---------------------------------------------------------------------------
+// Economic Event Workorder Types（经济事件工单类型）
+// ---------------------------------------------------------------------------
+
+export type EconomicEventStep = {
+  id: number
+  sequence: number
+  step_code: string
+  step_name: string
+  api_name: string | null
+  payload_digest: string | null
+  result_summary: string | null
+  actor_user_id: number | null
+  actor_type: string
+  model_provider: string | null
+  model_name: string | null
+  from_status: string | null
+  to_status: string | null
+  created_at: string | null
+}
+
+export type EconomicEventEntryLink = {
+  id: number
+  accounting_entry_id: number
+  relation_type: string
+  created_at: string | null
+}
+
+export type EconomicEventFileLink = {
+  id: number
+  source_file_id: number
+  relation_type: string
+  created_at: string | null
+}
+
+export type EconomicEvent = {
+  id: number
+  event_no: string
+  ledger_id: number
+  title: string
+  event_type: string
+  status: string
+  occurred_on: string | null
+  summary: string | null
+  display_amount: string | null
+  currency: string
+  source: string
+  source_id: number | null
+  created_by: number | null
+  assignee_user_id: number | null
+  closed_at: string | null
+  created_at: string | null
+  updated_at: string | null
+  entry_count: number
+  file_count: number
+}
+
+export type EconomicEventDetail = EconomicEvent & {
+  steps: EconomicEventStep[]
+  entries: EconomicEventEntryLink[]
+  files: EconomicEventFileLink[]
 }

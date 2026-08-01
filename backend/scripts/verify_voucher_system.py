@@ -22,7 +22,7 @@ from app.db.models import AccountingPeriod, Organization
 from app.models.ledger import Ledger
 from app.models.team import Team
 from app.models.user import User
-from app.services.ledger_management_service import create_ledger
+from app.services.shared.ledger_management_service import create_ledger
 from app.services.voucher_service import (
     VoucherEntryLine,
     VoucherBalanceError,

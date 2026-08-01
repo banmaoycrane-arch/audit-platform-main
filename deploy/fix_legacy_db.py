@@ -145,6 +145,7 @@ def main() -> None:
     fix_chart_of_accounts_unique_index(conn)
     ensure_product_events_table(conn)
     ensure_tax_egress_tables(conn)
+    ensure_economic_event_tables(conn)
     conn.commit()
     print("Done")
 
@@ -284,6 +285,114 @@ def ensure_tax_egress_tables(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_tax_rotation_events_created_at ON tax_rotation_events (created_at)"
+    )
+
+
+def ensure_economic_event_tables(conn: sqlite3.Connection) -> None:
+    """经济事件工单 E1：4 张表 + 索引 + CheckConstraint 兜底。"""
+    ddl_statements = [
+        (
+            "economic_events",
+            """
+            CREATE TABLE economic_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_no VARCHAR(80) NOT NULL UNIQUE,
+                ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+                title VARCHAR(300) NOT NULL,
+                event_type VARCHAR(80) NOT NULL DEFAULT 'manual',
+                status VARCHAR(40) NOT NULL DEFAULT 'draft',
+                occurred_on DATE,
+                summary TEXT,
+                display_amount NUMERIC(18, 2),
+                currency VARCHAR(10) NOT NULL DEFAULT 'CNY',
+                source VARCHAR(20) NOT NULL DEFAULT 'manual',
+                source_id INTEGER,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                assignee_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                closed_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                CHECK (source IN ('manual', 'import', 'agent')),
+                CHECK (status IN ('draft', 'collecting', 'pending_review', 'pending_post', 'posted', 'closed', 'failed', 'cancelled'))
+            )
+            """,
+        ),
+        (
+            "economic_event_entries",
+            """
+            CREATE TABLE economic_event_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL REFERENCES economic_events(id) ON DELETE CASCADE,
+                accounting_entry_id INTEGER NOT NULL REFERENCES accounting_entries(id) ON DELETE CASCADE,
+                relation_type VARCHAR(40) NOT NULL DEFAULT 'primary',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                UNIQUE(event_id, accounting_entry_id)
+            )
+            """,
+        ),
+        (
+            "economic_event_files",
+            """
+            CREATE TABLE economic_event_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL REFERENCES economic_events(id) ON DELETE CASCADE,
+                source_file_id INTEGER NOT NULL REFERENCES source_files(id) ON DELETE CASCADE,
+                relation_type VARCHAR(40) NOT NULL DEFAULT 'evidence',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                UNIQUE(event_id, source_file_id)
+            )
+            """,
+        ),
+        (
+            "economic_event_steps",
+            """
+            CREATE TABLE economic_event_steps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL REFERENCES economic_events(id) ON DELETE CASCADE,
+                sequence INTEGER NOT NULL DEFAULT 1,
+                step_code VARCHAR(80) NOT NULL,
+                step_name VARCHAR(200) NOT NULL,
+                api_name VARCHAR(200),
+                payload_digest VARCHAR(128),
+                result_summary TEXT,
+                actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                actor_type VARCHAR(40) NOT NULL DEFAULT 'user',
+                model_provider VARCHAR(80),
+                model_name VARCHAR(120),
+                from_status VARCHAR(40),
+                to_status VARCHAR(40),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+            )
+            """,
+        ),
+    ]
+    for table, ddl in ddl_statements:
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        if exists:
+            print(f"OK {table}")
+            continue
+        print(f"CREATE TABLE {table}")
+        conn.execute(ddl)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_economic_events_ledger_id ON economic_events (ledger_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_economic_events_ledger_status ON economic_events (ledger_id, status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_economic_event_entries_event_id ON economic_event_entries (event_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_economic_event_files_event_id ON economic_event_files (event_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_economic_event_steps_event_id ON economic_event_steps (event_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_economic_event_steps_event_id_seq ON economic_event_steps (event_id, sequence)"
     )
 
 

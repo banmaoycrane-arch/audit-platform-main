@@ -1,0 +1,108 @@
+{
+  "title": "L6 路径 A 记账主线端到端验收",
+  "base_url": "http://127.0.0.1:8000",
+  "timestamp": "2026-08-01T17:32:03",
+  "summary": {
+    "passed": 16,
+    "failed": 0,
+    "total": 16
+  },
+  "steps": [
+    {
+      "id": "A1",
+      "name": "注册新用户",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "id": "A2",
+      "name": "登录获取 Token",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A3",
+      "name": "创建团队",
+      "status": "PASS",
+      "detail": "team_id=5"
+    },
+    {
+      "id": "A4",
+      "name": "创建账簿",
+      "status": "PASS",
+      "detail": "ledger_id=5"
+    },
+    {
+      "id": "A5",
+      "name": "获取首个会计期间",
+      "status": "PASS",
+      "detail": "period_id=5, org_id=5"
+    },
+    {
+      "id": "A6",
+      "name": "创建收入凭证",
+      "status": "PASS",
+      "detail": "voucher_id=9"
+    },
+    {
+      "id": "A7",
+      "name": "创建费用凭证",
+      "status": "PASS",
+      "detail": "voucher_id=10"
+    },
+    {
+      "id": "A8-收入",
+      "name": "复核收入凭证",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A8-费用",
+      "name": "复核费用凭证",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A9-收入",
+      "name": "过账收入凭证",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A9-费用",
+      "name": "过账费用凭证",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A10",
+      "name": "损益结转",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "id": "A11",
+      "name": "会计期间结账",
+      "status": "PASS",
+      "detail": "status=200"
+    },
+    {
+      "id": "A12",
+      "name": "资产负债表平衡",
+      "status": "PASS",
+      "detail": "assets=0, liab+equity=0"
+    },
+    {
+      "id": "A13",
+      "name": "利润表净利润",
+      "status": "PASS",
+      "detail": "net_profit=500.00"
+    },
+    {
+      "id": "A14",
+      "name": "试算平衡",
+      "status": "PASS",
+      "detail": ""
+    }
+  ]
+}

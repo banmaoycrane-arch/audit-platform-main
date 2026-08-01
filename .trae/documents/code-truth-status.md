@@ -1,8 +1,8 @@
 # 代码真值状态（Code Truth Status）
 
-> **文档类型**: 项目状态唯一真值来源  
-> **更新日期**: 2026-08-01（全量 pytest 872 绿、Alembic head 0033 实测后修订）  
-> **代码基准**: Git `main` @ `9579069`（含数据/运维负债、pytest 失败、安全修复；未含未跟踪 0028-0033 迁移文件）  
+> **文档类型**: 项目状态唯一真值来源
+> **更新日期**: 2026-08-01（全量 pytest 882 绿、Alembic head 0034、E1 事件工单后端+前端落地后修订）
+> **代码基准**: Git `main` @ `9579069`（含数据/运维负债、pytest 失败、安全修复；未含未跟踪 0028-0034 迁移文件）
 > **人读总览**: [project-status-overview.md](./project-status-overview.md)（三层真值 · 下一步）  
 > **维护规则**: 任何规划文档、spec checklist、进度结论 **不得与此文冲突**；冲突时以本文 + 代码为准
 
@@ -27,10 +27,10 @@
 | 层 | Alembic 尖端 | 说明 |
 |----|--------------|------|
 | Git `origin/main` 文件树 | **`0027_cash_flow_item`** | 远程仍停留在 `4d8dd89`；本地工作区已前进到 `9579069` |
-| 本机工作区 / 测试环境 | **`0033_ops_missing_indexes`** | `9579069` 已包含 `0028`–`0033`；已通过 `alembic upgrade head` 对齐 |
-| 生产 stamp（2026-07-21） | **`0028_tax_city_egress_pool`** | 与 Git 文件树脱节；**下次部署前必须收口到 0033** |
+| 本机工作区 / 测试环境 | **`0034_add_economic_event_workorder`** | `9579069` 已包含 `0028`–`0034`；已通过 `alembic upgrade head` 对齐 |
+| 生产 stamp（2026-07-21） | **`0028_tax_city_egress_pool`** | 与 Git 文件树脱节；**下次部署前必须收口到 0034** |
 
-**上线纪律**：改模型必须同时更新 Alembic **与** `deploy/fix_legacy_db.py`，并用 `prod_deploy_full.sh` / `apply_prod_schema.sh`（见 [DEPLOY_SYNC.md](../../deploy/DEPLOY_SYNC.md)）。本次新增 `0030`–`0033` 涉及性能索引、数据完整性约束、脏数据清理，部署前需在 staging 复验。
+**上线纪律**：改模型必须同时更新 Alembic **与** `deploy/fix_legacy_db.py`，并用 `prod_deploy_full.sh` / `apply_prod_schema.sh`（见 [DEPLOY_SYNC.md](../../deploy/DEPLOY_SYNC.md)）。本次新增 `0030`–`0033` 涉及性能索引、数据完整性约束、脏数据清理；`0034` 新增经济事件工单 4 表，部署前需在 staging 复验。
 
 ### 〇.2 本机工作区相对 `main`（摘要）
 
@@ -69,7 +69,7 @@ cd audit-platform-main\backend
 | HTTP 端点 | **~366+** | `@router.get/post/...` |
 | 系统端点 | **2** | `/`, `/health` |
 | **API 合计** | **~370+** | `main.py` 注册 router |
-| 后端测试用例 | **872** | `backend/tests/` |
+| 后端测试用例 | **882** | `backend/tests/` |
 | 前端页面组件 | **77+** | `frontend/src/pages/**/*.tsx` |
 | 服务层文件 | **123** | `backend/app/services/**/*.py` |
 | 活跃 spec 目录 | **60** | `.trae/specs/*/spec.md` |
@@ -183,7 +183,7 @@ backend/app/services/
 | 文档标签 | **L4–L5** | `routes_document_tags.py` + DocumentTagsPage | 与 entry-tags 重叠，待合并 |
 | Agent / LLM | **L4** | `routes_agent`, `llm-resolution`；前端标「实验功能」 | 增强项，非主路径 |
 | 税务城市出口池 | **L4** | `routes_tax_egress` + `0028_tax_city_egress_pool`；**未接真实税局** | 可选增值；主线仍为文件导入记账 |
-| 经济事件工单 | **L1** | 正式规格在工作区：`economic-event-workorder`（**尚未进 origin/main**）；**代码未开工** | OS 调度单元；排期见 [implementation-plan-and-schedule.md](./implementation-plan-and-schedule.md)；总览见 [project-status-overview.md](./project-status-overview.md) |
+| 经济事件工单 | **L5**（E1 后端+前端落地） | `routes_economic_events.py` + `economic_event_service.py` + `0034` 迁移 + `EconomicEventsPage`/`EconomicEventDetailPage`；10/10 后端测试通过 | E1 事件壳完成（创建/列表/详情/挂分录/挂证据/状态推进/时间轴）；E2 导入聚类、E3 Agent、E4 向量待开工；spec 见 [economic-event-workorder](../specs/economic-event-workorder/spec.md) |
 | 采购三单匹配 | **L2** | `routes_purchase_match` + 占位页 | 不做生产承诺 |
 | D11 扩展模块 | **L2** | PlaceholderModulePage 等 | Backlog |
 
@@ -193,8 +193,8 @@ backend/app/services/
 
 | 项 | 状态 | 说明 |
 |----|------|------|
-| 测试收集 | **872** | `pytest tests --collect-only` |
-| 全量通过 | **872 passed, 0 failed** | 2026-08-01 实测；~430s |
+| 测试收集 | **882** | `pytest tests --collect-only` |
+| 全量通过 | **882 passed, 0 failed** | 2026-08-01 实测；~450s |
 | 阶段1修复摘要 | 见下 | 已修复：close_period 自动损益结转、counterparty/TagCategory 进程缓存污染兜底、entry_generation_api 认证 headers、A10/A11 冒烟流程 |
 | mypy | **0 错** | 276 source files，Success: no issues found |
 | 覆盖率 | **~39%** | `TECH_DEBT.md` TD-003；核心服务已补充 90 个测试 |
@@ -207,12 +207,12 @@ backend/app/services/
 
 ### P0 — 阻塞发布
 
-1. ~~**全量 pytest 跑绿**~~ ✅ 2026-08-01 实测 872/872 passed
-2. **提交 git 变更**：已修改代码 + 未跟踪规划文档 + Alembic 0028–0033 迁移 → 进入 `origin/main`
+1. ~~**全量 pytest 跑绿**~~ ✅ 2026-08-01 实测 882/882 passed
+2. **提交 git 变更**：已修改代码 + 未跟踪规划文档 + Alembic 0028–0034 迁移 + E1 事件工单 → 进入 `origin/main`
 3. **记账 v1.0 L6 人工验收**（路径 A 签字；**先验收再修** — 见 [bookkeeping-v1-decision-record.md](../backend/docs/bookkeeping-v1-decision-record.md)）
 4. **审计 L6 路径 B**（与记账 v1.0 独立，可并行）
 5. **API 收敛 Phase 2**：统一 vouchers 主路径 — **L6 签字后**（章程冻结）
-6. **生产 Alembic 收口**：部署前将 stamp 从 0028 升级到 0033，并在 staging 复验
+6. **生产 Alembic 收口**：部署前将 stamp 从 0028 升级到 0034，并在 staging 复验
 
 ### P1 — 主线质量
 
@@ -225,7 +225,7 @@ backend/app/services/
 
 11. 更新各 spec checklist：**不得写与本文矛盾的「已完成」**
 12. 合并 entry-tags / document-tags 设计 spec
-13. 经济事件工单（D14）进入 M1 开发
+13. ~~经济事件工单（D14）E1 事件壳~~ ✅ 后端+前端落地（2026-08-01）；E2 导入聚类 / E3 Agent / E4 向量待开工
 
 ### 明确不做（当前 Sprint）
 
@@ -241,13 +241,13 @@ backend/app/services/
 |-------------|----------|
 | `current-risks` 风险2：B1–B7 未开发 | ❌ 已有 `parser-voucher` + 预览页 |
 | `module-refactoring-plan` 任务1「待执行」 | ❌ 已执行（99a15db），残留清理待做 |
-| `next-execution-roadmap` checklist「88 passed」 | ❌ 现为 **872** 用例（2026-08-01 全绿） |
+| `next-execution-roadmap` checklist「88 passed」 | ❌ 现为 **882** 用例（2026-08-01 全绿） |
 | `development-plan` P1「待做 embedding 修复」 | ✅ 已迁至 `doc_parsing/embedding_service.py` |
 | 多个 spec「L5 全部完成」 | ⚠️ 仅 API/页面存在，L6 未统一验收 |
 | 「生产无 alembic_version / 仅 116 表」 | ❌ **已过时**：2026-07-21 为 122 表 + 生产 stamp **`0028`** |
-| 「Git head 迁移已是 0028/0029」 | ❌ **错误**：`origin/main` 迁移文件尖端仍是 **`0027`**；本机 head 已到 **`0033`** |
-| 「事件工单 / OS 排期已在远程」 | ❌ **错误**：规格与排期在本机未跟踪；远程尚未收口 |
-| pytest 全量仍有 1 失败 | ❌ 2026-08-01 实测 **872/872 passed** |
+| 「Git head 迁移已是 0028/0029」 | ❌ **错误**：`origin/main` 迁移文件尖端仍是 **`0027`**；本机 head 已到 **`0034`** |
+| 「事件工单 / OS 排期已在远程」 | ⚠️ 规格在本机；E1 后端+前端已落地（`routes_economic_events` + 2 个前端页），尚未进 `origin/main` |
+| pytest 全量仍有 1 失败 | ❌ 2026-08-01 实测 **882/882 passed** |
 
 ---
 

@@ -1,0 +1,90 @@
+{
+  "title": "L6 路径 B 审计主线端到端验收",
+  "base_url": "http://127.0.0.1:8000",
+  "timestamp": "2026-08-01T17:31:12",
+  "summary": {
+    "passed": 13,
+    "failed": 0,
+    "total": 13
+  },
+  "steps": [
+    {
+      "id": "B1",
+      "name": "注册新用户",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "B2",
+      "name": "登录获取 Token",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "B3",
+      "name": "创建团队",
+      "status": "PASS",
+      "detail": "team_id=4"
+    },
+    {
+      "id": "B4",
+      "name": "创建账簿",
+      "status": "PASS",
+      "detail": "ledger_id=4"
+    },
+    {
+      "id": "B5",
+      "name": "创建审计项目",
+      "status": "PASS",
+      "detail": "project_id=2"
+    },
+    {
+      "id": "B6",
+      "name": "项目关联账簿",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "B7",
+      "name": "获取会计期间",
+      "status": "PASS",
+      "detail": "period_id=4"
+    },
+    {
+      "id": "B8",
+      "name": "导入审计分录",
+      "status": "PASS",
+      "detail": "job_id=2, entries=2"
+    },
+    {
+      "id": "B9",
+      "name": "创建审计任务",
+      "status": "PASS",
+      "detail": "task_id=2"
+    },
+    {
+      "id": "B10",
+      "name": "执行审计测试",
+      "status": "PASS",
+      "detail": "findings=12"
+    },
+    {
+      "id": "B11",
+      "name": "查询审计发现",
+      "status": "PASS",
+      "detail": "count=12"
+    },
+    {
+      "id": "B12",
+      "name": "创建工作底稿索引",
+      "status": "PASS",
+      "detail": "index_id=1"
+    },
+    {
+      "id": "B13",
+      "name": "导出工作底稿目录",
+      "status": "PASS",
+      "detail": ""
+    }
+  ]
+}

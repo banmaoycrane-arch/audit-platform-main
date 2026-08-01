@@ -100,6 +100,18 @@ export const LEDGER_NAV_GROUPS: LedgerNavGroup[] = [
       { key: 'cash-flow-statement', label: '现金流量表', path: '/reports/cash-flow-statement', docRef: 'F8' },
     ],
   },
+  {
+    key: 'economic-events',
+    label: '事件工单',
+    items: [
+      {
+        key: 'events',
+        label: '经济事件',
+        path: '/ledger/events',
+        description: '以事件聚合分录与证据，按状态机推进',
+      },
+    ],
+  },
 ]
 
 /** 工作台快捷入口（扁平列表） */
@@ -120,6 +132,7 @@ export const LEDGER_WORKSPACE_FUNCTIONS: Array<{
   { key: 'balance-sheet', label: '资产负债表', path: '/reports/balance-sheet', group: '财务报表' },
   { key: 'income-statement', label: '利润表', path: '/reports/income-statement', group: '财务报表' },
   { key: 'cash-flow-statement', label: '现金流量表', path: '/reports/cash-flow-statement', group: '财务报表' },
+  { key: 'events', label: '经济事件工单', path: '/ledger/events', group: '事件工单' },
 ]
 
 export function reportPathWithPeriod(path: string, periodId?: number | null): string {
