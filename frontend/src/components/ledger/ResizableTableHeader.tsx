@@ -29,7 +29,7 @@ export function ResizableTableHeaderCell({
     const startX = event.clientX
     const startWidth = width
 
-    const onMouseMove = (moveEvent: MouseEvent) => {
+    const onMouseMove = (moveEvent: globalThis.MouseEvent) => {
       onResize(clampColumnWidth(startWidth + moveEvent.clientX - startX))
     }
 

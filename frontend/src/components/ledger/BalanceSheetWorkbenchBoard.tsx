@@ -69,7 +69,7 @@ function treemapOption(
   sectionTotal: number,
   items: ReturnType<typeof toEchartsTreemapData>,
   colors: string[],
-  titleAlign: 'left' | 'right' = 'center',
+  titleAlign: 'left' | 'right' | 'center' = 'center',
 ): EChartsOption {
   return {
     title: {

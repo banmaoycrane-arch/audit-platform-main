@@ -1205,6 +1205,7 @@ export type ClassicDualColumnBalanceSheet = {
 }
 
 export type BalanceSheetReport = LedgerReportMeta & {
+  ledger_name?: string
   assets: TrialBalanceRow[]
   liabilities: TrialBalanceRow[]
   equity: TrialBalanceRow[]
@@ -1260,6 +1261,7 @@ export type CashFlowActivityBlock = {
 }
 
 export type CashFlowStatementReport = {
+  ledger_name?: string
   method?: string
   statement_lines?: FinancialStatementLine[]
   indirect_lines?: FinancialStatementLine[]

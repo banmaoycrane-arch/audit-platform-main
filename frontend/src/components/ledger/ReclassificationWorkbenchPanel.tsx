@@ -104,7 +104,7 @@ export function ReclassificationWorkbenchPanel({ summary }: ReclassificationWork
                         <Space wrap>
                           <Tag color="blue">{risk.assertion}</Tag>
                           <Tag color={meta.color}>风险{meta.label}</Tag>
-                          {risk.related_accounts.map((code) => (
+                          {(risk.related_accounts ?? []).map((code) => (
                             <Tag key={code}>{code}</Tag>
                           ))}
                         </Space>

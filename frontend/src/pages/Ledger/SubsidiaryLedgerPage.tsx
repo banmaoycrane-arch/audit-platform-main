@@ -54,6 +54,7 @@ import {
   buildTagDetailRows,
   isTagSectionRow,
   type SubsidiaryTagDetailRow,
+  type TagSectionRow,
 } from '../../utils/subsidiaryLedgerDetailLayout'
 import {
   COLUMN_WIDTH_LABELS,
@@ -463,7 +464,7 @@ export function SubsidiaryLedgerPage() {
         summary: query.summary?.trim() || undefined,
         counterparty: query.counterparty?.trim() || undefined,
         tag_filters: tagFiltersJson,
-        tag_match_scope: 'voucher',
+        tag_match_scope: 'voucher' as const,
         limit,
         offset,
       }
@@ -999,9 +1000,11 @@ export function SubsidiaryLedgerPage() {
             return <Text strong>{row.openingLabel}</Text>
           }
           if (isTagSectionRow(row)) {
+            // columns 同时用于 tag 明细表（Table<SubsidiaryTagDetailRow>），运行时 row 可能是 TagSectionRow
+            const tagRow = row as unknown as TagSectionRow
             return (
               <Text strong style={{ color: '#722ed1' }}>
-                {row.sectionLabel}（{row.entry_count} 条）
+                {tagRow.sectionLabel}（{tagRow.entry_count} 条）
               </Text>
             )
           }
@@ -1383,7 +1386,7 @@ export function SubsidiaryLedgerPage() {
         </Col>
         <Col xs={24} xl={6}>
           <SubsidiaryLedgerTagNavigator
-            ledgerId={currentLedgerId}
+            ledgerId={currentLedgerId ?? undefined}
             accountCodes={effectiveDraftAccountCodes}
             accountCodeMatch={SUBSIDIARY_ACCOUNT_MATCH}
             categoryOptions={tagCategoryOptions}
@@ -1509,7 +1512,7 @@ export function SubsidiaryLedgerPage() {
                   return ''
                 }}
               />
-              {subtotalMode === 'none' && detailLayoutMode !== 'tag' && (
+              {subtotalMode === 'none' && (
                 <div style={{ marginTop: 16, textAlign: 'right' }}>
                   <Pagination
                     current={page}

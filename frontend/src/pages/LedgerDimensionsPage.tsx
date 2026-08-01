@@ -399,7 +399,7 @@ export function LedgerDimensionsPage() {
 
             label: '维度分类',
 
-            children: <TagCategoryManager ledgerId={currentLedgerId} onChanged={handleDimensionDataChanged} />,
+            children: <TagCategoryManager ledgerId={currentLedgerId!} onChanged={handleDimensionDataChanged} />,
 
           },
 
@@ -417,7 +417,7 @@ export function LedgerDimensionsPage() {
 
             ),
 
-            children: <AccountTagRulesPanel ledgerId={currentLedgerId} categoryCodes={categoryCodes} />,
+            children: <AccountTagRulesPanel ledgerId={currentLedgerId ?? undefined} categoryCodes={categoryCodes} />,
 
           },
 
@@ -439,7 +439,7 @@ export function LedgerDimensionsPage() {
 
               <DimensionValuesPanel
 
-                ledgerId={currentLedgerId}
+                ledgerId={currentLedgerId!}
 
                 categories={categories}
 
@@ -473,7 +473,7 @@ export function LedgerDimensionsPage() {
 
             ),
 
-            children: <TagMappingRulesPanel ledgerId={currentLedgerId} categoryCodes={categoryCodes} />,
+            children: <TagMappingRulesPanel ledgerId={currentLedgerId!} categoryCodes={categoryCodes} />,
 
           },
 
