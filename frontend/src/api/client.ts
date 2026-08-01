@@ -5320,6 +5320,40 @@ export const api = {
     request<EconomicEventStep[]>(`/api/economic-events/${eventId}/steps`, {
       headers: { 'X-Ledger-Id': String(ledgerId) },
     }),
+
+  // E2 导入聚类：suggest 返回候选（不落库），confirm 批量创建并推进到 collecting
+  suggestEconomicEventClusters: (
+    ledgerId: number,
+    payload: {
+      import_job_id?: number | null
+      date_from?: string | null
+      date_to?: string | null
+      min_entries?: number
+    },
+  ) =>
+    request<EconomicEventClusterSuggestion[]>('/api/economic-events/cluster-suggest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
+
+  confirmEconomicEventClusters: (
+    ledgerId: number,
+    payload: {
+      import_job_id?: number | null
+      clusters: Array<{
+        title: string
+        event_type?: string
+        occurred_on?: string | null
+        entry_ids: number[]
+      }>
+    },
+  ) =>
+    request<EconomicEvent[]>('/api/economic-events/cluster-confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
+      body: JSON.stringify(payload),
+    }),
 }
 
 // ---------------------------------------------------------------------------
@@ -5383,4 +5417,17 @@ export type EconomicEventDetail = EconomicEvent & {
   steps: EconomicEventStep[]
   entries: EconomicEventEntryLink[]
   files: EconomicEventFileLink[]
+}
+
+// E2 导入聚类候选（未落库，仅展示）
+export type EconomicEventClusterSuggestion = {
+  cluster_key: string
+  title: string
+  event_type: string
+  occurred_on: string | null
+  counterparty_name: string
+  import_job_id: number | null
+  entry_ids: number[]
+  entry_count: number
+  display_amount: string
 }

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_ledger, get_current_user
 from app.db.session import get_db
 from app.models.user import User
+from app.services.shared import economic_event_cluster_service as cluster_svc
 from app.services.shared import economic_event_service as svc
 
 router = APIRouter(prefix="/api/economic-events", tags=["economic-events"])
@@ -51,6 +52,39 @@ class TransitionRequest(BaseModel):
     to_status: str = Field(min_length=1, max_length=40)
     reason: str | None = None
     actor_type: str = Field(default="user", max_length=40)
+
+
+# ---------- E2 导入聚类 Request / Response models ----------
+
+class ClusterSuggestRequest(BaseModel):
+    import_job_id: int | None = None
+    date_from: date | None = None
+    date_to: date | None = None
+    min_entries: int = Field(default=2, ge=1, le=100)
+
+
+class ClusterSuggestionResponse(BaseModel):
+    cluster_key: str
+    title: str
+    event_type: str
+    occurred_on: date | None
+    counterparty_name: str
+    import_job_id: int | None
+    entry_ids: list[int]
+    entry_count: int
+    display_amount: str
+
+
+class ClusterConfirmItemRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    event_type: str = Field(default="import_cluster", max_length=80)
+    occurred_on: date | None = None
+    entry_ids: list[int] = Field(min_length=1)
+
+
+class ClusterConfirmRequest(BaseModel):
+    import_job_id: int | None = None
+    clusters: list[ClusterConfirmItemRequest] = Field(min_length=1)
 
 
 class EventStepResponse(BaseModel):
@@ -199,6 +233,60 @@ def list_events(
             keyword=keyword,
             offset=offset,
             limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return [_to_event_response(e, db) for e in events]
+
+
+# ---------- E2 导入聚类端点 ----------
+
+@router.post("/cluster-suggest", response_model=list[ClusterSuggestionResponse])
+def cluster_suggest(
+    body: ClusterSuggestRequest,
+    ledger_id: int = Depends(require_ledger),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """按往来+月份聚类已入账分录，返回候选事件（不落库，纯查询）。"""
+    try:
+        suggestions = cluster_svc.suggest_clusters(
+            db,
+            ledger_id=ledger_id,
+            import_job_id=body.import_job_id,
+            date_from=body.date_from,
+            date_to=body.date_to,
+            min_entries=body.min_entries,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return [ClusterSuggestionResponse(**s.to_dict()) for s in suggestions]
+
+
+@router.post("/cluster-confirm", response_model=list[EventResponse], status_code=201)
+def cluster_confirm(
+    body: ClusterConfirmRequest,
+    ledger_id: int = Depends(require_ledger),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """人工确认候选聚类，批量创建事件 + 挂分录 + 推进到 collecting。"""
+    try:
+        items = [
+            cluster_svc.ClusterConfirmItem(
+                title=c.title,
+                event_type=c.event_type,
+                occurred_on=c.occurred_on,
+                entry_ids=list(c.entry_ids),
+            )
+            for c in body.clusters
+        ]
+        events = cluster_svc.confirm_clusters(
+            db,
+            ledger_id=ledger_id,
+            clusters=items,
+            actor_user_id=user.id,
+            import_job_id=body.import_job_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

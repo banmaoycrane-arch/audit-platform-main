@@ -181,7 +181,7 @@ backend/app/services/
 | 文档标签 | **L4–L5** | `routes_document_tags.py` + DocumentTagsPage | 与 entry-tags 重叠端点已废弃（`/api/entries/{id}/tags` GET/POST/DELETE 三端点 307 重定向到 `/api/entry-tags`，Phase 4 完成）；**表未合并**（D1 决定：EntryTag 辅助核算维度 ≠ DocumentTag 资料检索）；DocumentTag 向量 `ledger_id` 参数位已预留（值 None），**实串库待生产 Alembic 0028→0034 收口后**（D2 决定） |
 | Agent / LLM | **L4** | `routes_agent`, `llm-resolution`；前端标「实验功能」 | 增强项，非主路径 |
 | 税务城市出口池 | **L4** | `routes_tax_egress` + `0028_tax_city_egress_pool`；**未接真实税局** | 可选增值；主线仍为文件导入记账 |
-| 经济事件工单 | **L5**（E1 后端+前端落地） | `routes_economic_events.py` + `economic_event_service.py` + `0034` 迁移 + `EconomicEventsPage`/`EconomicEventDetailPage`；10/10 后端测试通过 | E1 事件壳完成（创建/列表/详情/挂分录/挂证据/状态推进/时间轴）；E2 导入聚类、E3 Agent、E4 向量待开工；spec 见 [economic-event-workorder](../specs/economic-event-workorder/spec.md) |
+| 经济事件工单 | **L5**（E1+E2 后端+前端落地） | `routes_economic_events.py`（含 cluster-suggest/cluster-confirm）+ `economic_event_service.py` + `economic_event_cluster_service.py` + `0034` 迁移 + `EconomicEventsPage`/`EconomicEventDetailPage`/`ClusterSuggestModal`；900/900 后端测试通过 | E1 事件壳完成（创建/列表/详情/挂分录/挂证据/状态推进/时间轴）；E2 导入聚类完成（往来+月份规则聚类 / 阈值≥2 / 幂等排除已挂载分录 / 一键创建推进到 collecting）；E3 Agent、E4 向量待开工；spec 见 [economic-event-workorder](../specs/economic-event-workorder/spec.md) |
 | 采购三单匹配 | **L2** | `routes_purchase_match` + 占位页 | 不做生产承诺 |
 | D11 扩展模块 | **L2** | PlaceholderModulePage 等 | Backlog |
 
@@ -223,7 +223,7 @@ backend/app/services/
 
 11. 更新各 spec checklist：**不得写与本文矛盾的「已完成」**
 12. ~~合并 entry-tags / document-tags 设计 spec~~ ✅ 2026-08-01 完成（[tag-unification](../specs/tag-unification/spec.md) 三件套定稿 + 实施落地：D1 决定**不合并表**（EntryTag 辅助核算维度 ≠ DocumentTag 资料检索）；D2 决定 DocumentTag `ledger_id` 后置到生产 Alembic 0028→0034 收口后；D3 决定废弃 `/api/entries/{id}/tags` 三端点 → 307 重定向到 `/api/entry-tags`，`PATCH` 暂保留）。**后置任务（P2）**：生产 Alembic 收口后，给 `DocumentTag` 模型加 `ledger_id` 字段 + 迁移 + 实串库（向量 payload 真实写入、filter 真实生效）；同时视需要给 `entry-tags` 扩展 PATCH 端点以废弃 `PATCH /api/entries/{id}/tags`。
-13. ~~经济事件工单（D14）E1 事件壳~~ ✅ 后端+前端落地（2026-08-01）；E2 导入聚类 / E3 Agent / E4 向量待开工
+13. ~~经济事件工单（D14）E1 事件壳~~ ✅ 后端+前端落地（2026-08-01）；~~E2 导入聚类~~ ✅ 后端+前端落地（2026-08-01，往来+月份规则聚类+幂等）；E3 Agent / E4 向量待开工
 
 ### 明确不做（当前 Sprint）
 

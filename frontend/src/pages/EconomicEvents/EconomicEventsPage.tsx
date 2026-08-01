@@ -14,7 +14,7 @@ import {
   Typography,
   message,
 } from 'antd'
-import { PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined, ThunderboltOutlined, ClusterOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   api,
@@ -28,6 +28,7 @@ import {
   EVENT_TYPE_OPTIONS,
   EVENT_STATUS_OPTIONS,
 } from './eventConstants'
+import { ClusterSuggestModal } from './ClusterSuggestModal'
 
 const { Title, Paragraph, Text } = Typography
 const { TextArea } = Input
@@ -43,6 +44,7 @@ export function EconomicEventsPage() {
   const [typeFilter, setTypeFilter] = useState<string | undefined>()
   const [keyword, setKeyword] = useState('')
   const [modalVisible, setModalVisible] = useState(false)
+  const [clusterModalVisible, setClusterModalVisible] = useState(false)
   const [createForm] = Form.useForm()
 
   const loadEvents = () => {
@@ -186,6 +188,12 @@ export function EconomicEventsPage() {
               刷新
             </Button>
             <Button
+              icon={<ClusterOutlined />}
+              onClick={() => setClusterModalVisible(true)}
+            >
+              从导入生成事件
+            </Button>
+            <Button
               type="primary"
               icon={<PlusOutlined />}
               onClick={() => setModalVisible(true)}
@@ -238,6 +246,13 @@ export function EconomicEventsPage() {
           />
         </Card>
       </Space>
+
+      <ClusterSuggestModal
+        open={clusterModalVisible}
+        ledgerId={currentLedgerId}
+        onClose={() => setClusterModalVisible(false)}
+        onConfirmed={loadEvents}
+      />
 
       <Modal
         title="新建经济事件"
