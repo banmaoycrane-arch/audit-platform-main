@@ -196,7 +196,7 @@ Acceptance Level: 文档可指导后续 spec 与 PR；执行后 OpenAPI 主路�
 | **Phase 2** | 前端与测试迁移到 `/api/vouchers`；废弃 `/entries/vouchers/*` | P0 | 无前端调用旧路径 |
 | **Phase 3** | 标记 `/api/unified-import`、`/api/parse` deprecated | P1 | ✅ 2026-08-01 完成（四重注明：OpenAPI `deprecated=True` + docstring `.. deprecated::` + tags 注明 + `deprecated-api-list-v1.md` 登记；并补 HTTP 响应头 `Deprecation: true` + `Sunset: Mon, 01 Feb 2027 00:00:00 GMT` + `Link` 中间件，5 个新测试，887/887 通过） |
 | **Phase 4** | Tag 服务统一设计 spec | P1 | 新 spec 三件套 |
-| **Phase 5** | 印章 `/api/v1` → `/api/seals` | P2 | 旧路径兼容 redirect |
+| **Phase 5** | 印章 `/api/v1` → `/api/seals` | P2 | ✅ 2026-08-01 完成（prefix 迁移至 `/api/seals`，子路径去除重复段：`/api/seals/seals/{id}` → `/api/seals/{id}`；旧 `/api/v1/...` 三路径由 `compat_router` 以 307 重定向兼容，保留 query；OpenAPI `deprecated=True` + tags 注明；前端 `client.ts` 3 处迁移；新增 4 个 redirect/鉴权透传测试，seals 模块 9/9 通过） |
 | **Phase 6** | 更新 `module-refactoring-plan` 中「API 不变」表述 | P2 | ✅ 2026-08-01 完成（任务5 状态改「✅ 已完成 P1.9」；「API 不变」原则改为「主路径对外行为不变 + deprecated API 标记 + 不新增等价入口」） |
 
 ---

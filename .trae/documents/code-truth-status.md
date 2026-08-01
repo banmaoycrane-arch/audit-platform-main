@@ -217,7 +217,7 @@ backend/app/services/
 7. **解析 P2 验收**：修正回流 + 96% 稳定性指标（非新功能）
 8. ~~**Money 前端迁移**~~ ✅ 已完成（见 TECH_DEBT TD-002）
 9. ~~**清理服务层根目录重复文件**~~ ✅ 已完成（`4f30bf1` 删除 6 个根目录重复文件；grep 确认无旧路径导入残留）
-10. **API 边界治理 Phase 1–6**：导入链路收敛、entry-tags/document-tags 合并（~~Phase 1~~ ✅ 2026-08-01 完成：`import-jobs` 三 Router 链式挂载，prefix 唯一定义；882/882 测试不变；~~Phase 3~~ ✅ 2026-08-01 完成：`/api/unified-import`、`/api/parse` 已四重注明 deprecated + 响应头中间件 `Deprecation: true` + `Sunset` + `Link`，5 个新测试，887/887 通过；~~Phase 6~~ ✅ 2026-08-01 完成：`module-refactoring-plan` 任务5 状态改已完成、「API 不变」原则修订；Phase 2 受 L6 阻塞；Phase 4 Tag 服务统一 spec / Phase 5 印章路径迁移待做）
+10. **API 边界治理 Phase 1–6**：导入链路收敛、entry-tags/document-tags 合并（~~Phase 1~~ ✅ 2026-08-01 完成：`import-jobs` 三 Router 链式挂载，prefix 唯一定义；882/882 测试不变；~~Phase 3~~ ✅ 2026-08-01 完成：`/api/unified-import`、`/api/parse` 已四重注明 deprecated + 响应头中间件 `Deprecation: true` + `Sunset` + `Link`，5 个新测试，887/887 通过；~~Phase 5~~ ✅ 2026-08-01 完成：印章 prefix `/api/v1` → `/api/seals`，子路径去重（`/api/seals/{id}`），旧路径 `compat_router` 307 重定向兼容，前端 3 处迁移，4 个新测试；~~Phase 6~~ ✅ 2026-08-01 完成：`module-refactoring-plan` 任务5 状态改已完成、「API 不变」原则修订；Phase 2 受 L6 阻塞；Phase 4 Tag 服务统一 spec 待做）
 
 ### P2 — 治理与文档
 

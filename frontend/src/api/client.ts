@@ -4805,17 +4805,17 @@ export const api = {
   },
 
   extractContractSeals: (contractId: number) =>
-    request<ContractSealExtractResponse>(`/api/v1/contracts/${contractId}/seals/extract`, {
+    request<ContractSealExtractResponse>(`/api/seals/contracts/${contractId}/extract`, {
       method: 'POST',
     }),
 
   listContractSeals: (contractId: number, page: number = 1, size: number = 20) =>
     request<ContractSealListResponse>(
-      `/api/v1/contracts/${contractId}/seals?page=${page}&size=${size}`
+      `/api/seals/contracts/${contractId}?page=${page}&size=${size}`
     ),
 
   getSealDetail: (sealId: number) =>
-    request<ContractSeal>(`/api/v1/seals/${sealId}`),
+    request<ContractSeal>(`/api/seals/${sealId}`),
 
   // ==========================================================================
   // EntryTag API

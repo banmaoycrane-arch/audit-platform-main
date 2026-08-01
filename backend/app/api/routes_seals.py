@@ -8,11 +8,15 @@
 创建日期：2026-07-03
 更新记录：
     2026-07-03  初始创建印章识别 API
+    2026-08-01  API 边界治理 Phase 5：prefix 由 /api/v1 迁移至 /api/seals，
+                子路径去除 seals 段避免重复（/api/seals/seals/{id} → /api/seals/{id}）；
+                旧 /api/v1/... 路径由 compat_router 以 307 重定向兼容。
 """
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -31,7 +35,50 @@ from app.models.project_ledger import ProjectLedger
 from app.services.shared.ledger_management_service import user_has_ledger_access
 from app.services.shared.project_service import list_projects_by_user
 
-router = APIRouter(prefix="/api/v1", tags=["seals"])
+router = APIRouter(prefix="/api/seals", tags=["seals"])
+
+# 旧路径兼容路由（api-boundary-governance-plan.md Phase 5）
+# 保留至少一个版本周期，客户端应迁移至 /api/seals/...
+compat_router = APIRouter(
+    prefix="/api/v1",
+    tags=["seals（deprecated → 请用 /api/seals）"],
+    deprecated=True,
+)
+
+
+def _redirect_to_new_path(target: str, request: Request) -> RedirectResponse:
+    """构造 307 重定向响应，保留 query string。
+
+    业务背景：旧 /api/v1/... 印章路径已迁移至 /api/seals/...，
+    此函数统一构造重定向，避免每处重复拼接 query。
+    307 Temporary Redirect 保留原 method 与 body，适用于 GET 与 POST。
+    """
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    return RedirectResponse(
+        url=target,
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+    )
+
+
+@compat_router.post("/contracts/{contract_id}/seals/extract")
+async def _redirect_extract(contract_id: int, request: Request) -> RedirectResponse:
+    """旧路径兼容：/api/v1/contracts/{cid}/seals/extract → /api/seals/contracts/{cid}/extract"""
+    return _redirect_to_new_path(
+        f"/api/seals/contracts/{contract_id}/extract", request
+    )
+
+
+@compat_router.get("/contracts/{contract_id}/seals")
+async def _redirect_list(contract_id: int, request: Request) -> RedirectResponse:
+    """旧路径兼容：/api/v1/contracts/{cid}/seals → /api/seals/contracts/{cid}"""
+    return _redirect_to_new_path(f"/api/seals/contracts/{contract_id}", request)
+
+
+@compat_router.get("/seals/{seal_id}")
+async def _redirect_detail(seal_id: int, request: Request) -> RedirectResponse:
+    """旧路径兼容：/api/v1/seals/{sid} → /api/seals/{sid}"""
+    return _redirect_to_new_path(f"/api/seals/{seal_id}", request)
 
 
 def _load_seal_services() -> tuple[Any, Any, Any, Any]:
@@ -136,7 +183,7 @@ def _resolve_image_path(seal_image_path: str | None) -> Path | None:
     return BACKEND_DIR / path
 
 
-@router.post("/contracts/{contract_id}/seals/extract", response_model=ContractSealExtractResponse)
+@router.post("/contracts/{contract_id}/extract", response_model=ContractSealExtractResponse)
 def extract_contract_seals(
     contract_id: int,
     db: Session = Depends(get_db),
@@ -246,7 +293,7 @@ def extract_contract_seals(
     )
 
 
-@router.get("/contracts/{contract_id}/seals", response_model=ContractSealListResponse)
+@router.get("/contracts/{contract_id}", response_model=ContractSealListResponse)
 def list_contract_seals(
     contract_id: int,
     page: int = 1,
@@ -282,7 +329,7 @@ def list_contract_seals(
     )
 
 
-@router.get("/seals/{seal_id}", response_model=ContractSealResponse)
+@router.get("/{seal_id}", response_model=ContractSealResponse)
 def get_seal_detail(
     seal_id: int,
     db: Session = Depends(get_db),

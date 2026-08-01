@@ -63,6 +63,7 @@ from app.api.routes_parser_voucher import router as parser_voucher_router
 from app.api.routes_config import router as config_router
 from app.api.routes_llm_resolution import router as llm_resolution_router
 from app.api.routes_super_admin import router as super_admin_router
+from app.api.routes_seals import compat_router as seals_compat_router
 from app.api.routes_seals import router as seals_router
 from app.api.routes_economic_events import router as economic_events_router
 from app.db import models
@@ -524,6 +525,7 @@ application.include_router(audit_comments_router)
 application.include_router(audit_notifications_router)
 application.include_router(audit_dashboard_router)
 application.include_router(seals_router)
+application.include_router(seals_compat_router)
 application.include_router(economic_events_router)
 
 
