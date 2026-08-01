@@ -4,6 +4,12 @@
 将预定义风险案例向量化入库，用于相似风险发现
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
 from typing import Any
 
 from app.services.doc_parsing.summary_template_service import (
@@ -58,6 +64,7 @@ def initialize_risk_case_vectors() -> bool:
                     vectors_config=qmodels.VectorParams(size=1536, distance=qmodels.Distance.COSINE),
                 )
             except Exception:
+                logger.warning(f"Bare exception caught in {__name__}")
                 pass  # 集合可能已存在
 
             # 向量化并存储
@@ -79,10 +86,12 @@ def initialize_risk_case_vectors() -> bool:
                         },
                     )
                 except Exception:
+                    logger.warning(f"Bare exception caught in {__name__}")
                     pass
 
         return True
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return False
 
 
@@ -128,6 +137,7 @@ def search_similar_risk_cases(
 
         return similar_cases
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return []
 
 

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -216,6 +216,8 @@ def search_audit_findings(
     job_id: int | None = None,
     finding_type: str | None = None,
     status: str | None = None,
+    limit: int = Query(500, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """按账簿/任务/类型筛选审计发现（含内控缺陷）。"""
@@ -228,7 +230,7 @@ def search_audit_findings(
         query = query.filter(AuditFinding.finding_type == finding_type)
     if status:
         query = query.filter(AuditFinding.status == status)
-    findings = query.order_by(AuditFinding.created_at.desc()).all()
+    findings = query.order_by(AuditFinding.created_at.desc()).offset(offset).limit(limit).all()
     return [_finding_to_dict(item) for item in findings]
 
 

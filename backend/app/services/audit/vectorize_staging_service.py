@@ -6,6 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import StagingAccountingEntry
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def vectorize_staging_job(db: Session, job_id: int) -> dict[str, int]:
     """为 staging 分录写入 vector_id 占位，后续可接入真实向量库。"""

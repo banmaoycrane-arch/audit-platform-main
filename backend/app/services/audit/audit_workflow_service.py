@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AuditProcedureRun, ProjectWorkflowConfig, WorkpaperIndex, WorkpaperVersion
 from app.services.doc_parsing.draft_archive_service import resolve_project_for_ledger
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 PROCEDURE_CATALOG: dict[str, dict[str, Any]] = {
     "counterparty_confirmation": {
         "label": "往来函证",
@@ -325,20 +329,27 @@ def create_runs_from_recommendations(
     enabled = set(enabled_procs if isinstance(enabled_procs, list) else DEFAULT_ENABLED_PROCEDURES)
     auto_link = bool(config.get("auto_link_workpaper", True))
 
+    # 预加载已存在的非 concluded 的 run，避免 N+1
+    rec_proc_keys = [item["procedure_key"] for item in recommendations if item["procedure_key"] in enabled]
+    existing_runs: dict[str, AuditProcedureRun] = {}
+    if rec_proc_keys:
+        runs = (
+            db.query(AuditProcedureRun)
+            .filter(
+                AuditProcedureRun.ledger_id == ledger_id,
+                AuditProcedureRun.procedure_key.in_(rec_proc_keys),
+                AuditProcedureRun.status.notin_(["concluded"]),
+            )
+            .all()
+        )
+        existing_runs = {r.procedure_key: r for r in runs}
+
     created: list[dict[str, Any]] = []
     for item in recommendations:
         procedure_key = item["procedure_key"]
         if procedure_key not in enabled:
             continue
-        existing = (
-            db.query(AuditProcedureRun)
-            .filter(
-                AuditProcedureRun.ledger_id == ledger_id,
-                AuditProcedureRun.procedure_key == procedure_key,
-                AuditProcedureRun.status.notin_(["concluded"]),
-            )
-            .first()
-        )
+        existing = existing_runs.get(procedure_key)
         if existing is not None:
             created.append(_serialize_run(existing))
             continue

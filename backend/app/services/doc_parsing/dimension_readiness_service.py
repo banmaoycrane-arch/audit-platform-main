@@ -8,6 +8,10 @@
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from datetime import datetime, timezone
 from typing import Any
 
@@ -85,6 +89,7 @@ def assess_ledger_dimension_readiness(db: Session, ledger_id: int) -> dict[str, 
         config = load_account_tag_config(db, ledger_id=ledger_id)
         parse_config_ok = True
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
         config = None
         parse_config_ok = False
         blockers.append(
@@ -105,6 +110,7 @@ def assess_ledger_dimension_readiness(db: Session, ledger_id: int) -> dict[str, 
                 _ensure_tag_categories(db, ledger_id, config_categories)
                 db.flush()
             except Exception as exc:
+                logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
                 warnings.append(
                     {
                         "code": "tag_category_bootstrap_failed",

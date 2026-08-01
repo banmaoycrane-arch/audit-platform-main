@@ -10,6 +10,9 @@
 | 代码目录 | `/root/audit-platform-main` |
 | Compose | `/root/audit-platform-main/deploy` |
 | 数据库 | Docker 卷内 `/data/finance_audit.db` |
+| 审计平台访问 | `https://47.122.117.76:8443/login`（备案后：`https://audit.puqing.cn/login`） |
+| 端口分配详情 | [deploy/SERVER_PORTS.md](./SERVER_PORTS.md) |
+| 域名方案 | [deploy/DOMAIN_PLAN.md](./deploy/DOMAIN_PLAN.md)（主域名 **puqing.cn**） |
 | SSH 密钥 | `C:/Users/banmao/Desktop/xlsx/工作空间部署方案/id_banmao.pem` |
 
 ## 标准流程（推荐）
@@ -59,19 +62,30 @@ ssh -i <pem> root@47.122.117.76 "sh /root/audit-platform-main/deploy/apply_prod_
 | `deploy/fix_legacy_db.py` | legacy 库手工补列（须与 Alembic 迁移保持同步） |
 | `deploy/apply_prod_schema.sh` | 补丁 + 可选 Alembic + 审计 |
 
-## 2026-07-08 生产库审计结果（修复后）
+## 2026-07-21 生产库审计结果（刚执行）
+
+| 检查项 | 结果 |
+|--------|------|
+| `prod_schema_audit.py` | **PASS** |
+| 模型表缺失 | 0 |
+| 模型列缺失 | 0 |
+| DB 表总数 | **122** |
+| `alembic_version` | **`0028_tax_city_egress_pool`（head）** |
+| 税务出口池表 | 4 表已存在；正式迁移 **`0028_tax_city_egress_pool`** 已在生产执行 |
+
+## 2026-07-08 生产库审计结果（历史）
 
 | 检查项 | 结果 |
 |--------|------|
 | 模型表缺失 | 0 |
 | 模型列缺失 | 0 |
 | 功能表（staging / parse_quality / vouchers） | 全部存在 |
-| `alembic_version` | **缺失**（legacy 库，靠 `fix_legacy_db.py` 维护） |
+| `alembic_version` | 当时缺失（已迁移，见上） |
 | DB 表总数 | 116 |
 
 **已修复的历史问题：** `ledgers.is_working`、`ledgers.project_id` 缺失导致登录后 `/api/auth/context` 500。
 
-**当前风险：** 今后若在模型里新增字段，必须同时更新 `backend/alembic/versions/` **和** `deploy/fix_legacy_db.py`，并在部署时跑 `apply_prod_schema.sh`。否则 legacy 生产库会再次漂移。
+**当前规则：** 今后若在模型里新增字段，必须同时更新 `backend/alembic/versions/` **和** `deploy/fix_legacy_db.py`，并在部署时跑 `apply_prod_schema.sh`（或完整 `prod_deploy_full.sh`）。否则生产库会再次漂移 → 登录/接口 500。
 
 ## 开发者检查清单（每次改数据库相关代码）
 

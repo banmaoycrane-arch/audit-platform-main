@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AccountingPeriod, OpeningBalance
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _period_for_ledger(db: Session, period_id: int, ledger_id: int | None) -> AccountingPeriod | None:
     period = db.get(AccountingPeriod, period_id)

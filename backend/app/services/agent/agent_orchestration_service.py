@@ -15,6 +15,10 @@ from typing import Any
 from app.services.agent.agent_role_registry import get_agent_role
 from app.services.agent.agent_tool_registry import list_allowed_tools_for_intent
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _tool_names_for_role(intent: str, agent_role: str) -> list[str]:
     tools = list_allowed_tools_for_intent(intent, agent_role)

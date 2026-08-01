@@ -1,4 +1,6 @@
+import Decimal from 'decimal.js'
 import type { TrialBalanceRow } from '../api/client'
+import { parseDecimal } from '../money'
 
 export type TreemapLeaf = {
   id: string
@@ -25,16 +27,22 @@ const DEFAULT_MIN_SHARE = 0.005
 const L1_PREFIX_LEN = 4
 const CHILD_SEGMENT_LEN = 2
 
-/** 科目期末净额：资产/借方 = 借-贷，负债权益/贷方 = 贷-借 */
-export function rowNetBalance(row: TrialBalanceRow): number {
-  const debit = Number(row.closing_debit || 0)
-  const credit = Number(row.closing_credit || 0)
+/** 科目期末净额（Decimal 版本，用于精度安全的累加）：资产/借方 = 借-贷，负债权益/贷方 = 贷-借 */
+export function rowNetBalanceDecimal(row: TrialBalanceRow): Decimal {
+  // 金额运算使用 Decimal，避免浮点减法导致分位误差
+  const debit = parseDecimal(row.closing_debit || 0)
+  const credit = parseDecimal(row.closing_credit || 0)
   const category = (row.category || '').toLowerCase()
   const direction = (row.direction || '').toLowerCase()
   if (category === 'asset' || direction === 'debit' || direction === '借') {
-    return debit - credit
+    return debit.minus(credit)
   }
-  return credit - debit
+  return credit.minus(debit)
+}
+
+/** 科目期末净额：资产/借方 = 借-贷，负债权益/贷方 = 贷-借 */
+export function rowNetBalance(row: TrialBalanceRow): number {
+  return rowNetBalanceDecimal(row).toNumber()
 }
 
 export function l1AccountKey(accountCode: string): string {
@@ -125,28 +133,29 @@ function mergeSmallItems(
   if (!sectionTotal || sectionTotal <= 0) return items
   const threshold = sectionTotal * minShare
   const large: TreemapLeaf[] = []
-  let otherValue = 0
-  let otherRaw = 0
+  // 金额累加使用 Decimal，避免合并"其他"项时浮点误差累积
+  let otherValue = new Decimal(0)
+  let otherRaw = new Decimal(0)
   const otherCodes: string[] = []
 
   for (const item of items) {
     if (item.value < threshold && !item.isContra) {
-      otherValue += item.value
-      otherRaw += item.rawBalance
+      otherValue = otherValue.plus(item.value)
+      otherRaw = otherRaw.plus(item.rawBalance)
       otherCodes.push(item.accountCode)
     } else {
       large.push(item)
     }
   }
 
-  if (otherValue > 0) {
+  if (otherValue.gt(0)) {
     large.push({
       id: '__other__',
       name: `其他（${otherCodes.length} 个科目）`,
       accountCode: otherCodes[0] || '__other__',
       accountName: '其他',
-      value: otherValue,
-      rawBalance: otherRaw,
+      value: otherValue.toNumber(),
+      rawBalance: otherRaw.toNumber(),
       isLeaf: false,
       isOther: true,
     })
@@ -179,7 +188,11 @@ export function buildTreemapSection(
 
   const items: TreemapLeaf[] = []
   for (const [key, bucket] of groups.entries()) {
-    const rawBalance = bucket.reduce((sum, row) => sum + rowNetBalance(row), 0)
+    // 金额累加使用 Decimal，避免连续加法导致的浮点漂移
+    const rawBalance = bucket.reduce<Decimal>(
+      (sum, row) => sum.plus(rowNetBalanceDecimal(row)),
+      new Decimal(0),
+    ).toNumber()
     const value = Math.abs(rawBalance)
     const isContra = rawBalance < 0
     const drillable = canDrillDeeper(allRows, key)
@@ -196,7 +209,11 @@ export function buildTreemapSection(
   }
 
   const activeItems = items.filter((item) => item.value > 0 || item.isContra)
-  const total = activeItems.reduce((sum, item) => sum + (item.isContra ? 0 : item.value), 0)
+  // 合计金额用 Decimal 累加，避免大额求和精度损失
+  const total = activeItems.reduce<Decimal>(
+    (sum, item) => (item.isContra ? sum : sum.plus(item.value)),
+    new Decimal(0),
+  ).toNumber()
 
   return {
     id: sectionName,
@@ -239,7 +256,8 @@ export function buildLiabilityEquitySection(
   return {
     id: 'liability_equity',
     name: '负债与权益',
-    total: liabilitySection.total + equitySection.total,
+    // 金额合计使用 Decimal，保证负债+权益的恒等式精度
+    total: new Decimal(liabilitySection.total).plus(equitySection.total).toNumber(),
     items: [
       ...liabilitySection.items.map((item) => ({
         ...item,

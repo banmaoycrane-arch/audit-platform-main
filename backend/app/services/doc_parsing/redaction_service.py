@@ -1,5 +1,9 @@
 import re
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 PATTERNS = [
     (re.compile(r"\b1[3-9]\d{9}\b"), "[手机号]"),

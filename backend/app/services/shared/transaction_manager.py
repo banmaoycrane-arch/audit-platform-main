@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Callable, Type
@@ -49,6 +54,7 @@ class TransactionManager:
             yield transaction
             self.commit_transaction(transaction.id)
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             self.rollback_transaction(transaction.id, str(e))
             raise
         finally:
@@ -85,6 +91,7 @@ class TransactionManager:
             transaction.error_message = error_message
             self.db.commit()
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             transaction.status = "failed"
             transaction.error_message = f"Rollback failed: {str(e)}"
             self.db.commit()

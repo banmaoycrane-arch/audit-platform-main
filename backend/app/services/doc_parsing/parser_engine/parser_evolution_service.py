@@ -202,7 +202,8 @@ def _scan_bank_proposals(db: Session, folder: Path, run_id: str) -> list[Parsing
             continue
         try:
             raw = pd.read_excel(path, header=None) if path.suffix.lower() != ".csv" else pd.read_csv(path, header=None)
-        except Exception:
+        except Exception as exc:
+            logger.warning("skip bank sample %s: %s", path, exc)
             continue
         headers = [str(c).strip() for c in raw.iloc[0].values if str(c).strip() and str(c) != "nan"]
         before = _parse_bank_statement_excel(str(path), header_aliases=active)
@@ -421,6 +422,7 @@ def _run_journal_regression(db: Session, folder: Path) -> dict[str, Any]:
                 }
             )
         except Exception as exc:
+            logger.warning("quality check failed for %s: %s", path, exc)
             files.append({"file": path.name, "error": str(exc)})
 
     scores = [f["quality_score"] for f in files if "quality_score" in f]
@@ -453,6 +455,7 @@ def _run_bank_regression(db: Session, folder: Path) -> dict[str, Any]:
                 }
             )
         except Exception as exc:
+            logger.warning("counterparty scan failed for %s: %s", path, exc)
             files.append({"file": path.name, "error": str(exc)})
 
     counts = [f["transaction_count"] for f in files if "transaction_count" in f]
@@ -639,8 +642,11 @@ def batch_approve_proposals(
     approved_by: str = "",
 ) -> dict[str, Any]:
     approved = 0
+    # 批量查询，避免 N+1
+    patches = db.query(ParsingRulePatch).filter(ParsingRulePatch.id.in_(patch_ids)).all() if patch_ids else []
+    patch_map = {p.id: p for p in patches}
     for pid in patch_ids:
-        patch = db.query(ParsingRulePatch).filter(ParsingRulePatch.id == pid).first()
+        patch = patch_map.get(pid)
         if not patch or patch.status != PROPOSAL_STATUS_DRAFT:
             continue
         patch.status = PROPOSAL_STATUS_ACTIVE
@@ -656,8 +662,11 @@ def batch_reject_proposals(
     reason: str = "",
 ) -> dict[str, Any]:
     rejected = 0
+    # 批量查询，避免 N+1
+    patches = db.query(ParsingRulePatch).filter(ParsingRulePatch.id.in_(patch_ids)).all() if patch_ids else []
+    patch_map = {p.id: p for p in patches}
     for pid in patch_ids:
-        patch = db.query(ParsingRulePatch).filter(ParsingRulePatch.id == pid).first()
+        patch = patch_map.get(pid)
         if not patch or patch.status != PROPOSAL_STATUS_DRAFT:
             continue
         patch.status = PROPOSAL_STATUS_REJECTED

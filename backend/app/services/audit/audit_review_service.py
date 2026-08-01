@@ -19,6 +19,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AuditReviewAction, AuditReviewRequest, AuditTask, AuditWorkBranch, WorkpaperVersion
 from app.services.audit import audit_notification_service
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 VALID_STATUSES = {"draft", "review", "changes_requested", "approved", "merged", "closed"}
 
 STATUS_TRANSITIONS: dict[str, list[str]] = {

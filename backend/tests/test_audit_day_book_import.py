@@ -53,7 +53,8 @@ def client(monkeypatch, tmp_path):
         Base.metadata.drop_all(bind=engine)
 
 
-def _seed_ledger(TestingSessionLocal) -> int:
+def _seed_ledger(TestingSessionLocal, test_client=None, user_id: int | None = None) -> int:
+    """创建测试账簿，并默认给当前测试用户授权管理员权限。"""
     db = TestingSessionLocal()
     try:
         team = Team(name="序时簿导入测试团队")
@@ -61,10 +62,36 @@ def _seed_ledger(TestingSessionLocal) -> int:
         db.flush()
         ledger = Ledger(name="序时簿导入测试账簿", team_id=team.id)
         db.add(ledger)
+        db.flush()
+        if test_client is not None and user_id is None:
+            user_id = _current_user_id(test_client)
+        if user_id is not None:
+            from app.models.user_ledger_auth import UserLedgerAuth
+            auth = UserLedgerAuth(user_id=user_id, ledger_id=ledger.id, role="admin")
+            db.add(auth)
         db.commit()
         return ledger.id
     finally:
         db.close()
+
+
+def _current_user_id(test_client) -> int:
+    """从测试客户端的 auth token 中提取当前用户 ID。"""
+    from app.core.security import decode_token
+    token = test_client._auth_headers.get("Authorization", "").replace("Bearer ", "")
+    payload = decode_token(token)
+    if not payload or "sub" not in payload:
+        raise ValueError("无法从测试 token 解析用户 ID")
+    return int(payload["sub"])
+
+
+def _acknowledge_dimension_readiness(test_client, ledger_id: int) -> None:
+    """确认账簿维度规则已审阅，允许结构化导入。"""
+    ack_response = test_client.post(
+        f"/api/config/ledgers/{ledger_id}/dimension-readiness/acknowledge",
+        headers=test_client._auth_headers,
+    )
+    assert ack_response.status_code == 200
 
 
 def _seed_audit_project(TestingSessionLocal, ledger_id: int) -> int:
@@ -92,6 +119,7 @@ def _review_all_staging(test_client, job_id: int, review_status: str = "verified
     response = test_client.post(
         f"/api/import-jobs/{job_id}/preview-entries/review-all",
         json={"review_status": review_status},
+        headers=test_client._auth_headers,
     )
     assert response.status_code == 200
     return response.json()
@@ -99,7 +127,8 @@ def _review_all_staging(test_client, job_id: int, review_status: str = "verified
 
 def test_audit_day_book_csv_import_creates_entries_tags_and_report(client):
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     project_id = _seed_audit_project(TestingSessionLocal, ledger_id)
     create_response = test_client.post(
         "/api/import-jobs",
@@ -124,11 +153,15 @@ def test_audit_day_book_csv_import_creates_entries_tags_and_report(client):
     upload_response = test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": ("audit-day-book.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+        headers=test_client._auth_headers,
     )
     assert upload_response.status_code == 200
     assert upload_response.json()["file_type"] == "csv"
 
-    process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    process_response = test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
 
     assert process_response.status_code == 200
     payload = process_response.json()
@@ -146,11 +179,14 @@ def test_audit_day_book_csv_import_creates_entries_tags_and_report(client):
         db.close()
 
     _review_all_staging(test_client, job_id)
-    confirm_response = test_client.post(f"/api/import-jobs/{job_id}/confirm")
+    confirm_response = test_client.post(
+        f"/api/import-jobs/{job_id}/confirm",
+        headers=test_client._auth_headers,
+    )
     assert confirm_response.status_code == 200
     assert confirm_response.json()["entries_created"] > 0
 
-    report_response = test_client.get(f"/api/import-jobs/{job_id}/report")
+    report_response = test_client.get(f"/api/import-jobs/{job_id}/report", headers=test_client._auth_headers)
     assert report_response.status_code == 200
     report = report_response.json()
     assert report["total_entries"] > 0
@@ -180,7 +216,8 @@ def test_apply_period_mapping_on_staging_preview_job(client):
     from app.db.models import Voucher
 
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     create_response = test_client.post(
         "/api/import-jobs",
         json={
@@ -202,14 +239,19 @@ def test_apply_period_mapping_on_staging_preview_job(client):
     test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": ("ledger-day-book.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+        headers=test_client._auth_headers,
     )
-    process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    process_response = test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
     assert process_response.status_code == 200
     assert process_response.json()["job"]["status"] == "preview"
 
     mapping_response = test_client.post(
         f"/api/import-jobs/{job_id}/apply-period-mapping",
         json={"period_mapping_mode": "preserve_source"},
+        headers=test_client._auth_headers,
     )
     assert mapping_response.status_code == 200
     mapping = mapping_response.json()
@@ -228,7 +270,8 @@ def test_apply_period_mapping_on_staging_preview_job(client):
 def test_compliance_review_api_each_mode(client):
     """合规审查 API 应能正常处理 staging 草稿（逐张审查）。"""
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     create_response = test_client.post(
         "/api/import-jobs",
         json={
@@ -247,12 +290,17 @@ def test_compliance_review_api_each_mode(client):
     test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": ("compliance.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+        headers=test_client._auth_headers,
     )
-    test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
 
     response = test_client.post(
         f"/api/import-jobs/{job_id}/preview-entries/compliance-review",
         json={"mode": "each"},
+        headers=test_client._auth_headers,
     )
     assert response.status_code == 200
     payload = response.json()
@@ -263,7 +311,8 @@ def test_compliance_review_api_each_mode(client):
 def test_voucher_level_review_syncs_all_staging_lines(client):
     """复核状态应以整张凭证为单位同步到全部分录。"""
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     create_response = test_client.post(
         "/api/import-jobs",
         json={
@@ -282,16 +331,21 @@ def test_voucher_level_review_syncs_all_staging_lines(client):
     test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": ("review.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+        headers=test_client._auth_headers,
     )
-    test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
 
-    preview = test_client.get(f"/api/import-jobs/{job_id}/preview-entries?limit=10&offset=0")
+    preview = test_client.get(f"/api/import-jobs/{job_id}/preview-entries?limit=10&offset=0", headers=test_client._auth_headers)
     assert preview.status_code == 200
     first_id = preview.json()["items"][0]["id"]
 
     patch = test_client.patch(
         f"/api/import-jobs/{job_id}/preview-entries/{first_id}",
         json={"review_status": "verified"},
+        headers=test_client._auth_headers,
     )
     assert patch.status_code == 200
 
@@ -303,7 +357,7 @@ def test_voucher_level_review_syncs_all_staging_lines(client):
     finally:
         db.close()
 
-    stats = test_client.get(f"/api/import-jobs/{job_id}/preview-entries?limit=1&offset=0").json()["review_stats"]
+    stats = test_client.get(f"/api/import-jobs/{job_id}/preview-entries?limit=1&offset=0", headers=test_client._auth_headers).json()["review_stats"]
     assert stats["total_vouchers"] == 1
     assert stats["verified_vouchers"] == 1
     assert stats["partial_vouchers"] == 0
@@ -312,7 +366,8 @@ def test_voucher_level_review_syncs_all_staging_lines(client):
 def test_confirm_blocks_partial_or_unreviewed_vouchers(client):
     """部分复核或未复核凭证不得确认入账。"""
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     create_response = test_client.post(
         "/api/import-jobs",
         json={
@@ -333,10 +388,17 @@ def test_confirm_blocks_partial_or_unreviewed_vouchers(client):
     test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": ("confirm-guard.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+        headers=test_client._auth_headers,
     )
-    test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
 
-    unreviewed = test_client.post(f"/api/import-jobs/{job_id}/confirm")
+    unreviewed = test_client.post(
+        f"/api/import-jobs/{job_id}/confirm",
+        headers=test_client._auth_headers,
+    )
     assert unreviewed.status_code == 400
     assert "复核" in unreviewed.json()["detail"]
 
@@ -349,19 +411,26 @@ def test_confirm_blocks_partial_or_unreviewed_vouchers(client):
     finally:
         db.close()
 
-    partial = test_client.post(f"/api/import-jobs/{job_id}/confirm")
+    partial = test_client.post(
+        f"/api/import-jobs/{job_id}/confirm",
+        headers=test_client._auth_headers,
+    )
     assert partial.status_code == 400
     assert "部分复核" in partial.json()["detail"]
 
     _review_all_staging(test_client, job_id)
-    ok = test_client.post(f"/api/import-jobs/{job_id}/confirm")
+    ok = test_client.post(
+        f"/api/import-jobs/{job_id}/confirm",
+        headers=test_client._auth_headers,
+    )
     assert ok.status_code == 200
 
 
 def test_editing_verified_voucher_is_blocked(client):
     """已复核凭证的分录不可再修改。"""
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     create_response = test_client.post(
         "/api/import-jobs",
         json={
@@ -380,15 +449,20 @@ def test_editing_verified_voucher_is_blocked(client):
     test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": ("edit-lock.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+        headers=test_client._auth_headers,
     )
-    test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
     _review_all_staging(test_client, job_id)
 
-    preview = test_client.get(f"/api/import-jobs/{job_id}/preview-entries?limit=10&offset=0")
+    preview = test_client.get(f"/api/import-jobs/{job_id}/preview-entries?limit=10&offset=0", headers=test_client._auth_headers)
     entry_id = preview.json()["items"][0]["id"]
     blocked = test_client.patch(
         f"/api/import-jobs/{job_id}/preview-entries/{entry_id}",
         json={"summary": "修改摘要"},
+        headers=test_client._auth_headers,
     )
     assert blocked.status_code == 400
     assert "已复核" in blocked.json()["detail"]
@@ -397,7 +471,8 @@ def test_editing_verified_voucher_is_blocked(client):
 def test_preview_vouchers_api_groups_by_voucher(client):
     """预览凭证列表应按整张凭证聚合，并支持筛选。"""
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     create_response = test_client.post(
         "/api/import-jobs",
         json={
@@ -418,21 +493,25 @@ def test_preview_vouchers_api_groups_by_voucher(client):
     test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": ("vouchers.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+        headers=test_client._auth_headers,
     )
-    test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
 
-    pending = test_client.get(f"/api/import-jobs/{job_id}/preview-vouchers?review_filter=pending")
+    pending = test_client.get(f"/api/import-jobs/{job_id}/preview-vouchers?review_filter=pending", headers=test_client._auth_headers)
     assert pending.status_code == 200
     payload = pending.json()
     assert payload["total"] == 2
     assert payload["review_stats"]["total_vouchers"] == 2
 
     group_key = payload["items"][0]["group_key"]
-    lines = test_client.get(f"/api/import-jobs/{job_id}/preview-vouchers/{group_key}/lines")
+    lines = test_client.get(f"/api/import-jobs/{job_id}/preview-vouchers/{group_key}/lines", headers=test_client._auth_headers)
     assert lines.status_code == 200
     assert len(lines.json()["items"]) == 2
 
-    stats = test_client.get(f"/api/import-jobs/{job_id}/preview-voucher-stats")
+    stats = test_client.get(f"/api/import-jobs/{job_id}/preview-voucher-stats", headers=test_client._auth_headers)
     assert stats.status_code == 200
     stats_payload = stats.json()
     assert stats_payload["total_vouchers"] == 2
@@ -442,7 +521,8 @@ def test_preview_vouchers_api_groups_by_voucher(client):
 def test_audit_day_book_csv_import_resolves_account_hierarchy(client):
     """测试科目层级解析：一级科目保留、辅助核算维度转 Tag、强制二级科目保留。"""
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     project_id = _seed_audit_project(TestingSessionLocal, ledger_id)
     create_response = test_client.post(
         "/api/import-jobs",
@@ -469,16 +549,23 @@ def test_audit_day_book_csv_import_resolves_account_hierarchy(client):
     upload_response = test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": ("audit-day-book.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+        headers=test_client._auth_headers,
     )
     assert upload_response.status_code == 200
 
-    process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    process_response = test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
     assert process_response.status_code == 200
     payload = process_response.json()
     assert payload["job"]["status"] == "preview"
 
     _review_all_staging(test_client, job_id)
-    confirm_response = test_client.post(f"/api/import-jobs/{job_id}/confirm")
+    confirm_response = test_client.post(
+        f"/api/import-jobs/{job_id}/confirm",
+        headers=test_client._auth_headers,
+    )
     assert confirm_response.status_code == 200
 
     db = TestingSessionLocal()
@@ -524,7 +611,8 @@ def test_audit_day_book_csv_import_resolves_account_hierarchy(client):
 def test_audit_day_book_reimport_on_same_ledger_reuses_vouchers(client):
     """同一账簿再次导入时不应触发 vouchers(ledger_id, voucher_no) 唯一约束冲突。"""
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     project_id = _seed_audit_project(TestingSessionLocal, ledger_id)
     csv_text = "\n".join([
         "凭证号,日期,摘要,科目编码,科目名称,借方,贷方,对方单位",
@@ -550,12 +638,19 @@ def test_audit_day_book_reimport_on_same_ledger_reuses_vouchers(client):
         upload_response = test_client.post(
             f"/api/import-jobs/{job_id}/files",
             files={"file": ("audit-day-book.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+            headers=test_client._auth_headers,
         )
         assert upload_response.status_code == 200
-        process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+        process_response = test_client.post(
+            f"/api/import-jobs/{job_id}/process/sync",
+            headers=test_client._auth_headers,
+        )
         assert process_response.status_code == 200
         _review_all_staging(test_client, job_id)
-        confirm_response = test_client.post(f"/api/import-jobs/{job_id}/confirm")
+        confirm_response = test_client.post(
+            f"/api/import-jobs/{job_id}/confirm",
+            headers=test_client._auth_headers,
+        )
         assert confirm_response.status_code == 200
         return job_id
 
@@ -581,7 +676,8 @@ def test_audit_day_book_reimport_on_same_ledger_reuses_vouchers(client):
 def test_ledger_day_book_reimport_with_zero_padded_voucher_no(client):
     """记账模式序时簿重复导入时，零填充凭证号（记-0001）应复用已有凭证。"""
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     csv_text = "\n".join([
         "凭证号,日期,摘要,科目编码,科目名称,借方,贷方,对方单位",
         "记-0001,2026-01-03,收到客户货款,1002,银行存款,12000,0,客户A",
@@ -605,13 +701,20 @@ def test_ledger_day_book_reimport_with_zero_padded_voucher_no(client):
         upload_response = test_client.post(
             f"/api/import-jobs/{job_id}/files",
             files={"file": ("ledger-day-book.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+            headers=test_client._auth_headers,
         )
         assert upload_response.status_code == 200
-        process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+        process_response = test_client.post(
+            f"/api/import-jobs/{job_id}/process/sync",
+            headers=test_client._auth_headers,
+        )
         assert process_response.status_code == 200
         assert process_response.json()["job"]["status"] == "preview"
         _review_all_staging(test_client, job_id)
-        confirm_response = test_client.post(f"/api/import-jobs/{job_id}/confirm")
+        confirm_response = test_client.post(
+            f"/api/import-jobs/{job_id}/confirm",
+            headers=test_client._auth_headers,
+        )
         assert confirm_response.status_code == 200
         return job_id
 
@@ -636,7 +739,8 @@ def test_ledger_day_book_reimport_with_zero_padded_voucher_no(client):
 def test_audit_day_book_reprocess_same_job_is_idempotent(client):
     """同一导入任务重复调用 process/sync 时不应重复落库或触发唯一约束冲突。"""
     test_client, TestingSessionLocal = client
-    ledger_id = _seed_ledger(TestingSessionLocal)
+    ledger_id = _seed_ledger(TestingSessionLocal, test_client)
+    _acknowledge_dimension_readiness(test_client, ledger_id)
     project_id = _seed_audit_project(TestingSessionLocal, ledger_id)
     create_response = test_client.post(
         "/api/import-jobs",
@@ -661,16 +765,26 @@ def test_audit_day_book_reprocess_same_job_is_idempotent(client):
     upload_response = test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": ("audit-day-book.csv", io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+        headers=test_client._auth_headers,
     )
     assert upload_response.status_code == 200
 
-    first_process = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    first_process = test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
     assert first_process.status_code == 200
-    second_process = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    second_process = test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
     assert second_process.status_code == 200
 
     _review_all_staging(test_client, job_id)
-    confirm_response = test_client.post(f"/api/import-jobs/{job_id}/confirm")
+    confirm_response = test_client.post(
+        f"/api/import-jobs/{job_id}/confirm",
+        headers=test_client._auth_headers,
+    )
     assert confirm_response.status_code == 200
 
     db = TestingSessionLocal()

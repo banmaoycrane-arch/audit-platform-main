@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     secret_key: str | None = None
     super_admin_usernames: str = ""
     super_admin_phones: str = ""
-    sms_return_code_in_dev: bool = True
+    sms_return_code_in_dev: bool = False
     cors_allow_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
     sqlite_cache_size_mb: int = 256
     sqlite_mmap_size_mb: int = 512

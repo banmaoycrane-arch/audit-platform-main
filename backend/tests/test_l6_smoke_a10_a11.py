@@ -20,6 +20,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.security import create_access_token
 from app.db.models import AccountingEntry, AccountingPeriod, OpeningBalance
 from app.db.session import Base, get_db
 from app.main import app
@@ -128,9 +129,15 @@ def _seed_smoke_ledger(TestingSessionLocal):
             "org_id": org_id,
             "period_id": period.id,
             "period_code": period.period_code,
+            "user_id": user.id,
         }
     finally:
         db.close()
+
+
+def _auth_headers(user_id: int) -> dict[str, str]:
+    token = create_access_token({"sub": str(user_id)})
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _assert_xlsx_has_sheet(content: bytes, sheet_name: str):
@@ -147,22 +154,30 @@ class TestL6SmokeA10PeriodClose:
         ctx = _seed_smoke_ledger(TestingSessionLocal)
         period_id = ctx["period_id"]
         org_id = ctx["org_id"]
+        headers = _auth_headers(ctx["user_id"])
 
         # 结转前资产负债表不平衡
         bs_before = test_client.get(
             "/api/reports/balance-sheet",
             params={"organization_id": org_id, "period_id": period_id},
+            headers=headers,
         )
         assert bs_before.status_code == 200
         assert bs_before.json()["is_balanced"] is False
 
         # 未结转不能结账
-        close_blocked = test_client.post(f"/api/accounting-periods/{period_id}/close")
+        close_blocked = test_client.post(
+            f"/api/accounting-periods/{period_id}/close",
+            headers=headers,
+        )
         assert close_blocked.status_code == 400
         assert "尚未结转损益" in close_blocked.json()["detail"]
 
         # 损益结转
-        pl = test_client.post(f"/api/accounting-periods/{period_id}/pl-transfer")
+        pl = test_client.post(
+            f"/api/accounting-periods/{period_id}/pl-transfer",
+            headers=headers,
+        )
         assert pl.status_code == 200
         pl_body = pl.json()
         assert pl_body["status"] == "pl_transferred"
@@ -172,6 +187,7 @@ class TestL6SmokeA10PeriodClose:
         bs_after = test_client.get(
             "/api/reports/balance-sheet",
             params={"organization_id": org_id, "period_id": period_id},
+            headers=headers,
         )
         assert bs_after.status_code == 200
         assert bs_after.json()["is_balanced"] is True
@@ -180,6 +196,7 @@ class TestL6SmokeA10PeriodClose:
         close_ok = test_client.post(
             f"/api/accounting-periods/{period_id}/close",
             json={"operator": "l6_smoke", "reason": "A10冒烟结账"},
+            headers=headers,
         )
         assert close_ok.status_code == 200
         assert close_ok.json()["status"] == "closed"
@@ -194,12 +211,17 @@ class TestL6SmokeA11Reports:
         period_id = ctx["period_id"]
         ledger_id = ctx["ledger_id"]
         org_id = ctx["org_id"]
+        headers = _auth_headers(ctx["user_id"])
 
-        test_client.post(f"/api/accounting-periods/{period_id}/pl-transfer")
+        test_client.post(
+            f"/api/accounting-periods/{period_id}/pl-transfer",
+            headers=headers,
+        )
 
         trial = test_client.get(
             "/api/reports/trial-balance",
             params={"ledger_id": ledger_id, "period_id": period_id},
+            headers=headers,
         )
         assert trial.status_code == 200
         assert trial.json()["is_balanced"] is True
@@ -207,6 +229,7 @@ class TestL6SmokeA11Reports:
         balance = test_client.get(
             "/api/reports/balance-sheet",
             params={"ledger_id": ledger_id, "period_id": period_id},
+            headers=headers,
         )
         assert balance.status_code == 200
         assert balance.json()["is_balanced"] is True
@@ -214,6 +237,7 @@ class TestL6SmokeA11Reports:
         income = test_client.get(
             "/api/reports/income-statement",
             params={"organization_id": org_id, "period_id": period_id},
+            headers=headers,
         )
         assert income.status_code == 200
         assert Decimal(str(income.json()["net_profit"])) == Decimal("850")
@@ -223,8 +247,12 @@ class TestL6SmokeA11Reports:
         ctx = _seed_smoke_ledger(TestingSessionLocal)
         period_id = ctx["period_id"]
         ledger_id = ctx["ledger_id"]
+        headers = _auth_headers(ctx["user_id"])
 
-        test_client.post(f"/api/accounting-periods/{period_id}/pl-transfer")
+        test_client.post(
+            f"/api/accounting-periods/{period_id}/pl-transfer",
+            headers=headers,
+        )
 
         exports = [
             ("/api/reports/trial-balance/export", "科目余额表"),
@@ -233,7 +261,11 @@ class TestL6SmokeA11Reports:
             ("/api/reports/cash-flow-statement/export", "现金流量表"),
         ]
         for path, sheet_name in exports:
-            resp = test_client.get(path, params={"ledger_id": ledger_id, "period_id": period_id, "format": "xlsx"})
+            resp = test_client.get(
+                path,
+                params={"ledger_id": ledger_id, "period_id": period_id, "format": "xlsx"},
+                headers=headers,
+            )
             assert resp.status_code == 200, f"{path} failed: {resp.text}"
             assert "spreadsheetml" in resp.headers["content-type"]
             assert "attachment" in resp.headers["content-disposition"]
@@ -249,14 +281,19 @@ class TestL6SmokeFullChain:
         ctx = _seed_smoke_ledger(TestingSessionLocal)
         period_id = ctx["period_id"]
         ledger_id = ctx["ledger_id"]
+        headers = _auth_headers(ctx["user_id"])
 
         # A10
-        pl = test_client.post(f"/api/accounting-periods/{period_id}/pl-transfer")
+        pl = test_client.post(
+            f"/api/accounting-periods/{period_id}/pl-transfer",
+            headers=headers,
+        )
         assert pl.status_code == 200
 
         close = test_client.post(
             f"/api/accounting-periods/{period_id}/close",
             json={"operator": "l6_smoke", "reason": "full chain"},
+            headers=headers,
         )
         assert close.status_code == 200
         assert close.json()["status"] == "closed"
@@ -267,12 +304,17 @@ class TestL6SmokeFullChain:
             "/api/reports/balance-sheet",
             "/api/reports/income-statement",
         ]:
-            resp = test_client.get(path, params={"ledger_id": ledger_id, "period_id": period_id})
+            resp = test_client.get(
+                path,
+                params={"ledger_id": ledger_id, "period_id": period_id},
+                headers=headers,
+            )
             assert resp.status_code == 200
 
         export = test_client.get(
             "/api/reports/trial-balance/export",
             params={"ledger_id": ledger_id, "period_id": period_id, "format": "xlsx"},
+            headers=headers,
         )
         assert export.status_code == 200
         assert len(export.content) > 200
@@ -280,6 +322,7 @@ class TestL6SmokeFullChain:
         package = test_client.get(
             "/api/reports/package/export",
             params={"ledger_id": ledger_id, "period_id": period_id, "include_pdf": "true"},
+            headers=headers,
         )
         assert package.status_code == 200
         assert package.headers["content-type"] == "application/zip"

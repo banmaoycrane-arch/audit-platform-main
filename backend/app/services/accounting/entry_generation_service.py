@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -21,9 +22,17 @@ from app.db.models import (
     AccountingEntry,
     AccountingPeriod,
     EntryTag,
-    ImportJob,
+    Voucher,
     SourceFile,
+    ImportJob,
+    BankStatement,
+    Contract,
+    Invoice,
+    InventoryDocument,
+    Organization,
 )
+
+logger = logging.getLogger(__name__)
 
 
 EVIDENCE_TYPE_DEFINITIONS: dict[str, dict[str, str]] = {
@@ -1060,6 +1069,7 @@ def commit_drafts(
             try:
                 voucher_date = date.fromisoformat(draft["voucher_date"])
             except Exception:
+                logger.warning("凭证日期解析失败，回退到期间开始日: %s", draft.get("voucher_date"))
                 voucher_date = period.start_date
             voucher_date, _ = _clamp_date(voucher_date, period)
             voucher_groups[voucher_no] = {

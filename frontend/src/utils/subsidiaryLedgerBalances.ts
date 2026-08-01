@@ -1,4 +1,6 @@
+import Decimal from 'decimal.js'
 import type { SubsidiaryLedgerDisplayRow } from './subsidiaryLedgerSubtotals'
+import { parseDecimal } from '../money'
 
 export type SubsidiaryOpeningRow = {
   rowType: 'opening'
@@ -18,21 +20,22 @@ export function attachRunningBalances(
   openingBalance: number,
   direction: 'debit' | 'credit',
 ): SubsidiaryLedgerRow[] {
-  let running = openingBalance
+  // 余额用 Decimal 维护，避免逐笔借贷相减导致的浮点漂移
+  let running = parseDecimal(openingBalance)
   const withBalance = rows.map((row) => {
     if (row.rowType !== 'entry') {
       return row
     }
-    const debit = Number(row.debit_amount || 0)
-    const credit = Number(row.credit_amount || 0)
+    const debit = parseDecimal(row.debit_amount || 0)
+    const credit = parseDecimal(row.credit_amount || 0)
     if (direction === 'credit') {
-      running += credit - debit
+      running = running.plus(credit).minus(debit)
     } else {
-      running += debit - credit
+      running = running.plus(debit).minus(credit)
     }
     return {
       ...row,
-      running_balance: running,
+      running_balance: running.toNumber(),
     }
   })
   return [

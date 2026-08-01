@@ -8,6 +8,12 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -32,6 +38,7 @@ def _amount(value: Any) -> Decimal:
         cleaned = str(value).replace(",", "").replace("，", "").replace("¥", "").replace("￥", "").strip()
         return parse_decimal(cleaned, decimal_places=2, allow_empty=True)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return Decimal("0.00")
 
 
@@ -164,6 +171,7 @@ def build_amount_color_grid(
                     grid[(excel_row, col_idx)] = hint
         workbook.close()
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return {}
     return grid
 

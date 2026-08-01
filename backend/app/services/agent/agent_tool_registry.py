@@ -12,6 +12,10 @@
 
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 AGENT_TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "suggest_system_path": {
         "tool_name": "suggest_system_path",

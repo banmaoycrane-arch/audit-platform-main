@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：解析修正回流服务
@@ -89,6 +94,7 @@ def create_correction_record(
         queued = enqueue_proposals_from_correction(db, record, original_text=original_text)
         logger.info("修正记录 %s 已入提案队列 %s 条", record.id, queued)
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
         logger.warning("修正记录 %s 入提案队列失败: %s", record.id, exc)
 
     return record
@@ -396,6 +402,7 @@ def run_regression_test(
                 log_lines.append(f"PASS: 字段 {patch.target_field} = '{actual_val}'")
         
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             log_lines.append(f"ERROR: {e}")
             passed = False
     

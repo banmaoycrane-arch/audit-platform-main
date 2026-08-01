@@ -61,7 +61,8 @@ export function ReclassificationWorkbenchPanel({ summary }: ReclassificationWork
             dataIndex: 'amount',
             key: 'amount',
             align: 'right',
-            render: (value: string | number) => formatAmount(Number(value)),
+            // formatAmount 内部使用 Decimal 解析，无需在调用处用 Number() 转换
+            render: (value: string | number) => formatAmount(value),
           },
           {
             title: '准则依据',

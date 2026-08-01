@@ -11,6 +11,10 @@
 """
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def assign_member_to_project(
     db: Any,

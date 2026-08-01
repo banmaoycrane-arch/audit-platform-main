@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：将解析引擎的 ParseResult 映射为候选凭证草稿列表
@@ -65,6 +70,7 @@ def _to_decimal(value: Any) -> Decimal:
     try:
         return Decimal(str(value)).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return Decimal("0.00")
 
 

@@ -22,6 +22,10 @@ from app.models.ledger import Ledger
 from app.models.user import User
 from app.models.user_ledger_auth import UserLedgerAuth
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def create_project(
     db: Session,

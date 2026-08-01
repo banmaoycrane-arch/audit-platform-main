@@ -20,7 +20,7 @@ from app.services.doc_parsing.unified_import_service import (
     upload_and_process_unified_import,
     get_unified_import_result,
 )
-from app.services.doc_parsing.import_service import resolve_storage_path  # type: ignore[attr-defined]
+from app.services.doc_parsing.import_service import resolve_storage_path
 from app.services.doc_parsing.import_routing_service import is_day_book_source_type
 
 

@@ -19,6 +19,10 @@ from app.db.models import AuditComment, AuditReviewRequest, AuditTask, AuditWork
 from app.schemas.audit_workflow import AuditCommentCreate
 from app.services.audit import audit_notification_service
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 VALID_TARGET_TYPES = {"task", "branch", "review_request", "workpaper_version"}
 

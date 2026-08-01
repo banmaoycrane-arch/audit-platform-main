@@ -24,6 +24,10 @@ from app.services.shared.project_service import list_projects_by_user
 from app.services.shared.ledger_management_service import get_teams_by_user, get_ledgers_by_user
 from app.services.auth.platform_permission_service import is_super_admin, SUPER_ADMIN_ROLE
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class AuthService:
     """

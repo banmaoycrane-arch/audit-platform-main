@@ -8,6 +8,10 @@ from app.db.models import (
     VirtualEntitySet, VirtualEntitySetMember, EntityRelationType, EntityRelation
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class EntityManagementService:
     def __init__(self, db: Session):
@@ -171,24 +175,44 @@ class EntityManagementService:
         # 检查是否存在关联关系
         has_relation = False
         relation_details = []
-        
-        for ce in contract_entities:
-            for ie in invoice_entities:
-                relations = self.db.query(EntityRelation).filter(
-                    or_(
-                        (EntityRelation.entity_a_id == ce.id) & (EntityRelation.entity_b_id == ie.id),
-                        (EntityRelation.entity_a_id == ie.id) & (EntityRelation.entity_b_id == ce.id)
-                    ),
-                    EntityRelation.is_active == True
-                ).all()
-                
-                if relations:
-                    has_relation = True
-                    relation_details.extend([{
-                        "relation_id": r.id,
-                        "relation_code": self._get_relation_code(r.relation_type_id),
-                        "ownership_percentage": r.ownership_percentage
-                    } for r in relations])
+
+        # 批量查询所有实体对的关联关系，避免 N+1
+        ce_ids = [ce.id for ce in contract_entities]
+        ie_ids = [ie.id for ie in invoice_entities]
+        all_entity_ids = list(set(ce_ids + ie_ids))
+        all_relations = []
+        if all_entity_ids:
+            all_relations = self.db.query(EntityRelation).filter(
+                or_(
+                    EntityRelation.entity_a_id.in_(all_entity_ids),
+                    EntityRelation.entity_b_id.in_(all_entity_ids),
+                ),
+                EntityRelation.is_active == True
+            ).all()
+
+        # 预加载关系类型代码，避免循环内 N+1
+        relation_type_ids = {r.relation_type_id for r in all_relations if r.relation_type_id}
+        relation_code_map: dict[int, str] = {}
+        if relation_type_ids:
+            rt_rows = self.db.query(EntityRelationType).filter(
+                EntityRelationType.id.in_(relation_type_ids)
+            ).all()
+            relation_code_map = {rt.id: rt.relation_code for rt in rt_rows}
+
+        ce_id_set = set(ce_ids)
+        ie_id_set = set(ie_ids)
+        for r in all_relations:
+            a_in_ce = r.entity_a_id in ce_id_set
+            b_in_ie = r.entity_b_id in ie_id_set
+            a_in_ie = r.entity_a_id in ie_id_set
+            b_in_ce = r.entity_b_id in ce_id_set
+            if (a_in_ce and b_in_ie) or (a_in_ie and b_in_ce):
+                has_relation = True
+                relation_details.append({
+                    "relation_id": r.id,
+                    "relation_code": relation_code_map.get(r.relation_type_id),
+                    "ownership_percentage": r.ownership_percentage
+                })
         
         # 判断风险级别
         if contract_entities and invoice_entities:
@@ -236,11 +260,15 @@ class EntityManagementService:
             {"relation_code": "related_party", "relation_name": "关联方关系"}
         ]
         
+        # 批量查询已存在的 relation_code，避免 N+1
+        existing_relation_codes = {
+            row[0]
+            for row in self.db.query(EntityRelationType.relation_code)
+            .filter(EntityRelationType.relation_code.in_([rt["relation_code"] for rt in default_types]))
+            .all()
+        }
         for rt in default_types:
-            existing = self.db.query(EntityRelationType).filter(
-                EntityRelationType.relation_code == rt["relation_code"]
-            ).first()
-            if not existing:
+            if rt["relation_code"] not in existing_relation_codes:
                 relation_type = EntityRelationType(**rt)
                 self.db.add(relation_type)
         

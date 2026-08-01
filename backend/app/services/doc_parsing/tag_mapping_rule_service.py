@@ -31,6 +31,10 @@ from sqlalchemy.orm import Session
 from app.db.models import TagMappingRule
 from app.services.doc_parsing.tag_category_service import get_category_by_code
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _normalize_pattern(pattern: str) -> str:
     """

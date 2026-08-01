@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 报表项目编码 → 可在科目表 balance_sheet_item 字段中引用
 BS_ITEM_OPTIONS: dict[str, str] = {
     "cash_equivalents": "货币资金",

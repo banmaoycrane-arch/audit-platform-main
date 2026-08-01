@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：合同解析服务（ContractParser）- 基于 CAS 14 收入准则 + 采购合同合规审查
@@ -732,6 +737,7 @@ class ContractParser:
                         rate = rate / 100  # 转换为小数
                     return rate
                 except Exception:
+                    logger.warning(f"Bare exception caught in {__name__}")
                     return Decimal("0.00")
         return Decimal("0.00")
 

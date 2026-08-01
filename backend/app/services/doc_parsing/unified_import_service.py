@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：统一导入服务
@@ -164,6 +169,7 @@ def upload_and_process_unified_import(
             period_suggestion=period_suggestion,
         )
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
         db.rollback()
         return UnifiedImportResult(
             job_id=job.id,
@@ -214,6 +220,7 @@ def get_unified_import_result(
 
             period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             period_suggestion = None
         day_book_report = None
 

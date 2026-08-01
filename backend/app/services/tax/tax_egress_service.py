@@ -16,6 +16,10 @@ from app.db.models import (
     TaxRotationEvent,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 DEFAULT_CITY_SEEDS: list[dict[str, Any]] = [
     {
         "city_code": "330100",
@@ -27,6 +31,14 @@ DEFAULT_CITY_SEEDS: list[dict[str, Any]] = [
                 "egress_ip": "0.0.0.0",
                 "provider": "合作商IP池-杭州（请替换为真实出口IP）",
                 "worker_host": "partner-proxy-hz:port",
+                "max_tenants": 5,
+                "health_score": 1.0,
+            },
+            {
+                "node_key": "hz-partner-2",
+                "egress_ip": "0.0.0.1",
+                "provider": "合作商IP池-杭州-备用（请替换为真实出口IP）",
+                "worker_host": "partner-proxy-hz2:port",
                 "max_tenants": 5,
                 "health_score": 1.0,
             },

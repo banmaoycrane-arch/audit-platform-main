@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AccountingEntry, BankAccount, BankTransaction
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def list_accounts(db: Session, ledger_id: int) -> list[BankAccount]:
     return (

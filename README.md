@@ -53,10 +53,14 @@
 
 | 文档 | 用途 |
 |------|------|
+| [.trae/documents/project-status-overview.md](.trae/documents/project-status-overview.md) | **★ 项目总览（2026-07-29）** — 三层真值 · 完成度 · 本机漂移 · 下一步 |
+| [.trae/documents/code-truth-status.md](.trae/documents/code-truth-status.md) | 代码真值与 L1–L6 完成度（数字细节） |
+| [.trae/specs/economic-event-workorder/spec.md](.trae/specs/economic-event-workorder/spec.md) | **经济事件工单** — OS 调度单元（查是问、事件是办；规格在工作区、待入库） |
+| [.trae/documents/ai-native-finance-os-definition.md](.trae/documents/ai-native-finance-os-definition.md) | **AI 原生财税 OS** — 定义 · 技术栈 · 开发内容 · 开源复用 |
+| [.trae/documents/implementation-plan-and-schedule.md](.trae/documents/implementation-plan-and-schedule.md) | **实施 PLAN 与排期** — 知识储备分离 · M0–M6 |
 | [.trae/specs/evidence-cloud-and-icf-workbench/spec.md](.trae/specs/evidence-cloud-and-icf-workbench/spec.md) | **证据云空间 × 内控待办工作台** — 多通道归档与记账前待办的产品规格 |
 | [.trae/documents/development-convergence-charter.md](.trae/documents/development-convergence-charter.md) | **开发收敛章程** — 防发散、API/品牌/DDD 差距与 Sprint 准入 |
 | [.trae/documents/parser-dual-scenario-strategy.md](.trae/documents/parser-dual-scenario-strategy.md) | 场景 A/B 产品总纲 |
-| [.trae/documents/code-truth-status.md](.trae/documents/code-truth-status.md) | 代码真值与 L1–L6 完成度 |
 | [backend/docs/engine-architecture.md](backend/docs/engine-architecture.md) | 解析 / 规则 / 向量三引擎（历史文档，已链至双场景） |
 | [backend/docs/tag-vs-account-hierarchy.md](backend/docs/tag-vs-account-hierarchy.md) | **Tag 与明细科目边界** — 设计目的、动态配置与性能原则 |
 | [backend/docs/bookkeeping-v1-decision-record.md](backend/docs/bookkeeping-v1-decision-record.md) | **记账 v1.0 决策记录** — 发布范围 · 先验收再修 |
@@ -200,7 +204,8 @@ pnpm --dir frontend build
 | 服务器 | `root@47.122.117.76`（阿里云轻量 · 武汉） |
 | 代码目录 | `/root/audit-platform-main` |
 | Compose | `deploy/docker-compose.yml` + `deploy/.env` |
-| 访问地址 | `https://47.122.117.76`（自签证书，首次需点「继续访问」） |
+| 访问地址 | `https://47.122.117.76:8443`（自签证书，首次需点「继续访问」） |
+| 端口说明 | 80/443 留给官网 nginx；审计平台 **仅 HTTPS 8443**，见 [deploy/SERVER_PORTS.md](./deploy/SERVER_PORTS.md) |
 | SSH 密钥 | 本地 `.pem`，例如 `C:/Users/<用户名>/Desktop/xlsx/工作空间部署方案/id_banmao.pem` |
 
 ### 生产部署步骤

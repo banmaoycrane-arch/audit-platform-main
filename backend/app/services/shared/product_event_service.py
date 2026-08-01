@@ -11,6 +11,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import ProductEvent
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def record_product_event(
     db: Session,

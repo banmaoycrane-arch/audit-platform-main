@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 import hashlib
 import math
 from typing import Any
@@ -48,5 +53,6 @@ def embed_text(text: str) -> list[float]:
             embedding = data["data"][0]["embedding"]
             return list(embedding)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         # 任何错误都降级到本地 hash 方案，避免阻塞主流程
         return _fallback_embed(text)

@@ -19,6 +19,10 @@ from sqlalchemy.orm import Session
 
 from app.models.global_settings import GlobalSettings
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 SETTINGS_KEY = "parser_engine_llm_engines"
 

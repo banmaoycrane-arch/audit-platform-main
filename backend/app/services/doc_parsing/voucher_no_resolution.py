@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -162,6 +168,7 @@ def _parse_date_cell(value: Any) -> date | None:
             return None
         return parsed.date()
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return None
 
 

@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 from typing import Any
 import hashlib
 import os
@@ -42,6 +47,7 @@ class VectorStore:
             client.get_collections()
             return client
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             return None
 
     @staticmethod
@@ -53,6 +59,7 @@ class VectorStore:
             client.get_collections()
             return client
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             return None
 
     def ensure_collection(self) -> None:
@@ -108,4 +115,5 @@ def safe_vector_store() -> VectorStore | None:
     try:
         return VectorStore()
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return None

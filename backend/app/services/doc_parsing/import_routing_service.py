@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 序时簿/日记账/凭证类（借贷分录）
 ENTRY_SOURCE_TYPES = frozenset({
     "audit_day_book",

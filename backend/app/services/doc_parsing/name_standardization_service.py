@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.services.audit.dimension_sync_service import lookup_master_display_name
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 常见法人/组织形态后缀（含个体户、事业单位常见表述）
 _LEGAL_ENTITY_MARKERS: tuple[str, ...] = (
     "有限公司",

@@ -67,4 +67,4 @@ Write-Host "=== [4/4] Remote full deploy (code + schema + web) ===" -ForegroundC
 ssh -i $KEY -o StrictHostKeyChecking=no $SshHost "sh $REMOTE/deploy/prod_deploy_full.sh"
 
 Write-Host ""
-Write-Host "DONE. Open https://47.122.117.76/login and hard-refresh (Ctrl+F5)." -ForegroundColor Green
+Write-Host "DONE. Open https://47.122.117.76:8443/login and hard-refresh (Ctrl+F5)." -ForegroundColor Green

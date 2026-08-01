@@ -17,6 +17,10 @@ import numpy as np
 
 from app.core.config import BACKEND_DIR, get_settings
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 DEFAULT_OUTPUT_DIR = BACKEND_DIR / "app" / "storage" / "seals"
 

@@ -20,6 +20,10 @@ from app.services.accounting.entry_query_service import (
 )
 from app.services.basic_data import coa_service
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 科目明细账本质：按汇总科目查询，始终含本级及全部下级明细科目分录
 SUBSIDIARY_ACCOUNT_MATCH = "prefix"
 

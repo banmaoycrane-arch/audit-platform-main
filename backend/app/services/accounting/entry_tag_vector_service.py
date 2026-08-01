@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 分录标签向量服务（EntryTag Vector Service）。
@@ -113,6 +118,7 @@ class EntryTagVectorService:
                 tag.vector_pending = False
                 synced_count += 1
             except Exception:
+                logger.warning(f"Bare exception caught in {__name__}")
                 failed_count += 1
         self.db.commit()
         return {
@@ -195,6 +201,7 @@ class EntryTagVectorService:
                 "results": results,
             }
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             return {
                 "vector_available": True,
                 "results": [],

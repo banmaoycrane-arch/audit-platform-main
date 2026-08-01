@@ -1,5 +1,12 @@
 """财务报表标准格式：表头、列名与军工/审计审查常用列报口径。"""
+
 from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 
 from datetime import date
 from decimal import Decimal
@@ -88,6 +95,7 @@ def format_money(value: Any) -> str:
     try:
         return f"{Decimal(str(value)):.2f}"
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return str(value)
 
 
@@ -97,6 +105,7 @@ def format_money_num(value: Any) -> float | str:
     try:
         return float(Decimal(str(value)))
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return str(value)
 
 

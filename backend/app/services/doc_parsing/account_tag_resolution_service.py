@@ -50,6 +50,10 @@ from app.config.account_tag_config import (
 )
 from app.services.doc_parsing.name_standardization_service import infer_name_standardized
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 所有者权益一级科目：其下二级明细保留完整编码，不转 Tag（便于三表勾稽）
 _EQUITY_HIERARCHY_ROOTS = frozenset({"4001", "4002", "4101", "4103", "4104"})
 

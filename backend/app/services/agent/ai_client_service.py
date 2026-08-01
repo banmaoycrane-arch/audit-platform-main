@@ -15,6 +15,10 @@ import httpx
 
 from app.core.config import get_settings
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class AIClient:
     """OpenAI 兼容 API 客户端"""

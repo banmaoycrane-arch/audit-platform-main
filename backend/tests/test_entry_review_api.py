@@ -10,6 +10,8 @@ from app.db.models import AccountingEntry, ImportJob, Organization
 from app.db.session import Base, get_db
 from app.main import app
 
+from tests.conftest import register_auth_headers
+
 
 @pytest.fixture
 def client():
@@ -31,7 +33,17 @@ def client():
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
+            test_client._auth_headers = register_auth_headers(test_client)
             test_client._SessionLocal = TestingSessionLocal  # type: ignore[attr-defined]
+
+            original_request = test_client.request
+
+            def _request_with_auth(method, url, **kwargs):
+                headers = kwargs.pop("headers", {}) or {}
+                headers.update(test_client._auth_headers)
+                return original_request(method, url, headers=headers, **kwargs)
+
+            test_client.request = _request_with_auth
             yield test_client
     finally:
         app.dependency_overrides.clear()

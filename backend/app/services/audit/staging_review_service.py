@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session, load_only
 
 from app.db.models import StagingAccountingEntry
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 凭证复核列表/统计仅需列，避免加载 entry_tags_payload 等大 JSON 字段。
 _STAGING_VOUCHER_REVIEW_LOAD_ONLY = (
     StagingAccountingEntry.id,

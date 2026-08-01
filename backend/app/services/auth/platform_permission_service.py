@@ -11,6 +11,10 @@
 """
 from app.models.user import User
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 SUPER_ADMIN_ROLE = "super_admin"
 
 

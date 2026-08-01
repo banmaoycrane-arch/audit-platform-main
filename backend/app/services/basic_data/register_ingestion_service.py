@@ -12,6 +12,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -872,6 +876,7 @@ def ingest_register_from_document(
             risk_hints=[asdict(item) for item in semantic.risk_hints],
         )
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
         general_def = MODULE_DEFINITIONS.get(document_type, MODULE_DEFINITIONS["general"])
         return RegisterIngestionResult(
             success=False,
@@ -926,5 +931,6 @@ def classify_and_ingest_register(
                     source_file_id=source_file.id,
                 )
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             pass
     return classification, ingestion

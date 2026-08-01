@@ -12,6 +12,10 @@
 
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 AGENT_ROLE_REGISTRY: dict[str, dict[str, Any]] = {
     "orchestrator_agent": {
         "role_name": "orchestrator_agent",

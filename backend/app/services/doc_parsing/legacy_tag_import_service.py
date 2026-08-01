@@ -28,6 +28,10 @@ from app.services.accounting.entry_tag_service import create_entry_tag
 from app.services.doc_parsing.tag_category_service import get_or_create_category
 from app.services.doc_parsing.tag_mapping_rule_service import apply_mapping_rules
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class LegacyTagRecord:

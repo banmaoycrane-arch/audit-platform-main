@@ -10,6 +10,10 @@ from app.db.models import (
     Entity, Industry, Material, MaterialBOM, MaterialBOMItem
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class AccountingUnitService:
     def __init__(self, db: Session):
@@ -28,11 +32,15 @@ class AccountingUnitService:
             {"type_code": "business_unit", "type_name": "业务单位", "type_description": "事业部、业务线"}
         ]
         
+        # 批量查询已存在的 type_code，避免 N+1
+        existing_type_codes = {
+            row[0]
+            for row in self.db.query(AccountingUnitType.type_code)
+            .filter(AccountingUnitType.type_code.in_([ut["type_code"] for ut in default_types]))
+            .all()
+        }
         for ut in default_types:
-            existing = self.db.query(AccountingUnitType).filter(
-                AccountingUnitType.type_code == ut["type_code"]
-            ).first()
-            if not existing:
+            if ut["type_code"] not in existing_type_codes:
                 unit_type = AccountingUnitType(**ut)
                 self.db.add(unit_type)
         
@@ -223,15 +231,26 @@ class AccountingUnitService:
         
         unit_ids = [r.unit_id for r in relations]
         units = self.db.query(AccountingUnit).filter(AccountingUnit.id.in_(unit_ids)).all()
-        
+
+        # 批量统计每个 unit 的 entity 数量，避免 N+1
+        from sqlalchemy import func
+        entity_counts = dict(
+            self.db.query(
+                AccountingUnitEntityRelation.unit_id,
+                func.count(AccountingUnitEntityRelation.id),
+            )
+            .filter(
+                AccountingUnitEntityRelation.unit_id.in_(unit_ids),
+                AccountingUnitEntityRelation.is_active == True,
+            )
+            .group_by(AccountingUnitEntityRelation.unit_id)
+            .all()
+        )
+
         # 筛选出关联多个主体的单位
         cross_entity_units = []
         for unit in units:
-            entity_count = self.db.query(AccountingUnitEntityRelation).filter(
-                AccountingUnitEntityRelation.unit_id == unit.id,
-                AccountingUnitEntityRelation.is_active == True
-            ).count()
-            if entity_count > 1:
+            if entity_counts.get(unit.id, 0) > 1:
                 cross_entity_units.append(unit)
         
         return cross_entity_units
@@ -359,26 +378,42 @@ class AccountingUnitService:
     def get_units_with_multiple_entities(self) -> List[Dict[str, Any]]:
         """获取跨多个会计主体的核算单位"""
         result = []
-        
+
         units = self.db.query(AccountingUnit).filter(AccountingUnit.is_active == True).all()
-        
+        unit_ids = [u.id for u in units]
+
+        # 批量查询所有 relations 和 entities，避免 N+1
+        all_relations = self.db.query(AccountingUnitEntityRelation).filter(
+            AccountingUnitEntityRelation.unit_id.in_(unit_ids),
+            AccountingUnitEntityRelation.is_active == True
+        ).all() if unit_ids else []
+
+        entity_ids = list({r.entity_id for r in all_relations})
+        entity_map: dict[int, Any] = {}
+        if entity_ids:
+            entities = self.db.query(Entity).filter(Entity.id.in_(entity_ids)).all()
+            entity_map = {e.id: e for e in entities}
+
+        # 按 unit_id 分组
+        from collections import defaultdict
+        relations_by_unit: dict[int, list] = defaultdict(list)
+        for rel in all_relations:
+            relations_by_unit[rel.unit_id].append(rel)
+
         for unit in units:
-            relations = self.db.query(AccountingUnitEntityRelation).filter(
-                AccountingUnitEntityRelation.unit_id == unit.id,
-                AccountingUnitEntityRelation.is_active == True
-            ).all()
-            
+            relations = relations_by_unit.get(unit.id, [])
+
             if len(relations) > 1:
                 entities = []
                 for rel in relations:
-                    entity = self.db.query(Entity).filter(Entity.id == rel.entity_id).first()
+                    entity = entity_map.get(rel.entity_id)
                     if entity:
                         entities.append({
                             "entity_id": entity.id,
                             "entity_name": entity.entity_name,
                             "relation_type": rel.relation_type
                         })
-                
+
                 result.append({
                     "unit_id": unit.id,
                     "unit_name": unit.unit_name,
@@ -417,11 +452,17 @@ class AccountingUnitService:
             },
         ]
 
+        # 批量查询已存在的 industry_code，避免 N+1
+        existing_industries = {
+            ind.industry_code: ind
+            for ind in self.db.query(Industry)
+            .filter(Industry.industry_code.in_([item["industry_code"] for item in default_industries]))
+            .all()
+        }
+
         industries = []
         for item in default_industries:
-            industry = self.db.query(Industry).filter(
-                Industry.industry_code == item["industry_code"]
-            ).first()
+            industry = existing_industries.get(item["industry_code"])
             if not industry:
                 industry = Industry(**item)
                 self.db.add(industry)
@@ -564,8 +605,14 @@ class AccountingUnitService:
             items = self.db.query(MaterialBOMItem).filter(
                 MaterialBOMItem.bom_id == bom.id
             ).order_by(MaterialBOMItem.sequence).all()
+            # 批量查询子物料，避免 N+1
+            child_ids = [item.material_id for item in items]
+            child_map: dict[int, Material] = {}
+            if child_ids:
+                child_materials = self.db.query(Material).filter(Material.id.in_(child_ids)).all()
+                child_map = {m.id: m for m in child_materials}
             for item in items:
-                child = self.db.query(Material).filter(Material.id == item.material_id).first()
+                child = child_map.get(item.material_id)
                 children.append({
                     "bom_item_id": item.id,
                     "material_id": item.material_id,

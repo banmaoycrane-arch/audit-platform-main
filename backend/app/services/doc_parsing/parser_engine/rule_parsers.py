@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：规则引擎解析器（各文档类型专用）
@@ -50,6 +55,7 @@ def _extract_date(text: str, patterns: list[str]) -> Optional[str]:
                         year = f"20{year}"
                     return f"{year.zfill(4)}-{month.zfill(2)}-{day.zfill(2)}"
             except Exception:
+                logger.warning(f"Bare exception caught in {__name__}")
                 pass
     return None
 
@@ -72,6 +78,7 @@ def _extract_amount(text: str, patterns: list[str]) -> Optional[Decimal]:
             try:
                 return Decimal(amount_str).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)
             except Exception:
+                logger.warning(f"Bare exception caught in {__name__}")
                 pass
     return None
 
@@ -349,6 +356,7 @@ def _parse_bank_statement_excel(file_path: str, header_aliases: dict[str, str] |
         else:
             raw = pd.read_excel(file_path, header=None)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return None
 
     if raw.empty:
@@ -1379,6 +1387,7 @@ def _parse_amount_value(value: Any) -> float | None:
     try:
         return float(text)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return None
 
 
@@ -1503,6 +1512,7 @@ def parse_accounting_entry_rules(text: str, file_path: str = "") -> dict[str, An
                 try:
                     entry[key] = str(Decimal(str(val)).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP))
                 except Exception:
+                    logger.warning(f"Bare exception caught in {__name__}")
                     pass
 
         entries.append(entry)
@@ -1560,6 +1570,7 @@ def parse_with_rules(
         try:
             return parser(text, file_path, header_aliases=header_aliases) if document_type == "bank_statement" else parser(text, file_path)
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             logger.error(f"规则解析失败 {document_type}: {e}")
             return {"document_type": document_type}
     

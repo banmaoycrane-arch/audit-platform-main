@@ -4,6 +4,10 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Callable
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # ---------- 资产负债表：左右双栏行次模板（固定显示，零也列示） ----------
 
 CLASSIC_BS_LEFT_TEMPLATE: list[dict[str, Any]] = [
@@ -401,7 +405,7 @@ def classic_report_header_rows(report_kind: str, report: dict[str, Any]) -> list
     """纸质表样表头（标题 + 编制单位 + 日期 + 单位）。"""
     title = {
         "balance_sheet": "资产负债表",
-        "income_statement": "损益表",
+        "income_statement": "利润表",
         "cash_flow": "现金流量表",
     }.get(report_kind, report.get("report_title") or "财务报表")
     ledger = report.get("ledger_name") or "—"

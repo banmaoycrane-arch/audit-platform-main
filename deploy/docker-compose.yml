@@ -34,8 +34,8 @@ services:
     depends_on:
       - backend
     ports:
-      - "80:80"
-      - "443:443"
+      # 80/443 留给官网 nginx；审计平台仅暴露 HTTPS 8443（不映射 8080，禁止明文 HTTP）
+      - "8443:443"
     volumes:
       - caddy_data:/data
       - caddy_config:/config

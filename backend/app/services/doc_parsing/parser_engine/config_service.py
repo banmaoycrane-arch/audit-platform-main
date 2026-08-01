@@ -16,6 +16,10 @@ from app.core.config import get_settings
 from app.models.global_settings import GlobalSettings
 from sqlalchemy.orm import Session
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def resolve_parse_model(config: Dict[str, Any]) -> str:
     """非结构化文件解析 / 视觉多模态模型（ai_model）。"""

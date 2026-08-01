@@ -11,6 +11,10 @@
 """
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def is_super_admin(user: Any | None) -> bool:
     """

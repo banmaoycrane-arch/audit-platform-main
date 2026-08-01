@@ -18,6 +18,10 @@ from app.services.accounting.voucher_card_resolver import (
     resolve_voucher_card_fields_from_slim_rows,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 VOUCHER_QUERY_PAGE_MAX = 500
 
 

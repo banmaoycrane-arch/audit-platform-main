@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 可在科目表 cash_flow_item 字段中引用
 CF_ITEM_OPTIONS: dict[str, str] = {
     "sales_cash_received": "销售商品、提供劳务收到的现金",

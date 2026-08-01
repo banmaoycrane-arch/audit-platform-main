@@ -16,6 +16,10 @@ from app.services.audit.staging_review_service import (
     amounts_are_balanced,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 S = StagingAccountingEntry
 
 

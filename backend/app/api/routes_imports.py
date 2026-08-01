@@ -1,6 +1,8 @@
 from typing import Any, Literal
 from decimal import Decimal
 import json
+import logging
+import os
 from datetime import date
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
@@ -34,6 +36,7 @@ from app.services.doc_parsing.import_service import (
     _process_ai_register_file,
     _is_source_file,
 )
+
 from app.services.shared.project_service import get_or_create_unknown_project
 from app.services.shared.ledger_context_service import resolve_import_job_ledger_id
 from app.services.audit.audit_day_book_service import DayBookReport, process_day_book_import
@@ -77,6 +80,7 @@ from app.services.doc_parsing.parser_engine.unified_parser_service import (
 )
 
 router = APIRouter(prefix="/api/import-jobs", tags=["import-jobs"])
+logger = logging.getLogger(__name__)
 
 # 存储最近导入报告（生产环境应存储到数据库）
 _import_reports: dict[int, dict[str, Any]] = {}
@@ -188,8 +192,8 @@ def _process_job_background(job_id: int) -> None:
                 job.status = "failed"
                 job.error_message = str(exc)
                 db.commit()
-        except Exception:
-            pass
+        except Exception as inner_exc:
+            logger.warning("导入失败回滚处理异常 job_id=%s, error=%s", job_id, inner_exc)
     finally:
         db.close()
 
@@ -348,8 +352,8 @@ def detect_import_file_format(
     finally:
         try:
             os.unlink(temp_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("临时文件清理失败 path=%s, error=%s", temp_path, exc)
 
 
 @router.patch("/{job_id}/parse-options", response_model=ImportJobRead)
@@ -420,6 +424,28 @@ def _source_file_response(source_file: SourceFile) -> dict[str, Any]:
     }
 
 
+ALLOWED_UPLOAD_EXTENSIONS = frozenset({
+    ".pdf", ".xlsx", ".xls", ".csv", ".txt", ".xml", ".json",
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff",
+    ".doc", ".docx", ".ofd",
+})
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100MB
+
+
+def _validate_upload_file(file: UploadFile) -> None:
+    """校验上传文件类型和大小。"""
+    filename = file.filename or ""
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件类型: {ext}，允许: {', '.join(sorted(ALLOWED_UPLOAD_EXTENSIONS))}",
+        )
+    # 检查文件名不含路径穿越
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="文件名包含非法字符")
+
+
 @router.post("/{job_id}/files")
 def upload_file(
     job_id: int,
@@ -427,6 +453,7 @@ def upload_file(
     document_type_hints: str | None = Form(None),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    _validate_upload_file(file)
     job = db.get(ImportJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="导入任务不存在")

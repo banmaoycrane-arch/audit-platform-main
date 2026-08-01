@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -343,6 +349,7 @@ def create_voucher(
                 db.rollback()
                 raise
             except Exception as e:
+                logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
                 db.rollback()
                 from app.services.shared.transaction_service import TransactionError
                 raise TransactionError(f"凭证创建事务失败：{e}") from e
@@ -484,6 +491,7 @@ def create_vouchers_from_drafts(
                 db.rollback()
                 raise
             except Exception as e:
+                logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
                 db.rollback()
                 from app.services.shared.transaction_service import TransactionError
                 raise TransactionError(f"批量凭证创建事务失败：{e}") from e
@@ -613,6 +621,7 @@ def update_voucher_status(
                 db.rollback()
                 raise
             except Exception as e:
+                logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
                 db.rollback()
                 from app.services.shared.transaction_service import TransactionError
                 raise TransactionError(f"凭证状态更新事务失败：{e}") from e
@@ -627,6 +636,7 @@ def update_voucher_status(
 
             try_sync_pl_status_after_post(db, voucher.ledger_id, voucher.id)
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             pass
 
     return voucher
@@ -693,6 +703,7 @@ def delete_voucher(
                 db.rollback()
                 raise
             except Exception as e:
+                logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
                 db.rollback()
                 from app.services.shared.transaction_service import TransactionError
                 raise TransactionError(f"凭证删除事务失败：{e}") from e

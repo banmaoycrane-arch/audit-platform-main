@@ -78,9 +78,11 @@ class AuthResponse(BaseModel):
 def build_auth_response(db: Session, auth: UserLedgerAuth) -> AuthResponse:
     user = auth.user
     if user is None:
-        user = db.query(User).filter(User.id == auth.user_id).first()
+        user = db.query(User).filter(User.id == auth.user_id).first()  # type: ignore[unreachable]
     if user is not None:
         user = auth_service.ensure_username(db, user)
+    else:
+        raise HTTPException(status_code=404, detail="用户不存在")
     return AuthResponse(
         id=auth.id,
         user_id=auth.user_id,

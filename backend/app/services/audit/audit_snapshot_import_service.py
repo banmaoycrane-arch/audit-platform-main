@@ -27,6 +27,10 @@ from app.services.doc_parsing.structured_snapshot_parser import (
 )
 from app.storage.local_storage import resolve_storage_path
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class SnapshotProcessingResult:

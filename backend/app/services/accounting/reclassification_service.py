@@ -14,6 +14,10 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 MONEY_PRECISION = Decimal("0.00")
 

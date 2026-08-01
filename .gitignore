@@ -72,6 +72,11 @@ qdrant_embed_test/
 *_errors.txt
 *_results.txt
 *_stats*.txt
+backend/mypy_*.txt
+backend/pytest_*.txt
+backend/test_out.txt
+backend/test_summary.txt
+backend/full_test_tee.txt
 test_junit.xml
 seal_coverage.xml
 test_parse_output.json

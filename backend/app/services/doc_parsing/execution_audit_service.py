@@ -17,6 +17,10 @@ from sqlalchemy.orm import Session
 from app.db.models import ExecutionAuditLog
 from app.models.user import User
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def create_execution_audit_log(
     db: Session,

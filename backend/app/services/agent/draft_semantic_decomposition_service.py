@@ -16,6 +16,10 @@ from typing import Any
 from app.services.agent.llm_client_service import LightweightLLMClient, LLMResult
 from app.services.basic_data.source_document_service import SourceDocumentResult
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 DECOMPOSITION_VERSION = "1.1.0"
 
 # 会计语义维度 → 功能模块台账（可多模块）

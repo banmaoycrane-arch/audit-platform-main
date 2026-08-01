@@ -16,9 +16,13 @@ from typing import Any, Iterable
 from sqlalchemy.orm import Session
 
 from app.config.coa_code_config import CoaCodeRuleConfig, load_coa_code_config
-from app.db.models import ChartOfAccounts
+from app.db.models import AccountingEntry, ChartOfAccounts
 from app.services.accounting.balance_sheet_presentation_service import BS_ITEM_OPTIONS, DEFAULT_CODE_TO_BS_ITEM
 from app.services.accounting.cash_flow_presentation_service import DEFAULT_CODE_TO_CF_ITEM
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 ACCOUNT_CATEGORY_MAP = {

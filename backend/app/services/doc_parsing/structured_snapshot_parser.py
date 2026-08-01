@@ -9,6 +9,10 @@ from typing import Any
 
 from app.services.doc_parsing.day_book_parser import iter_data_row_indices, resolve_structured_table
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 _ACCOUNT_CODE_ALIASES = ("科目代码", "科目编码", "account_code", "subject_code", "代码")
 _ACCOUNT_NAME_ALIASES = ("科目名称", "account_name", "subject_name", "名称")
 _OPENING_ALIASES = ("期初余额", "opening_balance", "期初")

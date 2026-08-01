@@ -12,6 +12,10 @@
 """
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # =============================================================================
 # 通用字段别名（适用于所有文档类型）

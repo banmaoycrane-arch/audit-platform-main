@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 from typing import Any
 from collections import defaultdict
 from decimal import Decimal
@@ -37,6 +42,7 @@ def _find_similar_entries(db: Session, entry: AccountingEntry, threshold: float 
                     similar.append((str(source_id), score, payload))
         return similar
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return []
 
 

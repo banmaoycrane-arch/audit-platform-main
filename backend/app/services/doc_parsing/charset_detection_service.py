@@ -5,6 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 _COMMON_ENCODINGS = ("utf-8-sig", "utf-8", "gb18030", "gbk", "gb2312", "big5")
 
 

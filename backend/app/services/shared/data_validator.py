@@ -10,6 +10,10 @@ from typing import Any
 
 from app.services.doc_parsing.format_template import STANDARD_FIELDS
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ValidationIssue:

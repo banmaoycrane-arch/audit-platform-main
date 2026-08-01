@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -204,6 +208,7 @@ def update_confirmation(
             difference=result.get("difference"),
         )
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         pass
     return result
 

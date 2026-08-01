@@ -28,6 +28,10 @@ from sqlalchemy.orm import Session, aliased
 
 from app.db.models import AccountingEntry, EntryTag, TagCategory
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _sum_decimal(column: Any) -> Decimal:
     """

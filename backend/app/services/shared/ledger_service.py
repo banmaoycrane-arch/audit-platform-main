@@ -14,6 +14,10 @@ from datetime import datetime
 from enum import Enum
 import uuid
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # ============================================================================
 # 业务类型枚举

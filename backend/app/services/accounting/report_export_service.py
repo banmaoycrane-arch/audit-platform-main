@@ -32,6 +32,10 @@ from app.services.accounting.report_format_standard import (
 
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 
 SUPPORTED_FORMATS = {"xlsx", "csv", "pdf"}
@@ -254,9 +258,9 @@ def income_statement_to_xlsx(report: dict[str, Any], *, ledger_name: str | None 
 
     ws = wb.active
 
-    ws.title = "损益表"
+    ws.title = "利润表"
 
-    rows = _report_rows_with_meta("损益表", report, append_income_statement_body, ledger_name=ledger_name, report_kind="income_statement")
+    rows = _report_rows_with_meta("利润表", report, append_income_statement_body, ledger_name=ledger_name, report_kind="income_statement")
 
     _write_rows_to_sheet(ws, rows, classic_format=str(report.get("format", "")).startswith("classic"))
 

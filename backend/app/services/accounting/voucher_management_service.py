@@ -37,6 +37,10 @@ from app.services.accounting.voucher_service import (
     validate_voucher_balance,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class PeriodClosedError(VoucherValidationError):
     """会计期间已结账异常。"""
@@ -147,17 +151,30 @@ def _lines_from_dicts(db: Session, ledger_id: int, lines: List[dict[str, Any]]) 
     业务逻辑：统一字段映射，便于复用现有校验和创建逻辑。
     如果科目名称未提供，自动从科目表查询获取。
     """
+    # 预加载需要查科目名称的 code，避免 N+1
+    missing_name_codes = {
+        line.get("account_code", "")
+        for line in lines
+        if not line.get("account_name") and line.get("account_code", "")
+    }
+    account_name_map: dict[str, str] = {}
+    if missing_name_codes:
+        rows = (
+            db.query(ChartOfAccounts.code, ChartOfAccounts.name)
+            .filter(
+                ChartOfAccounts.ledger_id == ledger_id,
+                ChartOfAccounts.code.in_(missing_name_codes),
+            )
+            .all()
+        )
+        account_name_map = {code: name for code, name in rows}
+
     result = []
     for line in lines:
         account_code = line.get("account_code", "")
         account_name = line.get("account_name")
         if not account_name and account_code:
-            account = db.query(ChartOfAccounts).filter(
-                ChartOfAccounts.code == account_code,
-                ChartOfAccounts.ledger_id == ledger_id,
-            ).first()
-            if account:
-                account_name = account.name
+            account_name = account_name_map.get(account_code)
         result.append(
             VoucherEntryLine(
                 account_code=account_code,

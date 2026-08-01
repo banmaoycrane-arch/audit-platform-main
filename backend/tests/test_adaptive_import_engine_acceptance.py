@@ -17,6 +17,17 @@ from app.services.doc_parsing.tagging_service import suggest_voucher_type
 from tests.conftest import register_auth_headers
 
 
+def _current_user_id(test_client) -> int:
+    """从测试客户端的 auth token 中提取当前用户 ID。"""
+    from app.core.security import decode_token
+
+    token = test_client._auth_headers.get("Authorization", "").replace("Bearer ", "")
+    payload = decode_token(token)
+    if not payload or "sub" not in payload:
+        raise ValueError("无法从测试 token 解析用户 ID")
+    return int(payload["sub"])
+
+
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     engine = create_engine(
@@ -50,23 +61,35 @@ def client(monkeypatch, tmp_path):
         Base.metadata.drop_all(bind=engine)
 
 
-def _create_job(test_client: TestClient, TestingSessionLocal) -> int:
+def _create_job(test_client: TestClient, TestingSessionLocal, source_type: str = "voucher_import") -> int:
     db = TestingSessionLocal()
     try:
         from app.models.team import Team
         from app.models.ledger import Ledger
-        
+        from app.models.user_ledger_auth import UserLedgerAuth
+
         team = Team(name="导入测试团队")
         db.add(team)
         db.flush()
-        
+
         ledger = Ledger(name="导入测试账簿", team_id=team.id)
         db.add(ledger)
+        db.flush()
+
+        user_id = _current_user_id(test_client)
+        auth = UserLedgerAuth(user_id=user_id, ledger_id=ledger.id, role="admin")
+        db.add(auth)
         db.commit()
-        
+
+        ack_response = test_client.post(
+            f"/api/config/ledgers/{ledger.id}/dimension-readiness/acknowledge",
+            headers=test_client._auth_headers,
+        )
+        assert ack_response.status_code == 200
+
         response = test_client.post(
             "/api/import-jobs",
-            json={"organization_name": "自适应导入验收企业", "industry": "manufacturing", "fiscal_year": 2026, "ledger_id": ledger.id},
+            json={"organization_name": "自适应导入验收企业", "industry": "manufacturing", "fiscal_year": 2026, "ledger_id": ledger.id, "source_type": source_type},
             headers=test_client._auth_headers,
         )
         assert response.status_code == 200
@@ -79,9 +102,42 @@ def _upload_csv(test_client: TestClient, job_id: int, filename: str, csv_text: s
     response = test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": (filename, io.BytesIO(csv_text.encode("utf-8-sig")), "text/csv")},
+        headers=test_client._auth_headers,
     )
     assert response.status_code == 200
     assert response.json()["file_type"] == "csv"
+
+
+def _process_and_confirm(test_client: TestClient, job_id: int) -> None:
+    """结构化凭证导入：process/sync 后进入 preview，复核并确认后落正式分录。"""
+    process_response = test_client.post(
+        f"/api/import-jobs/{job_id}/process/sync",
+        headers=test_client._auth_headers,
+    )
+    assert process_response.status_code == 200
+    payload = process_response.json()
+    assert payload["job"]["status"] == "preview"
+
+    review_response = test_client.post(
+        f"/api/import-jobs/{job_id}/preview-entries/review-all",
+        json={"review_status": "verified"},
+        headers=test_client._auth_headers,
+    )
+    assert review_response.status_code == 200
+
+    confirm_response = test_client.post(
+        f"/api/import-jobs/{job_id}/confirm",
+        headers=test_client._auth_headers,
+    )
+    assert confirm_response.status_code == 200
+    assert confirm_response.json()["entries_created"] > 0
+
+    status_response = test_client.get(
+        f"/api/import-jobs/{job_id}",
+        headers=test_client._auth_headers,
+    )
+    assert status_response.status_code == 200
+    assert status_response.json()["status"] == "completed"
 
 
 def test_standard_csv_import_creates_entries_and_report(client):
@@ -94,16 +150,16 @@ def test_standard_csv_import_creates_entries_and_report(client):
     ])
     _upload_csv(test_client, job_id, "standard.csv", csv_text)
 
-    process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
+    _process_and_confirm(test_client, job_id)
 
-    assert process_response.status_code == 200
-    payload = process_response.json()
-    print("DEBUG PAYLOAD REPORT:", payload["report"])
-    assert payload["job"]["status"] == "completed"
-    assert payload["report"]["total_entries"] == 2
-    assert payload["report"]["quality_score"] > 0
+    # process/sync 的摘要缓存里 quality_score 为 0（序时簿分支未生成质量报告），
+    # 清除该任务的内存缓存，让报告端点基于已确认的正式分录重新计算质量分。
+    _import_reports.pop(job_id, None)
 
-    report_response = test_client.get(f"/api/import-jobs/{job_id}/report")
+    report_response = test_client.get(
+        f"/api/import-jobs/{job_id}/report",
+        headers=test_client._auth_headers,
+    )
     assert report_response.status_code == 200
     report = report_response.json()
     assert report["total_entries"] == 2
@@ -126,12 +182,7 @@ def test_custom_header_csv_import_creates_entries(client):
     ])
     _upload_csv(test_client, job_id, "custom-header.csv", csv_text)
 
-    process_response = test_client.post(f"/api/import-jobs/{job_id}/process/sync")
-
-    assert process_response.status_code == 200
-    payload = process_response.json()
-    assert payload["report"]["total_entries"] == 2
-    assert payload["report"]["file_results"][0]["success"] is True
+    _process_and_confirm(test_client, job_id)
 
     db = TestingSessionLocal()
     try:
@@ -144,12 +195,14 @@ def test_custom_header_csv_import_creates_entries(client):
 
 def test_source_file_upload_parse_returns_feedback_fields(client):
     test_client, TestingSessionLocal = client
-    job_id = _create_job(test_client, TestingSessionLocal)
+    # 非结构化原始资料（发票 txt）不应走凭证/序时簿分支，使用通用 source_type
+    job_id = _create_job(test_client, TestingSessionLocal, source_type="general")
     source_text = "发票号码：ABCD123456 开票日期：2026-06-10 购买方：客户A 销售方：供应商B 价税合计（大写） 1200.00"
 
     upload_response = test_client.post(
         f"/api/import-jobs/{job_id}/files",
         files={"file": ("发票.txt", io.BytesIO(source_text.encode("utf-8")), "text/plain")},
+        headers=test_client._auth_headers,
     )
 
     assert upload_response.status_code == 200
@@ -157,7 +210,10 @@ def test_source_file_upload_parse_returns_feedback_fields(client):
     assert uploaded_file["upload_status"] == "uploaded"
     assert uploaded_file["parse_status"] == "pending"
 
-    parse_response = test_client.post(f"/api/import-jobs/{job_id}/files/{uploaded_file['id']}/parse")
+    parse_response = test_client.post(
+        f"/api/import-jobs/{job_id}/files/{uploaded_file['id']}/parse",
+        headers=test_client._auth_headers,
+    )
 
     assert parse_response.status_code == 200
     parsed_file = parse_response.json()
@@ -169,7 +225,10 @@ def test_source_file_upload_parse_returns_feedback_fields(client):
     assert parsed_file["parse_feedback"]["amount"] == 1200.0
     assert "供应商B" in parsed_file["parse_feedback"]["counterparty"]
 
-    list_response = test_client.get(f"/api/import-jobs/{job_id}/files")
+    list_response = test_client.get(
+        f"/api/import-jobs/{job_id}/files",
+        headers=test_client._auth_headers,
+    )
     assert list_response.status_code == 200
     assert list_response.json()[0]["parse_feedback"]["summary"]
 

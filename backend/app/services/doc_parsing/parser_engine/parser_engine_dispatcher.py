@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：解析引擎调度层
@@ -109,11 +114,13 @@ def _extract_text_from_ofd(file_path: str) -> str:
                             text_parts.append(f"=== {file_name} ===")
                             text_parts.append(_format_xml_text(content))
                     except Exception as e:
+                        logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
                         logger.debug(f"读取OFD中的XML文件失败 {file_name}: {e}")
         
         return "\n\n".join(text_parts)
     
     except Exception as e:
+        logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
         logger.warning(f"OFD文本提取失败 {file_path}: {e}")
         return ""
 
@@ -151,6 +158,7 @@ def _format_xml_text(xml_content: str) -> str:
         return _get_text(root)
     
     except Exception as e:
+        logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
         logger.debug(f"XML解析失败，返回原始内容: {e}")
         return xml_content
 
@@ -221,9 +229,11 @@ def extract_text_from_file(file_path: str, file_format: FileFormat, sheet_name: 
                 doc = docx.Document(file_path)
                 return "\n".join(p.text for p in doc.paragraphs)
             except Exception:
+                logger.warning(f"Bare exception caught in {__name__}")
                 return ""
         
     except Exception as e:
+        logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
         logger.warning(f"文本提取失败 {file_path}: {e}")
         return ""
     
@@ -429,6 +439,7 @@ def parse_with_rule_engine(
         )
         
     except Exception as e:
+        logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
         logger.error(f"规则引擎解析失败 {file_path}: {e}")
         return ParseResult(
             document_type=document_type,
@@ -746,6 +757,7 @@ def parse_with_llm_engine(
         )
     
     except Exception as e:
+        logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
         logger.error(f"LLM 引擎解析失败 {file_path}: {e}")
         return ParseResult(
             document_type=document_type,
@@ -1041,6 +1053,7 @@ async def multi_llm_comparison(
             comparison_strategy = llm_config.comparison_strategy
             weights = {e.id: e.weight for e in engines_config}
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             logger.warning(f"读取多LLM引擎配置失败，使用默认配置: {e}")
     
     # 如果数据库中没有配置，回退到统一主模型配置
@@ -1050,6 +1063,7 @@ async def multi_llm_comparison(
         try:
             weights = json.loads(settings.llm_engine_weights) if settings.llm_engine_weights else {}
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             weights = {}
         comparison_strategy = settings.llm_comparison_strategy
         # 构造成引擎配置字典格式，保持后续逻辑一致
@@ -1105,6 +1119,7 @@ async def multi_llm_comparison(
             logger.warning(f"LLM 引擎 {engine_name} 超时")
             engine_results[engine_id] = None
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             logger.error(f"LLM 引擎 {engine_name} 调用失败: {e}")
             engine_results[engine_id] = None
     
@@ -1780,6 +1795,7 @@ async def dual_engine_parallel_parse(file_path: str, document_type: DocumentType
                 correction_applied_count=0,
             )
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             logger.warning(f"记录解析质量指标失败: {e}")
 
     # 7. 返回完整的对比信息
@@ -1893,6 +1909,7 @@ def _perform_seal_recognition(file_path: str) -> SealRecognitionResult:
             seals=[],
         )
     except Exception as e:
+        logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
         logger.warning(f"印章识别失败: {e}")
         return SealRecognitionResult(
             detected=False,
@@ -1952,6 +1969,7 @@ def handle_unrecognized_file(
                     "data": result.data,
                 }
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             pass
     
     unrecognized.first_analysis = first_analysis

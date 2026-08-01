@@ -28,6 +28,10 @@ from app.services.shared.ledger_service import (
     ledger_service,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # ============================================================================
 # 审计发现类型枚举

@@ -21,6 +21,10 @@ from app.models.team import Team
 from app.services.basic_data.coa_service import init_default_accounts
 from app.services.shared.ledger_timeline_service import initialize_ledger_timeline
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def create_ledger(
     db: Session,

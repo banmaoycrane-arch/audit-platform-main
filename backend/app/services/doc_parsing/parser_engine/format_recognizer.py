@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：文件格式识别层
@@ -158,6 +163,7 @@ class FormatRecognizer:
                 return FileFormat.PDF_TEXT, False, 0.95
                 
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             logger.warning(f"PDF类型检测失败 {file_path}: {e}")
             # 检测失败时，保守假设为图片型（需要OCR）
             return FileFormat.PDF_IMAGE, True, 0.5

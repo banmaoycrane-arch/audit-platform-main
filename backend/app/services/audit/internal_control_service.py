@@ -4,6 +4,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import InternalControl, ControlTest, ControlAlert, Organization
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class InternalControlService:
     def __init__(self, db: Session):
@@ -291,11 +295,19 @@ class InternalControlService:
             }
         ]
         
+        # 批量查询已存在的 control_code，避免 N+1
+        existing_codes = {
+            row[0]
+            for row in self.db.query(InternalControl.control_code)
+            .filter(
+                InternalControl.control_code.in_(
+                    [c["control_code"] for c in default_controls]
+                )
+            )
+            .all()
+        }
         for ctrl_data in default_controls:
-            existing = self.db.query(InternalControl).filter(
-                InternalControl.control_code == ctrl_data["control_code"]
-            ).first()
-            if not existing:
+            if ctrl_data["control_code"] not in existing_codes:
                 control = InternalControl(**ctrl_data)
                 self.db.add(control)
         

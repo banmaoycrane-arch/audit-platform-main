@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 from app.db.models import BankAccount, Counterparty
 from app.config.tag_category_constants import is_bank_account_category
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 CATEGORY_COUNTERPARTY_ROLE: dict[str, str] = {
     "customer": "customer",
     "supplier": "supplier",

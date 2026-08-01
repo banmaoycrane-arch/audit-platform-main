@@ -25,6 +25,10 @@ from app.services.accounting.report_export_service import (
 from app.services.accounting.report_pdf_service import PDF_BUILDERS, ReportSignature
 from app.services.accounting.subsidiary_ledger_service import export_subsidiary_ledger_xlsx
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def get_delivery_root() -> Path:
     """审计/军工审查报表交付根目录（可通过环境变量覆盖）。"""

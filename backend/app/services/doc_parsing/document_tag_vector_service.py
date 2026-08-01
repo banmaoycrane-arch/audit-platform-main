@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 文档标签向量服务（DocumentTag Vector Service）。
@@ -84,6 +89,7 @@ class DocumentTagVectorService:
             self.db.flush()
             return True
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             return False
 
     def sync_pending_tags(self, batch_size: int = 50) -> int:
@@ -173,4 +179,5 @@ class DocumentTagVectorService:
             self.db.flush()
             return True
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             return False

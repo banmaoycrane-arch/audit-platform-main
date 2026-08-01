@@ -6,6 +6,10 @@ from contextvars import ContextVar, Token
 
 from sqlalchemy.orm import Session
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 _parse_db: ContextVar[Session | None] = ContextVar("parse_db", default=None)
 _parse_ledger_id: ContextVar[int | None] = ContextVar("parse_ledger_id", default=None)
 

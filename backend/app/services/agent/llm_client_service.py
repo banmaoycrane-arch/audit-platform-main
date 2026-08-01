@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：轻量级LLM客户端
@@ -152,6 +157,7 @@ class LightweightLLMClient:
                 )
 
         except Exception as exc:
+            logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
             return LLMResult(available=False, error=str(exc), model=self.settings.ai_model)
 
     def iter_chat_stream(
@@ -254,6 +260,7 @@ class LightweightLLMClient:
                 "thinking": full_thinking,
             }
         except Exception as exc:
+            logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
             yield {"channel": "error", "error": str(exc)}
 
 

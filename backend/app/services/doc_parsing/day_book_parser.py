@@ -11,6 +11,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
@@ -285,6 +289,7 @@ def read_raw_frame(path: str, parse_options: StructuredParseOptions | None = Non
             return pd.read_excel(file_path, header=None, dtype=str)
         return _read_csv_raw(file_path, parse_options=parse_options)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return None
 
 

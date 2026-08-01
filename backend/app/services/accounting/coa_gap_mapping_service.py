@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AccountingEntry, ChartOfAccounts, OpeningBalance
 from app.services.basic_data.coa_service import DEFAULT_ACCOUNTS
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 异构 ERP 常见权益科目前缀 → 准则口径一级科目
 LEGACY_ROOT_ALIASES: dict[str, str] = {
     "3001": "4001",  # 实收资本

@@ -23,6 +23,10 @@ from app.db.models import (
     SourceFile,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 AUTO_REVIEW_CONFIDENCE_THRESHOLD = 0.85
 
 

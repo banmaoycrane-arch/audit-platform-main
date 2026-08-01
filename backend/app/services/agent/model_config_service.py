@@ -13,6 +13,10 @@ from typing import Any
 
 from app.core.config import get_settings
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def get_model_config_status(settings: Any | None = None) -> dict[str, Any]:
     """

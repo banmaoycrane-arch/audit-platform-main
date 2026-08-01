@@ -14,6 +14,10 @@ from sqlalchemy.orm import Session
 from app.db.models import BankStatement, Contract, Counterparty, InventoryDocument, Invoice
 from app.services.basic_data.register_ingestion_service import MODULE_DEFINITIONS
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 VALID_MODULE_KEYS = set(MODULE_DEFINITIONS.keys()) - {"general"}
 
 EXECUTION_STATUS_LABELS = {
@@ -133,8 +137,7 @@ def _inventory_to_dict(document: InventoryDocument, db: Session) -> dict[str, An
     }
 
 
-def _infer_invoice_balance(invoice: Invoice, db: Session) -> tuple[str, str | None, int | None]:
-    contract = db.get(Contract, invoice.related_contract_id) if invoice.related_contract_id else None
+def _infer_invoice_balance(invoice: Invoice, contract: Contract | None) -> tuple[str, str | None, int | None]:
     if contract and contract.contract_type == "purchase":
         return "payable", invoice.seller_name, invoice.counterparty_id
     if contract and contract.contract_type == "sales":
@@ -154,9 +157,15 @@ def list_counterparty_balances(db: Session, ledger_id: int) -> list[dict[str, An
         .order_by(Invoice.id.desc())
         .all()
     )
+    # 批量预加载相关合同，避免循环内 N+1 查询
+    contract_ids = {inv.related_contract_id for inv in invoices if inv.related_contract_id}
+    contracts = {c.id: c for c in db.query(Contract).filter(Contract.id.in_(contract_ids)).all()} if contract_ids else {}
+
     buckets: dict[tuple[int | None, str | None, str], dict[str, Any]] = {}
     for invoice in invoices:
-        balance_type, counterparty_name, counterparty_id = _infer_invoice_balance(invoice, db)
+        balance_type, counterparty_name, counterparty_id = _infer_invoice_balance(
+            invoice, contracts.get(invoice.related_contract_id) if invoice.related_contract_id else None
+        )
         key = (counterparty_id, counterparty_name, balance_type)
         bucket = buckets.setdefault(
             key,

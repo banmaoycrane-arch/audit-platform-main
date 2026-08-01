@@ -12,6 +12,10 @@ from app.db.models import (
 )
 from app.services.doc_parsing.document_tag_indexer import DocumentTagIndexer
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _to_decimal_or_none(value: Any, precision: str = "0.01") -> Decimal | None:
     if value is None:
@@ -454,13 +458,14 @@ class DocumentParsingService:
             {"document_type": "inventory", "field_name": "goods_name", "alias": "商品名称"}
         ]
         
+        # 批量查询已存在的别名映射，避免 N+1
+        existing_keys: set[tuple[str, str, str]] = {
+            (r.document_type, r.field_name, r.alias)
+            for r in self.db.query(FieldAliasMapping).all()
+        }
         for alias_data in aliases:
-            existing = self.db.query(FieldAliasMapping).filter(
-                FieldAliasMapping.document_type == alias_data["document_type"],
-                FieldAliasMapping.field_name == alias_data["field_name"],
-                FieldAliasMapping.alias == alias_data["alias"]
-            ).first()
-            if not existing:
+            key = (alias_data["document_type"], alias_data["field_name"], alias_data["alias"])
+            if key not in existing_keys:
                 mapping = FieldAliasMapping(**alias_data)
                 self.db.add(mapping)
         

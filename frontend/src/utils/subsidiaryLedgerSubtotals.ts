@@ -1,7 +1,9 @@
 import dayjs from 'dayjs'
+import Decimal from 'decimal.js'
 
 import type { AccountingEntry } from '../api/client'
 import type { SubsidiaryLedgerSubtotalMode } from './subsidiaryLedgerPrefs'
+import { parseDecimal } from '../money'
 
 export type SubsidiaryLedgerSubtotalRow = {
   rowType: 'subtotal'
@@ -82,8 +84,9 @@ export function injectSubsidiarySubtotals(
   const anchorDate = entries.find((entry) => entry.voucher_date)?.voucher_date ?? null
   const rows: SubsidiaryLedgerDisplayRow[] = []
   let currentKey = ''
-  let sumDebit = 0
-  let sumCredit = 0
+  // 小计金额使用 Decimal 累加，避免期间小计与明细加和出现尾差
+  let sumDebit = new Decimal(0)
+  let sumCredit = new Decimal(0)
   let count = 0
 
   const pushSubtotal = (key: string) => {
@@ -92,8 +95,8 @@ export function injectSubsidiarySubtotals(
       rowType: 'subtotal',
       rowKey: `subtotal-${key}`,
       periodLabel: formatPeriodLabel(key, mode, customDays),
-      debit_amount: sumDebit,
-      credit_amount: sumCredit,
+      debit_amount: sumDebit.toNumber(),
+      credit_amount: sumCredit.toNumber(),
       entry_count: count,
     })
   }
@@ -102,13 +105,13 @@ export function injectSubsidiarySubtotals(
     const key = periodKeyForEntry(entry.voucher_date, mode, customDays, anchorDate)
     if (currentKey && key !== currentKey) {
       pushSubtotal(currentKey)
-      sumDebit = 0
-      sumCredit = 0
+      sumDebit = new Decimal(0)
+      sumCredit = new Decimal(0)
       count = 0
     }
     currentKey = key
-    sumDebit += Number(entry.debit_amount || 0)
-    sumCredit += Number(entry.credit_amount || 0)
+    sumDebit = sumDebit.plus(parseDecimal(entry.debit_amount || 0))
+    sumCredit = sumCredit.plus(parseDecimal(entry.credit_amount || 0))
     count += 1
     rows.push({
       ...entry,

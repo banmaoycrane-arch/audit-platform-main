@@ -1,5 +1,7 @@
+import Decimal from 'decimal.js'
 import type { AccountingEntry, EntryTag } from '../api/client'
 import type { SubsidiaryLedgerSubtotalMode } from './subsidiaryLedgerPrefs'
+import { parseDecimal } from '../money'
 import {
   injectSubsidiarySubtotals,
   type SubsidiaryLedgerDisplayRow,
@@ -65,14 +67,17 @@ export function buildTagDetailRows(
       entry_count: group.entries.length,
     })
 
-    let running = 0
+    let running = new Decimal(0)
     const innerRows = injectSubsidiarySubtotals(group.entries, subtotalMode, customDays)
     for (const row of innerRows) {
       if (row.rowType === 'entry') {
-        const debit = Number(row.debit_amount || 0)
-        const credit = Number(row.credit_amount || 0)
-        running += direction === 'credit' ? credit - debit : debit - credit
-        rows.push({ ...row, running_balance: running })
+        // 余额用 Decimal 累加，避免逐笔借贷相减导致的浮点漂移
+        const debit = parseDecimal(row.debit_amount || 0)
+        const credit = parseDecimal(row.credit_amount || 0)
+        running = direction === 'credit'
+          ? running.plus(credit).minus(debit)
+          : running.plus(debit).minus(credit)
+        rows.push({ ...row, running_balance: running.toNumber() })
       } else {
         rows.push(row)
       }

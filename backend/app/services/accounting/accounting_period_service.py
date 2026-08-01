@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable
@@ -219,12 +224,9 @@ class AccountingPeriodService:
 
         old_status = period.status
 
-        # 结账前自动校验损益结转：导入已结转则直接通过，否则尝试自动生成结转凭证
-        if period.status in {"open", "reopened"}:
-            from app.services.accounting import period_close_service
-
-            period_close_service.ensure_pl_transfer_ready(self.db, effective_ledger_id, period_id)
-            self.db.refresh(period)
+        # 结账前必须已显式结转损益；不允许在结账时自动结转，避免绕过用户确认
+        if period.status != "pl_transferred":
+            raise ValueError("尚未结转损益，请先执行损益结转后再结账")
 
         from app.services.accounting import financial_statements_service
         balance_sheet = financial_statements_service.balance_sheet(self.db, effective_ledger_id, period_id)
@@ -260,6 +262,7 @@ class AccountingPeriodService:
             self.db.refresh(period)
             return period
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}", exc_info=True)
             self.db.rollback()
             raise
 
@@ -302,7 +305,8 @@ class AccountingPeriodService:
             self.db.commit()
             self.db.refresh(period)
             return period
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
             self.db.rollback()
             raise
 
@@ -558,6 +562,9 @@ class AccountingPeriodService:
             return
 
         carry_note = f"承接自已结账期间 {period.period_code} 科目余额表期末列"
+
+        # 预收集需要处理的 account_code，批量查询已有 OpeningBalance，避免 N+1
+        pending_snapshots = []
         for snapshot in snapshots:
             if snapshot.dimension_type != "account":
                 continue
@@ -572,16 +579,24 @@ class AccountingPeriodService:
                 account_code = snapshot.dimension_code or ""
             if closing_debit == 0 and closing_credit == 0:
                 continue
+            pending_snapshots.append((account_code, closing_debit, closing_credit))
 
-            record = (
+        existing_balance_map: dict[str, OpeningBalance] = {}
+        if pending_snapshots:
+            codes = [ps[0] for ps in pending_snapshots]
+            existing_balances = (
                 self.db.query(OpeningBalance)
                 .filter(
                     OpeningBalance.organization_id == period.organization_id,
                     OpeningBalance.period_id == next_period.id,
-                    OpeningBalance.account_code == account_code,
+                    OpeningBalance.account_code.in_(codes),
                 )
-                .first()
+                .all()
             )
+            existing_balance_map = {b.account_code: b for b in existing_balances}
+
+        for account_code, closing_debit, closing_credit in pending_snapshots:
+            record = existing_balance_map.get(account_code)
             if record:
                 record.ledger_id = period.ledger_id
                 record.debit_balance = closing_debit

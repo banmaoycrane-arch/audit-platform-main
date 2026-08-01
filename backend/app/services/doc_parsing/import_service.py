@@ -9,6 +9,12 @@
 - 风险案例匹配
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -380,6 +386,7 @@ def _index_text(db: Session, organization_id: int, source_type: str, source_id: 
             try:
                 store.upsert_text(point_id, chunk, payload | {"source_type": source_type, "source_id": source_id, "chunk_hash": digest})
             except Exception:
+                logger.warning(f"Bare exception caught in {__name__}")
                 pass
 
 
@@ -727,6 +734,7 @@ def _process_accounting_file(
         )
 
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
         return (
             ProcessingResult(
                 file_type="accounting_entry",
@@ -835,6 +843,7 @@ def _process_ai_register_file(db: Session, job: ImportJob, source_file: SourceFi
             archive_context=archive,
         )
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
         return ProcessingResult(
             file_type="register_ledger",
             filename=source_file.filename,
@@ -914,6 +923,7 @@ def _process_structured_preview(db: Session, job: ImportJob, source_file: Source
             parse_diagnostics=build_parse_diagnostics(parse_result),
         )
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
         _save_parse_feedback(
             source_file,
             {
@@ -962,6 +972,7 @@ def _extract_text_with_ocr(path: str) -> str:
             doc = docx.Document(str(file_path))
             return "\n".join(p.text for p in doc.paragraphs if p.text)
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             return ""
 
     # PDF 处理：先常规提取，再 OCR 兜底
@@ -984,9 +995,11 @@ def _extract_text_with_ocr(path: str) -> str:
                             ocr_texts.append(page_text)
                         text = "\n".join(ocr_texts)
                     except Exception:
+                        logger.warning(f"Bare exception caught in {__name__}")
                         pass
                 return text
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             return ""
 
     # 图片 OCR（复用已有服务）
@@ -1033,6 +1046,7 @@ def _process_source_file(db: Session, job: ImportJob, source_file: SourceFile) -
             archive_context=archive,
         )
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
         return ProcessingResult(
             file_type="source_file",
             filename=source_file.filename,
@@ -1195,7 +1209,7 @@ def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport
 
         if day_result.success:
             success_files = len(file_results)
-            total_entries = day_result.entries_created
+            total_entries = day_result.report.total_entries if day_result.report else day_result.entries_created
         else:
             failed_files = len(file_results)
 
@@ -1206,6 +1220,7 @@ def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport
 
                 period_suggestion = suggest_period_for_job(db, job.id, job.organization_id)
             except Exception:
+                logger.warning(f"Bare exception caught in {__name__}")
                 period_suggestion = None
 
         return ImportReport(
@@ -1222,6 +1237,7 @@ def _process_import_job_as_day_book(db: Session, job: ImportJob) -> ImportReport
             output_path=get_import_output_path(job.source_type),
         )
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
         for source_file in source_files:
             file_type = Path(source_file.filename or "").suffix.lower()
             if not (_is_accounting_file(file_type) or should_persist_structured_entries(job.source_type)):

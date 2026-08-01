@@ -112,12 +112,12 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenRe
 def login_password(payload: LoginPasswordRequest, db: Session = Depends(get_db)) -> TokenResponse:
     login_user = auth_service.get_password_login_user(db, payload.username)
     if not login_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号不存在，请先注册或使用验证码登录")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     if not login_user.hashed_password:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="该账号尚未设置密码，请使用验证码登录或注册后设置密码")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     user = auth_service.authenticate_user(db, payload.username, payload.password)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="密码错误，请重新输入")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     token = create_access_token({"sub": str(user.id)})
     return TokenResponse(access_token=token)
 
@@ -126,7 +126,7 @@ def login_password(payload: LoginPasswordRequest, db: Session = Depends(get_db))
 def login_sms(payload: LoginSmsRequest, db: Session = Depends(get_db)) -> TokenResponse:
     user = auth_service.authenticate_user_by_sms(db, payload.phone, payload.code)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="验证码错误，请重新输入或重新获取")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="验证码错误或已过期")
     token = create_access_token({"sub": str(user.id)})
     return TokenResponse(access_token=token)
 

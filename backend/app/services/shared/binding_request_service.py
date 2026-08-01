@@ -24,6 +24,10 @@ from app.models.user_ledger_auth import UserLedgerAuth
 from app.services.shared import ledger_management_service, project_service
 from app.services.auth import platform_permission_service
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 VALID_REQUEST_ROLES = {"viewer", "accountant", "admin"}
 PROJECT_ROLE_BY_REQUEST_ROLE = {
     "viewer": "viewer",

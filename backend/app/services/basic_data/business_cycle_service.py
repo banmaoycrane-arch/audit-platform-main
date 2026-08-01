@@ -5,6 +5,10 @@ from sqlalchemy import func
 
 from app.db.models import BusinessCycle, CycleStep, CycleBreak, Organization
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class BusinessCycleService:
     def __init__(self, db: Session):

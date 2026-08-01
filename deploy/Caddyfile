@@ -34,7 +34,21 @@
 	}
 }
 
-# HTTP 自动跳转到 HTTPS
+# HTTP（宿主机映射 8080）；与 :443 相同路由，不做 443 跳转（80 已留给官网 nginx）
 :80 {
-	redir https://{host}{uri} permanent
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle /health {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
 }

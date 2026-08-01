@@ -17,6 +17,10 @@ from app.services.doc_parsing.summary_template_service import (
     match_template,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class LogicIssue:

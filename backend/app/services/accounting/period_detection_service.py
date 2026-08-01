@@ -12,6 +12,10 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import AccountingEntry, AccountingPeriod, ImportJob, StagingAccountingEntry, Voucher
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _coerce_date(value: Any) -> date | None:
     if value is None:

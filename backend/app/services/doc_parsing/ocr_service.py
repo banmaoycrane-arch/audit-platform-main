@@ -15,6 +15,7 @@ def _get_ocr_reader() -> Any | None:
             import easyocr
             _ocr_reader = easyocr.Reader(["ch_sim", "en"], gpu=False, verbose=False)
         except Exception as exc:
+            logger.warning(f"Bare exception caught in {__name__}: {exc}")
             logger.warning(f"EasyOCR 初始化失败: {exc}")
             _ocr_reader = None
     return _ocr_reader
@@ -30,5 +31,6 @@ def extract_text_from_image(path: str) -> str:
         results = reader.readtext(str(path), detail=0)
         return "\n".join(filter(None, results))
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}")
         logger.warning(f"OCR 提取失败 {path}: {exc}")
         return ""

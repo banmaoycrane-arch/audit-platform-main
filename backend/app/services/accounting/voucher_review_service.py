@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AccountingEntry, Voucher
 from app.services.audit.audit_day_book_service import _validate_voucher_balance
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _entries_for_voucher(db: Session, voucher_id: int) -> list[dict]:
     rows = db.query(AccountingEntry).filter(AccountingEntry.voucher_id == voucher_id).all()

@@ -1,4 +1,5 @@
 import type { BalanceSheetReport, IncomeStatementReport, TrialBalanceReport } from '../api/client'
+import { parseDecimal } from '../money'
 
 const CATEGORY_LABEL: Record<string, string> = {
   asset: '资产',
@@ -34,10 +35,14 @@ function periodSlug(report: { period_code?: string; as_of_date?: string }, fallb
   return report.period_code || report.as_of_date || fallback
 }
 
+// 金额解析使用 Decimal，避免报表导出时浮点精度损失
 function parseAmount(value: string | number | undefined): number {
   if (value === undefined || value === null || value === '') return 0
-  const n = Number(value)
-  return Number.isFinite(n) ? n : 0
+  try {
+    return parseDecimal(value).toNumber()
+  } catch {
+    return 0
+  }
 }
 
 function reportHeaderRows(report: { ledger_name?: string; period_code?: string; as_of_date?: string }, title: string): string[][] {

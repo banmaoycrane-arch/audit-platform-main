@@ -11,6 +11,10 @@ from app.services.doc_parsing.parser_engine.auto_archive_service import auto_rev
 from app.services.doc_parsing.parser_engine.parser_engine_dispatcher import ParserEngineDispatcher, performance_monitor
 from app.storage.local_storage import resolve_storage_path
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def convert_parse_result_to_dict(parse_result: object) -> dict[str, Any]:
     from app.services.doc_parsing.parser_engine.parse_result import LLMComparisonResult, ParseResult

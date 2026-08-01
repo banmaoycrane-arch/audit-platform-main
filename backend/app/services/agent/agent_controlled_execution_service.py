@@ -12,6 +12,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AgentApproval
 from app.services.agent.agent_tool_registry import get_agent_tool
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class AgentControlledExecutionService:
     """

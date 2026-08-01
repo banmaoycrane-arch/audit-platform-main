@@ -15,6 +15,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class SealDetectionResult:

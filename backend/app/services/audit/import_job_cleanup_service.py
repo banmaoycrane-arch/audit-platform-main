@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -154,6 +158,7 @@ def _delete_staging_for_job(db: Session, job_id: int) -> int:
 
         invalidate_staging_preview_cache(job_id)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         pass
     return deleted
 

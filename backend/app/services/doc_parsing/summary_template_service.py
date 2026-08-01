@@ -8,6 +8,10 @@
 from dataclasses import dataclass
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 摘要模板库（与凭证字联动）
 SUMMARY_TEMPLATES: dict[str, dict[str, dict[str, Any]]] = {
     "银": {

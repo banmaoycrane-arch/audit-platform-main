@@ -9,6 +9,10 @@ from typing import Any
 
 from app.services.doc_parsing.tagging_service import suggest_tags, suggest_voucher_type, VOUCHER_TYPES
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # 辅助核算类型定义
 AUXILIARY_TYPES = {

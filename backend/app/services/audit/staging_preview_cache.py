@@ -5,6 +5,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 _CACHE_TTL_SECONDS = 45
 _stats_cache: dict[int, tuple[float, dict[str, Any]]] = {}
 _list_cache: dict[tuple[Any, ...], tuple[float, tuple[list[dict[str, Any]], int, dict[str, Any]]]] = {}

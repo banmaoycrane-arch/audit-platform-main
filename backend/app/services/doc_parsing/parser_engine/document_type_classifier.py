@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：文档类型判断层
@@ -350,9 +355,11 @@ class DocumentTypeClassifier:
                     doc = docx.Document(file_path)
                     return "\n".join(p.text for p in doc.paragraphs[:10])[:500]
                 except Exception:
+                    logger.warning(f"Bare exception caught in {__name__}")
                     return ""
             
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             logger.warning(f"文本提取失败 {file_path}: {e}")
         
         return ""

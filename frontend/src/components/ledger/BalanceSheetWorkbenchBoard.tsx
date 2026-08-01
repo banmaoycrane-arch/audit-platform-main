@@ -36,7 +36,7 @@ import {
   toEchartsTreemapData,
   type TreemapLeaf,
 } from '../../utils/balanceSheetTreemap'
-import { formatAmount } from '../../money'
+import { formatAmount, parseDecimal } from '../../money'
 
 const { Text, Link: TextLink } = Typography
 
@@ -84,7 +84,8 @@ function treemapOption(
         const typed = params as { data?: TreemapLeaf & { rawBalance?: number } }
         const data = typed.data
         if (!data) return ''
-        const raw = Number(data.rawBalance ?? data.value ?? 0)
+        // tooltip 金额使用 Decimal 解析，避免浮点显示误差
+        const raw = parseDecimal(data.rawBalance ?? data.value ?? 0).toNumber()
         const share = sectionTotal > 0 ? ((data.value / sectionTotal) * 100).toFixed(1) : '0'
         return [
           `<b>${data.name}</b>`,
@@ -111,7 +112,8 @@ function treemapOption(
             const typed = params as { name?: string; value?: number | string }
             const name = typed.name || ''
             const shortName = name.length > 14 ? `${name.slice(0, 12)}…` : name
-            const value = typeof typed.value === 'number' ? typed.value : Number(typed.value ?? 0)
+            // label 金额使用 Decimal 解析，避免浮点显示误差
+            const value = typeof typed.value === 'number' ? typed.value : parseDecimal(typed.value ?? 0).toNumber()
             return `${shortName}\n${formatAmount(value)}`
           },
           fontSize: 11,
@@ -200,9 +202,11 @@ export function BalanceSheetWorkbenchBoard({ ledgerId }: BalanceSheetWorkbenchBo
       .then((data) => {
         setReport({
           ...data,
-          assets_total: Number(data.assets_total),
-          liabilities_total: Number(data.liabilities_total),
-          equity_total: Number(data.equity_total),
+          // 后端可能返回 string 形式的金额，使用 Decimal 解析后转回 number 以满足类型约束
+          // 这样既保证类型兼容，又避免直接 Number() 在大额场景下的精度损失
+          assets_total: parseDecimal(data.assets_total).toNumber(),
+          liabilities_total: parseDecimal(data.liabilities_total).toNumber(),
+          equity_total: parseDecimal(data.equity_total).toNumber(),
         })
         setAssetsDrill({ path: [], detailRows: null })
         setLeDrill(null)
@@ -221,10 +225,11 @@ export function BalanceSheetWorkbenchBoard({ ledgerId }: BalanceSheetWorkbenchBo
 
   const hasVisibleBalance = useMemo(() => {
     if (!report) return false
+    // 金额大于零的判断使用 Decimal，避免浮点比较误差
     return (
-      Number(report.assets_total) > 0 ||
-      Number(report.liabilities_total) > 0 ||
-      Number(report.equity_total) > 0
+      parseDecimal(report.assets_total).gt(0) ||
+      parseDecimal(report.liabilities_total).gt(0) ||
+      parseDecimal(report.equity_total).gt(0)
     )
   }, [report])
   const assetsRows = useMemo(() => {
@@ -274,7 +279,8 @@ export function BalanceSheetWorkbenchBoard({ ledgerId }: BalanceSheetWorkbenchBo
 
   const leTotal = useMemo(() => {
     if (!report) return 0
-    return Number(report.liabilities_total) + Number(report.equity_total)
+    // 负债+权益合计使用 Decimal 加法，保证资产负债恒等式精度
+    return parseDecimal(report.liabilities_total).plus(parseDecimal(report.equity_total)).toNumber()
   }, [report])
 
   const focusAccountCode = useMemo(() => {
@@ -351,8 +357,9 @@ export function BalanceSheetWorkbenchBoard({ ledgerId }: BalanceSheetWorkbenchBo
         })
         const detailRows = breakdown.rows.map((row) => ({
           ...row,
-          closing_debit: Number(row.closing_debit),
-          closing_credit: Number(row.closing_credit),
+          // 下钻明细金额使用 Decimal 解析后转 number，保持与 BalanceSheetReport 类型一致
+          closing_debit: parseDecimal(row.closing_debit).toNumber(),
+          closing_credit: parseDecimal(row.closing_credit).toNumber(),
         }))
         const detailSection = buildTreemapSection(detailRows, side, {
           drillPrefix: data.accountCode,
@@ -590,12 +597,13 @@ export function BalanceSheetWorkbenchBoard({ ledgerId }: BalanceSheetWorkbenchBo
             />
           )}
 
-          {report.unmapped_entry_net != null && Number(report.unmapped_entry_net) !== 0 && (
+          {report.unmapped_entry_net != null && !parseDecimal(report.unmapped_entry_net).isZero() && (
             <Alert
               type="info"
               showIcon
               style={{ marginBottom: 12 }}
-              message={`仍有 ${formatAmount(Number(report.unmapped_entry_net))} 净额未能映射到科目表（已优先使用 resolved_account_code 汇总）`}
+              // 未映射净额的金额判断与显示统一交给 Decimal 处理
+              message={`仍有 ${formatAmount(report.unmapped_entry_net)} 净额未能映射到科目表（已优先使用 resolved_account_code 汇总）`}
             />
           )}
 
@@ -730,9 +738,10 @@ export function BalanceSheetWorkbenchBoard({ ledgerId }: BalanceSheetWorkbenchBo
               <Row gutter={12} style={{ marginTop: 12 }}>
                 <Col span={24}>
                   <BalanceLayoutGuide
-                    assetsTotal={Number(report.assets_total)}
-                    liabilitiesTotal={Number(report.liabilities_total)}
-                    equityTotal={Number(report.equity_total)}
+                    // report.assets_total 等字段已是 number 类型，无需再用 Number() 包装
+                    assetsTotal={report.assets_total}
+                    liabilitiesTotal={report.liabilities_total}
+                    equityTotal={report.equity_total}
                     leTotal={leTotal}
                     balanced={report.is_balanced}
                     metricLabel={metricLabel}
@@ -929,8 +938,8 @@ function BalanceLayoutGuide({
             ? `本期结构净发生额对齐：资产 ${formatAmount(assetsTotal)} = 负债 + 权益 ${formatAmount(leTotal)}`
             : `恒等式成立：资产 ${formatAmount(assetsTotal)} = 负债 + 权益 ${formatAmount(leTotal)}`
           : isNetMovement
-            ? `本期结构净发生额差额 ${formatAmount(assetsTotal - leTotal)}`
-            : `差额 ${formatAmount(assetsTotal - leTotal)}（资产 ${formatAmount(assetsTotal)} ≠ 负债+权益 ${formatAmount(leTotal)}）`}
+            ? `本期结构净发生额差额 ${formatAmount(parseDecimal(assetsTotal).minus(leTotal).toNumber())}`
+            : `差额 ${formatAmount(parseDecimal(assetsTotal).minus(leTotal).toNumber())}（资产 ${formatAmount(assetsTotal)} ≠ 负债+权益 ${formatAmount(leTotal)}）`}
       </Text>
     </div>
   )

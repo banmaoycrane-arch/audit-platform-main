@@ -18,6 +18,10 @@ from sqlalchemy.orm import Session
 from app.models.parse_quality_metric import ParseQualityMetric, ParseQualitySummary
 from app.services.doc_parsing.parser_engine.parser_engine_analyzer import EngineComparisonReport
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def record_parse_quality_metric(
     db: Session,

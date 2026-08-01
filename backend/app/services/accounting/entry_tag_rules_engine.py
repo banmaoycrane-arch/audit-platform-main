@@ -33,6 +33,10 @@ from sqlalchemy.orm import Session
 
 from app.services.doc_parsing.tag_category_service import get_or_create_category
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class TagSuggestion:

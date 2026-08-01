@@ -1,5 +1,12 @@
 """财务报表正式 PDF 导出（含编制/复核/审核签章栏）。"""
+
 from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 
 import io
 import os
@@ -85,6 +92,7 @@ def _register_cjk_font() -> str:
                 pdfmetrics.registerFont(TTFont("ReportCJK", path))
                 return "ReportCJK"
             except Exception:
+                logger.warning(f"Bare exception caught in {__name__}")
                 continue
     return "Helvetica"
 

@@ -16,6 +16,10 @@ from typing import Any
 import cv2
 import numpy as np
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # 默认印章子图输出目录
 _DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent / "storage" / "seals"

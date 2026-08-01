@@ -6,6 +6,12 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -67,6 +73,7 @@ def _amount(value: Any) -> Decimal:
         cleaned = str(value).replace(",", "").replace("¥", "").replace("$", "").strip()
         return parse_decimal(cleaned, decimal_places=2, allow_empty=True)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return Decimal("0.00")
 
 
@@ -83,6 +90,7 @@ def _date(value: Any) -> date | None:
         parsed_date: date = parsed.date()
         return parsed_date
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return None
 
 
@@ -407,6 +415,7 @@ def _parse_frame_to_result(
                 error_rows += 1
                 row_signals.pop()
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             error_rows += 1
 
     assign_parse_group_keys(entries, row_signals)

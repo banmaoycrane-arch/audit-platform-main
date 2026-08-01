@@ -27,6 +27,10 @@ from app.services.doc_parsing.parser_engine.field_alias_catalog import (
 from app.services.doc_parsing.parser_engine.field_embedding_aligner import normalize_field_with_embedding
 from app.services.doc_parsing.parser_engine.parse_result import DocumentType, EngineType, ParseResult
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # =============================================================================
 # 数据模型

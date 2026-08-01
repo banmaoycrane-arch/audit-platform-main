@@ -12,6 +12,12 @@
 
 import logging
 
+logger = logging.getLogger(__name__)
+
+
+
+import logging
+
 import re
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -137,6 +143,7 @@ def _extract_text_from_pdf(path: str) -> str:
                     text_parts.append(page_text)
         return "\n".join(text_parts)
     except Exception as e:
+        logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
         logger.warning(f"PDF 解析失败 {path}: {e}")
         return ""
 
@@ -319,6 +326,7 @@ def parse_bank_statement(path: str, file_name: str = "") -> SourceDocumentResult
         else:
             df = pd.read_csv(file_path)
     except Exception as e:
+        logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
         logger.warning(f"银行流水文件读取失败 {path}: {e}")
         return SourceDocumentResult(
             document_type="bank_statement",
@@ -619,6 +627,7 @@ def parse_inventory_receipt(path: str, file_name: str = "") -> SourceDocumentRes
 
         df = pd.read_excel(file_path, header=header_row)
     except Exception as e:
+        logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
         logger.warning(f"入库单文件读取失败 {path}: {e}")
         return SourceDocumentResult(
             document_type="inventory_receipt",

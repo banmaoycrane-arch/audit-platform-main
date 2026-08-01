@@ -15,6 +15,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Voucher
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _resolve_voucher_status_from_entries(entries: list[Any]) -> str:
     """

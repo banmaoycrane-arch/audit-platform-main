@@ -16,6 +16,10 @@ from typing import Any
 from app.services.agent.agent_tool_registry import list_allowed_tools_for_intent
 from app.services.agent.llm_client_service import LightweightLLMClient
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 SYSTEM_CONTEXT = """你是财务向量审计系统的导航助手。
 系统已有页面和能力：

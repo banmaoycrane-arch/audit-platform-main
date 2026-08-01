@@ -7,6 +7,10 @@ from typing import Any
 
 from app.db.models import StagingAccountingEntry, Voucher
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _load_user_display_names(db, user_ids: set[int]) -> dict[int, str]:
     if not user_ids:

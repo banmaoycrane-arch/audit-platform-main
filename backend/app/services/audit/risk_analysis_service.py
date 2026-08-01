@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 from app.services.agent.ai_client_service import get_ai_client
 from app.services.doc_parsing.redaction_service import redact_text
 
@@ -47,4 +52,5 @@ def explain_risk(title: str, evidence_text: str) -> str:
         ])
         return result.strip()
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return _fallback_explain(title, evidence_text)

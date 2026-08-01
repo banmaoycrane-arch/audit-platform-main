@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 LLM辅助标签识别服务（LLM Tag Resolution Service）。
@@ -200,6 +205,7 @@ class LlmTagResolutionService:
                     delay = min(delay * 2, 30)
 
             except Exception as exc:
+                logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
                 logger.error(f"LLM调用异常 (attempt={attempt+1}): {exc}")
                 if attempt < max_retries - 1:
                     time.sleep(delay)
@@ -398,11 +404,30 @@ class LlmTagResolutionService:
             - 更新分录的requires_llm_resolution状态
             - 记录审计日志
         """
-        for suggestion in suggestions:
-            if not suggestion.validation_passed:
-                continue
+        valid_suggestions = [s for s in suggestions if s.validation_passed]
+        if not valid_suggestions:
+            return
 
-            entry = self.db.query(AccountingEntry).get(suggestion.entry_id)
+        # 预加载所有需要的 AccountingEntry，避免 N+1
+        entry_ids = list({s.entry_id for s in valid_suggestions})
+        entry_map: dict[int, AccountingEntry] = {
+            e.id: e for e in self.db.query(AccountingEntry)
+            .filter(AccountingEntry.id.in_(entry_ids))
+            .all()
+        }
+
+        # 预加载已存在的 EntryTag，避免 N+1
+        existing_tags_raw = (
+            self.db.query(EntryTag.entry_id, EntryTag.category_id, EntryTag.tag_value)
+            .filter(EntryTag.entry_id.in_(entry_ids))
+            .all()
+        )
+        existing_tag_keys: set[tuple[int, int, str]] = {
+            (eid, cid, tv) for eid, cid, tv in existing_tags_raw
+        }
+
+        for suggestion in valid_suggestions:
+            entry = entry_map.get(suggestion.entry_id)
             if not entry:
                 continue
 
@@ -411,13 +436,7 @@ class LlmTagResolutionService:
                 continue
 
             # 检查是否已存在相同的标签
-            existing_tag = self.db.query(EntryTag).filter(
-                EntryTag.entry_id == suggestion.entry_id,
-                EntryTag.category_id == category.id,
-                EntryTag.tag_value == suggestion.tag_value,
-            ).first()
-
-            if existing_tag:
+            if (suggestion.entry_id, category.id, suggestion.tag_value) in existing_tag_keys:
                 continue
 
             entry_tag = EntryTag(
@@ -483,8 +502,11 @@ class LlmTagResolutionService:
             成功审批的数量
         """
         count = 0
+        # 批量查询，避免 N+1
+        tags = self.db.query(EntryTag).filter(EntryTag.id.in_(suggestion_ids)).all() if suggestion_ids else []
+        tag_map = {t.id: t for t in tags}
         for suggestion_id in suggestion_ids:
-            tag = self.db.query(EntryTag).get(suggestion_id)
+            tag = tag_map.get(suggestion_id)
             if tag and not tag.reviewed_by_user:
                 tag.reviewed_by_user = True
                 tag.confidence = min(tag.confidence + 0.1, 1.0)
@@ -505,8 +527,11 @@ class LlmTagResolutionService:
             成功拒绝的数量
         """
         count = 0
+        # 批量查询，避免 N+1
+        tags = self.db.query(EntryTag).filter(EntryTag.id.in_(suggestion_ids)).all() if suggestion_ids else []
+        tag_map = {t.id: t for t in tags}
         for suggestion_id in suggestion_ids:
-            tag = self.db.query(EntryTag).get(suggestion_id)
+            tag = tag_map.get(suggestion_id)
             if tag and not tag.reviewed_by_user:
                 self.db.delete(tag)
                 count += 1

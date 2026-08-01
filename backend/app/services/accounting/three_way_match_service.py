@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
 from decimal import Decimal
 from typing import Any
 
@@ -272,6 +278,7 @@ def match_purchase_contract(db: Session, ledger_id: int, contract_id: int) -> di
             title=contract.contract_name or contract.contract_no,
         )
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         pass
     return result
 

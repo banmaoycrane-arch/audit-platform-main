@@ -1,11 +1,15 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
 
+
+def _utc_now_naive() -> datetime:
+    """UTC now as naive datetime（兼容现有 DateTime 列；避免 datetime.utcnow 弃用警告）。"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class Organization(Base):
     __tablename__ = "organizations"
@@ -14,7 +18,7 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(200), default="默认企业")
     industry: Mapped[str | None] = mapped_column(String(100), nullable=True)
     fiscal_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class ImportJob(Base):
@@ -34,7 +38,7 @@ class ImportJob(Base):
     audit_period_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_periods.id"), nullable=True)
     audit_account_codes: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     organization: Mapped[Organization] = relationship()
     source_files: Mapped[list["SourceFile"]] = relationship(back_populates="import_job")
@@ -44,11 +48,12 @@ class SourceFile(Base):
     __tablename__ = "source_files"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
-    import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"))
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="RESTRICT"))
+    # 导入任务删除时源文件同步删除（源文件是导入任务的从属产物）
+    import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id", ondelete="CASCADE"))
     import_job: Mapped[ImportJob] = relationship(back_populates="source_files")
-    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
-    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id", ondelete="SET NULL"), nullable=True)
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id", ondelete="SET NULL"), nullable=True)
     filename: Mapped[str] = mapped_column(String(300))
     file_type: Mapped[str] = mapped_column(String(80))
     storage_path: Mapped[str] = mapped_column(String(500))
@@ -57,7 +62,7 @@ class SourceFile(Base):
     customer_match_source: Mapped[str | None] = mapped_column(String(80), nullable=True)
     customer_confidence_note: Mapped[str | None] = mapped_column(String(300), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class ExecutionAuditLog(Base):
@@ -91,7 +96,7 @@ class ExecutionAuditLog(Base):
     model_output_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(40), index=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive, index=True)
 
 
 class ProductEvent(Base):
@@ -107,7 +112,7 @@ class ProductEvent(Base):
     ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
     job_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     properties: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive, index=True)
 
 
 class AgentApproval(Base):
@@ -125,7 +130,7 @@ class AgentApproval(Base):
     approval_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     request_args_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     confirmation_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive, index=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -144,7 +149,7 @@ class AgentDraftReview(Base):
     ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
     returned_for_rework: Mapped[bool] = mapped_column(Boolean, default=False)
     allow_formal_delivery_design: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive, index=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -155,7 +160,7 @@ class SmsVerificationCode(Base):
     phone: Mapped[str] = mapped_column(String(32), index=True)
     code: Mapped[str] = mapped_column(String(16))
     consumed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
 
@@ -197,8 +202,8 @@ class Entity(Base):
     
     # 元数据
     ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     
     # 关系
     parent: Mapped["Entity"] = relationship("Entity", remote_side=[id])
@@ -220,7 +225,7 @@ class EntityTag(Base):
     # 来源
     source: Mapped[str] = mapped_column(String(50), default="system")  # system/ai/manual
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class EntityScope(Base):
@@ -242,7 +247,7 @@ class EntityScope(Base):
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class EntityScopeMember(Base):
@@ -261,7 +266,7 @@ class EntityScopeMember(Base):
     # 状态
     is_included: Mapped[bool] = mapped_column(Boolean, default=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class EntityVersion(Base):
@@ -286,7 +291,7 @@ class EntityVersion(Base):
     # 变更人
     changed_by: Mapped[str] = mapped_column(String(100), default="system")
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 虚拟主体集合 ====================
@@ -304,8 +309,8 @@ class VirtualEntitySet(Base):
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class VirtualEntitySetMember(Base):
@@ -324,7 +329,7 @@ class VirtualEntitySetMember(Base):
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 主体关系类型 ====================
@@ -343,7 +348,7 @@ class EntityRelationType(Base):
     is_hierarchical: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否层级关系
     is_reciprocal: Mapped[bool] = mapped_column(Boolean, default=True)   # 是否双向关系
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class EntityRelation(Base):
@@ -365,50 +370,61 @@ class EntityRelation(Base):
     
     # 股权信息（适用于投资关系）
     ownership_percentage: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
-    investment_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    investment_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     
     # 置信度
     confidence: Mapped[float] = mapped_column(Float, default=0.9)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class Voucher(Base):
     __tablename__ = "vouchers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"))
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    # 账簿/组织为强依赖：删除账簿前必须先迁移凭证，故 RESTRICT
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id", ondelete="RESTRICT"))
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="RESTRICT"))
     voucher_no: Mapped[str] = mapped_column(String(100))
     voucher_date: Mapped[date] = mapped_column(Date)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_type: Mapped[str] = mapped_column(String(40), default="manual")
     source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True)
+    # 导入任务删除后凭证保留，仅解除关联
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id", ondelete="SET NULL"), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")
-    total_debit: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
-    total_credit: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    total_debit: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    total_credit: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
     posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    posted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # 人员外键：用户注销后凭证保留，仅清空操作人标记
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     source_preparer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    cross_reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    cross_reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     cross_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    approved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
-    period_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_periods.id"), nullable=True, index=True)
+    # 期间删除后凭证保留，仅解除期间关联
+    period_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_periods.id", ondelete="SET NULL"), nullable=True, index=True)
     attachment_count: Mapped[int] = mapped_column(Integer, default=0)
 
     __table_args__ = (
         UniqueConstraint("ledger_id", "voucher_no", name="uq_voucher_ledger_no"),
+        # 凭证状态机：草稿→待审核→已审核→已过账；已取消为终态
+        # 业务实际值：draft(新建)/pending(待审核，导入或复核驳回)/verified(已审核)/posted(已过账)/cancelled(已取消)
+        CheckConstraint(
+            "status IN ('draft', 'pending', 'verified', 'posted', 'cancelled')",
+            name="ck_voucher_status_valid",
+        ),
     )
 
+    # 删除凭证时 ORM 级联删除分录（数据库层无 ondelete，由应用层保证）
     entries: Mapped[list["AccountingEntry"]] = relationship(
-        "AccountingEntry", back_populates="voucher"
+        "AccountingEntry", back_populates="voucher", cascade="all, delete-orphan"
     )
 
 
@@ -416,10 +432,11 @@ class AccountingEntry(Base):
     __tablename__ = "accounting_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
-    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
-    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True)
-    voucher_id: Mapped[int | None] = mapped_column(ForeignKey("vouchers.id"), nullable=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="RESTRICT"))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id", ondelete="SET NULL"), nullable=True)
+    import_job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id", ondelete="SET NULL"), nullable=True)
+    # 删除凭证时数据库级联删除分录（与 Voucher.entries ORM cascade 互为兜底）
+    voucher_id: Mapped[int | None] = mapped_column(ForeignKey("vouchers.id", ondelete="CASCADE"), nullable=True)
     voucher_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
     voucher_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -438,37 +455,71 @@ class AccountingEntry(Base):
     requires_llm_resolution: Mapped[bool] = mapped_column(Boolean, default=False)
 
     voucher: Mapped["Voucher | None"] = relationship("Voucher", back_populates="entries")
-    tags: Mapped[list["EntryTag"]] = relationship("EntryTag", back_populates="entry")
+    # 删除分录时 ORM 级联删除标签
+    tags: Mapped[list["EntryTag"]] = relationship("EntryTag", back_populates="entry", cascade="all, delete-orphan")
 
     # 主体标识（语义映射用）
-    entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id"), nullable=True)
+    entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id", ondelete="SET NULL"), nullable=True)
     original_entity_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    
+
     # 追溯字段：直接关联源文件
-    source_file_id: Mapped[int | None] = mapped_column(ForeignKey("source_files.id"), nullable=True)
-    
+    source_file_id: Mapped[int | None] = mapped_column(ForeignKey("source_files.id", ondelete="SET NULL"), nullable=True)
+
     # 来源标记：区分自动生成与手工录入
     entry_source: Mapped[str] = mapped_column(String(20), default="auto")  # "auto" | "manual"
-    
+
     debit_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
     credit_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
     counterparty: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True)
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id", ondelete="SET NULL"), nullable=True)
     original_row: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     normalized_text: Mapped[str] = mapped_column(Text, default="")
     entry_line_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     review_status: Mapped[str] = mapped_column(String(20), default="draft")
     post_status: Mapped[str] = mapped_column(String(20), default="draft")
     posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    posted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     __table_args__ = (
+        # 同一凭证内分录行号唯一，防止排序混乱
+        UniqueConstraint("voucher_id", "entry_line_no", name="uq_entry_voucher_line_no"),
         Index(
             "ix_entry_voucher_line",
             "organization_id",
             "voucher_no",
             "entry_line_no",
+        ),
+        Index(
+            "ix_entry_ledger_date",
+            "ledger_id",
+            "voucher_date",
+        ),
+        Index(
+            "ix_entry_import_job",
+            "import_job_id",
+        ),
+        Index(
+            "ix_entry_org_account_date",
+            "organization_id",
+            "account_code",
+            "voucher_date",
+        ),
+        Index(
+            "ix_entry_voucher_id",
+            "voucher_id",
+        ),
+        # 分录审核状态机：草稿→待审核→已审核→已过账
+        # 业务实际值：draft(新建)/pending(导入默认)/auto_reviewed(系统自动)/
+        #            ready(就绪待过账)/verified(人工审核)/posted(已过账)
+        CheckConstraint(
+            "review_status IN ('draft', 'pending', 'auto_reviewed', 'ready', 'verified', 'posted')",
+            name="ck_entry_review_status_valid",
+        ),
+        # 过账状态：draft(未过账)/verified(凭证已审核时同步)/posted(已过账)
+        CheckConstraint(
+            "post_status IN ('draft', 'verified', 'posted')",
+            name="ck_entry_post_status_valid",
         ),
     )
 
@@ -479,11 +530,16 @@ class AccountingPeriod(Base):
     __tablename__ = "accounting_periods"
     __table_args__ = (
         UniqueConstraint("organization_id", "period_code", name="uq_accounting_period_org_code"),
+        # 期间状态机：open → pl_transferred → closed；reopened 可重新结账
+        CheckConstraint(
+            "status IN ('open', 'reopened', 'pl_transferred', 'closed')",
+            name="ck_accounting_period_status_valid",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
-    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="RESTRICT"))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id", ondelete="SET NULL"), nullable=True)
     period_code: Mapped[str] = mapped_column(String(40))
     period_type: Mapped[str] = mapped_column(String(40), default="monthly")
     start_date: Mapped[date] = mapped_column(Date)
@@ -491,39 +547,41 @@ class AccountingPeriod(Base):
     status: Mapped[str] = mapped_column(String(40), default="open")
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     reopened_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class PeriodSnapshot(Base):
     __tablename__ = "period_snapshots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
-    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
-    period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id"))
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="RESTRICT"))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id", ondelete="SET NULL"), nullable=True)
+    # 期间删除时快照同步删除（快照是期间的从属数据）
+    period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id", ondelete="CASCADE"))
     snapshot_version: Mapped[int] = mapped_column(Integer, default=1)
     dimension_type: Mapped[str] = mapped_column(String(80))
     dimension_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dimension_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     dimension_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
-    quantity: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="CNY")
     source_scope: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     generation_params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     snapshot_status: Mapped[str] = mapped_column(String(40), default="valid")
-    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     invalidated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class PeriodCloseLog(Base):
     __tablename__ = "period_close_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
-    period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id"))
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="RESTRICT"))
+    # 结账日志是审计追溯记录，期间删除时保留日志，仅解除关联
+    period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id", ondelete="SET NULL"), nullable=True)
     action_type: Mapped[str] = mapped_column(String(50))
     transaction_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     operator: Mapped[str] = mapped_column(String(100), default="system")
@@ -531,7 +589,7 @@ class PeriodCloseLog(Base):
     old_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
     new_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
     snapshot_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 事务性相关表 ====================
@@ -552,7 +610,7 @@ class AccountingUnitType(Base):
     allow_hierarchy: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否允许层级
     allow_combination: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否允许组合
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AccountingUnit(Base):
@@ -581,8 +639,8 @@ class AccountingUnit(Base):
     entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id"), nullable=True)
     
     # 元数据
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     
     # 关系
     parent: Mapped["AccountingUnit"] = relationship("AccountingUnit", remote_side=[id])
@@ -603,7 +661,7 @@ class AccountingUnitHierarchy(Base):
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AccountingUnitCombination(Base):
@@ -619,8 +677,8 @@ class AccountingUnitCombination(Base):
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AccountingUnitCombinationMember(Base):
@@ -641,7 +699,7 @@ class AccountingUnitCombinationMember(Base):
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AccountingUnitEntityRelation(Base):
@@ -661,7 +719,7 @@ class AccountingUnitEntityRelation(Base):
     valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AccountingUnitVersion(Base):
@@ -684,7 +742,7 @@ class AccountingUnitVersion(Base):
     # 变更人
     changed_by: Mapped[str] = mapped_column(String(100), default="system")
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AccountingUnitTag(Base):
@@ -701,7 +759,7 @@ class AccountingUnitTag(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.8)
     source: Mapped[str] = mapped_column(String(50), default="system")
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 物料层级与行业颗粒度相关表 ====================
@@ -723,7 +781,7 @@ class Industry(Base):
     # 支持的核算单位类型
     supported_unit_types: Mapped[list[Any]] = mapped_column(JSON, default=list)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class Material(Base):
@@ -748,8 +806,8 @@ class Material(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
     # 元数据
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     
     # 关系
     parent: Mapped["Material"] = relationship("Material", remote_side=[id])
@@ -776,7 +834,7 @@ class MaterialHierarchy(Base):
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class MaterialBOM(Base):
@@ -798,8 +856,8 @@ class MaterialBOM(Base):
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class MaterialBOMItem(Base):
@@ -814,7 +872,7 @@ class MaterialBOMItem(Base):
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))
     
     # 用量
-    quantity: Mapped[float] = mapped_column(Numeric(18, 4))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     unit: Mapped[str] = mapped_column(String(50))
     
     # 损耗率
@@ -823,7 +881,7 @@ class MaterialBOMItem(Base):
     # 优先级/顺序
     sequence: Mapped[int] = mapped_column(Integer, default=1)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class Transaction(Base):
@@ -845,7 +903,7 @@ class Transaction(Base):
     status: Mapped[str] = mapped_column(String(50), default="pending")  # pending/committed/rolled_back/failed
     
     # 时间信息
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     committed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     
@@ -858,7 +916,7 @@ class Transaction(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     # 元数据
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class TransactionOperation(Base):
@@ -883,7 +941,7 @@ class TransactionOperation(Base):
     # 错误信息
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -903,7 +961,7 @@ class TransactionCheckpoint(Base):
     # 时间
     reached_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class TagCategory(Base):
@@ -925,8 +983,8 @@ class TagCategory(Base):
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(20), default="active")  # active/disabled/archived
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     ledger: Mapped["Ledger"] = relationship("Ledger")
     parent: Mapped["TagCategory | None"] = relationship("TagCategory", remote_side=[id])
@@ -940,9 +998,11 @@ class EntryTag(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    entry_id: Mapped[int] = mapped_column(ForeignKey("accounting_entries.id"), nullable=False)
-    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True)
-    category_id: Mapped[int | None] = mapped_column(ForeignKey("tag_categories.id"), nullable=True)
+    # 分录删除时数据库级联删除标签（与 AccountingEntry.tags ORM cascade 互为兜底）
+    entry_id: Mapped[int] = mapped_column(ForeignKey("accounting_entries.id", ondelete="CASCADE"), nullable=False)
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id", ondelete="SET NULL"), nullable=True)
+    # 分类删除后标签保留，仅解除分类关联
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("tag_categories.id", ondelete="SET NULL"), nullable=True)
     # 兼容旧格式：tag_name 保留，建议新数据使用 category_code + tag_value
     tag_name: Mapped[str] = mapped_column(String(100), default="")
     tag_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
@@ -955,7 +1015,7 @@ class EntryTag(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.8)
     reviewed_by_user: Mapped[bool] = mapped_column(Boolean, default=False)
     vector_pending: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     entry: Mapped["AccountingEntry"] = relationship("AccountingEntry", back_populates="tags")
     category: Mapped["TagCategory | None"] = relationship("TagCategory")
@@ -977,7 +1037,7 @@ class TagHistory(Base):
     new_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     changed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     change_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     entry_tag: Mapped["EntryTag"] = relationship("EntryTag")
     entry: Mapped["AccountingEntry"] = relationship("AccountingEntry")
@@ -1006,8 +1066,8 @@ class TagMappingRule(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     ledger: Mapped["Ledger"] = relationship("Ledger")
     created_by_user: Mapped["User | None"] = relationship("User")
@@ -1021,8 +1081,8 @@ class CoaCodeRule(Base):
     version: Mapped[str] = mapped_column(String(40), default="1.0.0")
     rule_content: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class ChartOfAccounts(Base):
@@ -1045,8 +1105,8 @@ class ChartOfAccounts(Base):
     is_terminal: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[str] = mapped_column(String(20), default="active")  # active/disabled/archived
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     __table_args__ = (
         UniqueConstraint("ledger_id", "code", name="uq_chart_of_accounts_ledger_code"),
@@ -1061,10 +1121,11 @@ class Counterparty(Base):
     role: Mapped[str] = mapped_column(String(40), default="other")
     unified_credit_no: Mapped[str | None] = mapped_column(String(40), nullable=True)
     is_related_party: Mapped[bool] = mapped_column(Boolean, default=False)
-    default_entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id"), nullable=True)
+    # 主体删除后往来单位保留，仅解除默认关联
+    default_entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id", ondelete="SET NULL"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class OpeningBalance(Base):
@@ -1079,16 +1140,17 @@ class OpeningBalance(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
-    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
-    period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id"))
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="RESTRICT"))
+    ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id", ondelete="SET NULL"), nullable=True, index=True)
+    # 期间删除时期初余额同步删除（期初是期间的从属数据）
+    period_id: Mapped[int] = mapped_column(ForeignKey("accounting_periods.id", ondelete="CASCADE"))
     account_code: Mapped[str] = mapped_column(String(20), index=True)
     debit_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     credit_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     currency: Mapped[str] = mapped_column(String(10), default="CNY")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class DocumentChunk(Base):
@@ -1103,7 +1165,7 @@ class DocumentChunk(Base):
     chunk_hash: Mapped[str] = mapped_column(String(80))
     vector_collection: Mapped[str] = mapped_column(String(100))
     vector_point_id: Mapped[str] = mapped_column(String(100))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AuditRisk(Base):
@@ -1120,7 +1182,7 @@ class AuditRisk(Base):
     status: Mapped[str] = mapped_column(String(40), default="pending_review")
     review_status: Mapped[str] = mapped_column(String(40), default="pending_review", nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=0.7)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class RiskEvidence(Base):
@@ -1142,7 +1204,7 @@ class ReviewAction(Base):
     risk_id: Mapped[int] = mapped_column(ForeignKey("audit_risks.id"))
     action: Mapped[str] = mapped_column(String(80))
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AuditReport(Base):
@@ -1154,8 +1216,8 @@ class AuditReport(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"), nullable=False)
     report_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AuditFinding(Base):
@@ -1178,8 +1240,14 @@ class AuditFinding(Base):
     related_files: Mapped[list[Any]] = mapped_column(JSON, default=list)
     finding_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(40), default="pending")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+
+    __table_args__ = (
+        Index("ix_audit_finding_ledger", "ledger_id"),
+        Index("ix_audit_finding_job", "job_id"),
+        Index("ix_audit_finding_status", "status"),
+    )
 
 
 class AuditFindingReviewAction(Base):
@@ -1189,7 +1257,7 @@ class AuditFindingReviewAction(Base):
     finding_id: Mapped[int] = mapped_column(ForeignKey("audit_findings.id"))
     action: Mapped[str] = mapped_column(String(80))
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 业务循环相关表 ====================
@@ -1213,7 +1281,7 @@ class BusinessCycle(Base):
     # 风险标记
     risk_flags: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class CycleStep(Base):
@@ -1233,7 +1301,7 @@ class CycleStep(Base):
     status: Mapped[str] = mapped_column(String(40), default="pending")  # pending/completed/missing
     actual_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class CycleBreak(Base):
@@ -1252,7 +1320,7 @@ class CycleBreak(Base):
     suggestion: Mapped[str] = mapped_column(Text)
     audit_procedure: Mapped[str] = mapped_column(Text)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 内控相关表 ====================
@@ -1287,7 +1355,7 @@ class InternalControl(Base):
     inherent_risk: Mapped[str] = mapped_column(String(40))  # high/medium/low
     control_risk: Mapped[str] = mapped_column(String(40))  # high/medium/low
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class ControlTest(Base):
@@ -1315,7 +1383,7 @@ class ControlTest(Base):
     alert_message: Mapped[str] = mapped_column(Text)
     suggested_procedure: Mapped[str] = mapped_column(Text)
     
-    tested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    tested_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     tester: Mapped[str] = mapped_column(String(100), default="system")
 
 
@@ -1344,7 +1412,7 @@ class ControlAlert(Base):
     suggested_procedure: Mapped[str] = mapped_column(Text)
     priority: Mapped[int] = mapped_column(Integer, default=1)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 文档解析相关表 ====================
@@ -1367,16 +1435,16 @@ class Contract(Base):
     effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     
     # 金额信息
-    contract_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    contract_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="CNY")
     tax_rate: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
-    tax_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    
+    tax_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+
     # 履约义务（收入准则）
     performance_obligations: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    transaction_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    standalone_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    
+    transaction_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    standalone_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+
     # 分时段履约
     is_over_time: Mapped[bool] = mapped_column(Boolean, default=False)
     progress_method: Mapped[str | None] = mapped_column(String(50), nullable=True)  # input/output
@@ -1396,8 +1464,11 @@ class Contract(Base):
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence_score: Mapped[float] = mapped_column(Float, default=0.8)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # 深度分析结果（合同深度分析器输出）
+    deep_analysis: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class ContractParty(Base):
@@ -1416,7 +1487,7 @@ class ContractParty(Base):
     party_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     legal_representative: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class ContractPerformanceObligation(Base):
@@ -1430,24 +1501,24 @@ class ContractPerformanceObligation(Base):
     obligation_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     # 价格分摊
-    standalone_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    allocated_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    standalone_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    allocated_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     allocation_method: Mapped[str | None] = mapped_column(String(50), nullable=True)  # market_adjustment/cost_plus/residual
-    
+
     # 履约进度
     is_over_time: Mapped[bool] = mapped_column(Boolean, default=False)
     progress_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     completion_percentage: Mapped[float] = mapped_column(Numeric(5, 2), default=0.0)
-    
+
     # 收入确认
-    revenue_recognized: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    revenue_pending: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    revenue_recognized: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    revenue_pending: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     
     # 审计标记
     risk_flags: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     audit_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class ContractPaymentTerm(Base):
@@ -1459,19 +1530,19 @@ class ContractPaymentTerm(Base):
     term_no: Mapped[int] = mapped_column(Integer)
     term_name: Mapped[str] = mapped_column(String(200))  # 预付款/进度款/尾款
     term_type: Mapped[str] = mapped_column(String(50))  # fixed_amount/percentage/milestone
-    
-    amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     percentage: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     milestone: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    
+
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     due_condition: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
+
     # 实际执行
-    actual_paid: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    actual_paid: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     paid_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class ContractSeal(Base):
@@ -1497,8 +1568,8 @@ class ContractSeal(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     detection_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class Invoice(Base):
@@ -1533,10 +1604,10 @@ class Invoice(Base):
     seller_account: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
     # 金额信息
-    amount_excluding_tax: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    amount_excluding_tax: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     tax_rate: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
-    tax_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    total_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    tax_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    total_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     
     # 审计关联
     related_contract_id: Mapped[int | None] = mapped_column(ForeignKey("contracts.id"), nullable=True)
@@ -1551,7 +1622,7 @@ class Invoice(Base):
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence_score: Mapped[float] = mapped_column(Float, default=0.8)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class InvoiceItem(Base):
@@ -1564,13 +1635,13 @@ class InvoiceItem(Base):
     goods_name: Mapped[str] = mapped_column(String(500))
     specification: Mapped[str | None] = mapped_column(String(200), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    quantity: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
-    unit_price: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
-    amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    unit_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     tax_rate: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
-    tax_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    tax_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class InventoryDocument(Base):
@@ -1594,8 +1665,8 @@ class InventoryDocument(Base):
     counterparty_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
     # 金额
-    total_quantity: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
-    total_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    total_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    total_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     
     # 审计关联
     related_contract_id: Mapped[int | None] = mapped_column(ForeignKey("contracts.id"), nullable=True)
@@ -1616,7 +1687,7 @@ class InventoryDocument(Base):
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence_score: Mapped[float] = mapped_column(Float, default=0.8)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class InventoryItem(Base):
@@ -1629,12 +1700,12 @@ class InventoryItem(Base):
     goods_name: Mapped[str] = mapped_column(String(500))
     specification: Mapped[str | None] = mapped_column(String(200), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    quantity: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
-    unit_price: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
-    amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    unit_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     batch_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class BankStatement(Base):
@@ -1660,8 +1731,8 @@ class BankStatement(Base):
     counterparty_bank: Mapped[str | None] = mapped_column(String(200), nullable=True)
     
     # 金额
-    amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    balance: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     
     # 摘要
     summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -1681,7 +1752,7 @@ class BankStatement(Base):
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence_score: Mapped[float] = mapped_column(Float, default=0.8)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 企业信息相关表 ====================
@@ -1702,8 +1773,8 @@ class Company(Base):
     tax_authority: Mapped[str | None] = mapped_column(String(200), nullable=True)
     
     # 注册信息
-    registered_capital: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    paid_in_capital: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    registered_capital: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    paid_in_capital: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     establishment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     business_term: Mapped[str | None] = mapped_column(String(100), nullable=True)
     registration_status: Mapped[str] = mapped_column(String(50), default="active")  # active/revoked/canceled
@@ -1724,8 +1795,8 @@ class Company(Base):
     
     # 元数据
     data_source: Mapped[str] = mapped_column(String(50), default="manual")
-    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class CompanyPersonnel(Base):
@@ -1746,14 +1817,14 @@ class CompanyPersonnel(Base):
     
     # 股东信息
     shareholding_ratio: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
-    subscribed_capital: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    paid_capital: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    subscribed_capital: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    paid_capital: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     
     # 联系信息
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class RelatedPartyRelation(Base):
@@ -1783,7 +1854,7 @@ class RelatedPartyRelation(Base):
     discovery_source: Mapped[str] = mapped_column(String(50), default="system")  # system/manual
     confidence_score: Mapped[float] = mapped_column(Float, default=0.9)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 字段别名映射表 ====================
@@ -1836,7 +1907,7 @@ class DocumentParsingTask(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     # 时间信息
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     
@@ -1871,7 +1942,7 @@ class DocumentTag(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.8)
     source: Mapped[str] = mapped_column(String(50), default="rule")  # rule/ai/manual
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class DocumentTagHistory(Base):
@@ -1898,14 +1969,15 @@ class DocumentTagHistory(Base):
     operator: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class BankAccount(Base):
     __tablename__ = "bank_accounts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
+    # 账簿删除前必须先迁移银行账户，故 RESTRICT
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id", ondelete="RESTRICT"), index=True)
     bank_name: Mapped[str] = mapped_column(String(200))
     account_no: Mapped[str] = mapped_column(String(100))
     account_name: Mapped[str] = mapped_column(String(200))
@@ -1914,23 +1986,26 @@ class BankAccount(Base):
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     current_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class BankTransaction(Base):
     __tablename__ = "bank_transactions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
-    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
+    # 银行账户删除时流水同步删除（流水是账户的从属数据）
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id", ondelete="CASCADE"), index=True)
+    # 账簿删除前必须先迁移银行流水，故 RESTRICT
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id", ondelete="RESTRICT"), index=True)
     transaction_date: Mapped[date] = mapped_column(Date)
     direction: Mapped[str] = mapped_column(String(10))  # in / out
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     counterparty: Mapped[str | None] = mapped_column(String(200), nullable=True)
     reconciliation_status: Mapped[str] = mapped_column(String(20), default="unmatched")
-    matched_entry_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_entries.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # 分录删除时解除匹配关系，保留银行流水本身
+    matched_entry_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_entries.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     bank_account: Mapped["BankAccount"] = relationship()
 
@@ -1939,8 +2014,10 @@ class BankReconciliation(Base):
     __tablename__ = "bank_reconciliations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
-    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
+    # 账簿删除前必须先迁移对账记录，故 RESTRICT
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id", ondelete="RESTRICT"), index=True)
+    # 银行账户删除时对账记录同步删除
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id", ondelete="CASCADE"), index=True)
     period_end: Mapped[date] = mapped_column(Date)
     statement_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     book_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2))
@@ -1948,7 +2025,7 @@ class BankReconciliation(Base):
     adjusted_book_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     difference: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     status: Mapped[str] = mapped_column(String(20), default="draft")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     bank_account: Mapped["BankAccount"] = relationship()
     items: Mapped[list["BankReconciliationItem"]] = relationship(
@@ -1961,12 +2038,15 @@ class BankReconciliationItem(Base):
     __tablename__ = "bank_reconciliation_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    reconciliation_id: Mapped[int] = mapped_column(ForeignKey("bank_reconciliations.id"), index=True)
+    # 对账记录删除时明细同步删除（与 BankReconciliation.items ORM cascade 互为兜底）
+    reconciliation_id: Mapped[int] = mapped_column(ForeignKey("bank_reconciliations.id", ondelete="CASCADE"), index=True)
     item_type: Mapped[str] = mapped_column(String(40))
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    bank_transaction_id: Mapped[int | None] = mapped_column(ForeignKey("bank_transactions.id"), nullable=True)
-    entry_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_entries.id"), nullable=True)
+    # 银行流水删除时仅解除关联，保留对账明细
+    bank_transaction_id: Mapped[int | None] = mapped_column(ForeignKey("bank_transactions.id", ondelete="SET NULL"), nullable=True)
+    # 分录删除时仅解除关联，保留对账明细
+    entry_id: Mapped[int | None] = mapped_column(ForeignKey("accounting_entries.id", ondelete="SET NULL"), nullable=True)
     summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
@@ -1977,8 +2057,10 @@ class CounterpartyConfirmation(Base):
     __tablename__ = "counterparty_confirmations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id"), index=True)
-    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id"), nullable=True, index=True)
+    # 账簿删除前必须先迁移函证记录，故 RESTRICT
+    ledger_id: Mapped[int] = mapped_column(ForeignKey("ledgers.id", ondelete="RESTRICT"), index=True)
+    # 往来单位删除时函证保留，仅解除关联
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparties.id", ondelete="SET NULL"), nullable=True, index=True)
     counterparty_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     balance_type: Mapped[str] = mapped_column(String(40))
     book_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2))
@@ -1988,8 +2070,9 @@ class CounterpartyConfirmation(Base):
     status: Mapped[str] = mapped_column(String(20), default="draft")
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     replied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    source_file_id: Mapped[int | None] = mapped_column(ForeignKey("source_files.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # 源文件删除时函证保留，仅解除关联
+    source_file_id: Mapped[int | None] = mapped_column(ForeignKey("source_files.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     counterparty: Mapped["Counterparty | None"] = relationship()
 
@@ -2007,7 +2090,7 @@ class WorkpaperIndex(Base):
     archive_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     source_module_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     parent: Mapped["WorkpaperIndex | None"] = relationship(remote_side="WorkpaperIndex.id")
     versions: Mapped[list["WorkpaperVersion"]] = relationship(
@@ -2038,7 +2121,7 @@ class WorkpaperVersion(Base):
     sheet_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     workbook_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     generated_from: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
     workpaper_index: Mapped["WorkpaperIndex"] = relationship(back_populates="versions")
     source_file: Mapped["SourceFile"] = relationship()
@@ -2053,8 +2136,8 @@ class ProjectWorkflowConfig(Base):
     granularity: Mapped[str] = mapped_column(String(20), default="standard")
     enabled_procedures: Mapped[list[str]] = mapped_column(JSON, default=list)
     auto_link_workpaper: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AuditProcedureRun(Base):
@@ -2073,8 +2156,8 @@ class AuditProcedureRun(Base):
     recommended_by: Mapped[str] = mapped_column(String(30), default="manual")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     concluded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 审计协作工作流（类 GitHub 工作流）====================
@@ -2114,8 +2197,8 @@ class AuditTask(Base):
 
     # 时间
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # 标签（对应 GitHub Label）
@@ -2150,8 +2233,8 @@ class AuditWorkBranch(Base):
     # 版本快照
     latest_version_id: Mapped[int | None] = mapped_column(ForeignKey("workpaper_versions.id"), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -2196,7 +2279,7 @@ class AuditReviewRequest(Base):
     )
 
     # 时间
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -2223,7 +2306,7 @@ class AuditReviewAction(Base):
     # 签名（电子签名哈希）
     signature_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AuditComment(Base):
@@ -2250,8 +2333,8 @@ class AuditComment(Base):
     # 评论人
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AuditNotification(Base):
@@ -2269,7 +2352,7 @@ class AuditNotification(Base):
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     ledger_id: Mapped[int | None] = mapped_column(ForeignKey("ledgers.id"), nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -2297,7 +2380,7 @@ class AuditMilestone(Base):
     # 快照信息（归档时的版本快照）
     snapshot_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -2350,7 +2433,7 @@ class StagingAccountingEntry(Base):
     spot_check_flag: Mapped[bool] = mapped_column(Boolean, default=False)
     vector_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     parse_diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class StagingAccountBalance(Base):
@@ -2380,7 +2463,7 @@ class StagingAccountBalance(Base):
     spot_check_flag: Mapped[bool] = mapped_column(Boolean, default=False)
     vector_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     parse_diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class StagingGeneralLedgerLine(Base):
@@ -2411,7 +2494,7 @@ class StagingGeneralLedgerLine(Base):
     spot_check_flag: Mapped[bool] = mapped_column(Boolean, default=False)
     vector_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     parse_diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class StagingGeneralLedgerSummary(Base):
@@ -2441,7 +2524,7 @@ class StagingGeneralLedgerSummary(Base):
     spot_check_flag: Mapped[bool] = mapped_column(Boolean, default=False)
     vector_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     parse_diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 # ==================== 审计域快照表（审计模式 B2，不进正式账套） ====================
@@ -2464,7 +2547,7 @@ class AuditAccountBalance(Base):
     direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
     review_status: Mapped[str] = mapped_column(String(20), default="pending")
     post_status: Mapped[str] = mapped_column(String(20), default="draft")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AuditGeneralLedgerLine(Base):
@@ -2484,7 +2567,7 @@ class AuditGeneralLedgerLine(Base):
     direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
     running_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     review_status: Mapped[str] = mapped_column(String(20), default="pending")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class AuditGeneralLedgerSummary(Base):
@@ -2504,7 +2587,7 @@ class AuditGeneralLedgerSummary(Base):
     direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
     review_status: Mapped[str] = mapped_column(String(20), default="pending")
     post_status: Mapped[str] = mapped_column(String(20), default="draft")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class TaxCityEgressPool(Base):
@@ -2519,7 +2602,7 @@ class TaxCityEgressPool(Base):
     pool_policy: Mapped[str] = mapped_column(String(40), default="sticky_with_failover")
     max_rotate_per_taxpayer_7d: Mapped[int] = mapped_column(Integer, default=2)
     cooling_hours: Mapped[int] = mapped_column(Integer, default=24)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class TaxEgressNode(Base):
@@ -2540,7 +2623,7 @@ class TaxEgressNode(Base):
     health_score: Mapped[float] = mapped_column(Float, default=1.0)
     last_health_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cooling_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class TaxEgressBinding(Base):
@@ -2556,13 +2639,13 @@ class TaxEgressBinding(Base):
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True, index=True)
     city_code: Mapped[str] = mapped_column(String(12), index=True)
     egress_node_id: Mapped[int] = mapped_column(ForeignKey("tax_egress_nodes.id"), index=True)
-    lease_start: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    lease_start: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     lease_end: Mapped[datetime] = mapped_column(DateTime)
     rotate_count_7d: Mapped[int] = mapped_column(Integer, default=0)
     last_rotate_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     session_state: Mapped[str] = mapped_column(String(20), default="idle")
     binding_status: Mapped[str] = mapped_column(String(20), default="healthy")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
 
 
 class TaxRotationEvent(Base):
@@ -2580,7 +2663,7 @@ class TaxRotationEvent(Base):
     trigger_code: Mapped[str] = mapped_column(String(40), index=True)
     reason_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str] = mapped_column(String(80), default="system")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive, index=True)
 
 
 # 注册 app.models 下的模型，确保与 app.db.models 中 relationship 引用的类位于同一 Base metadata。

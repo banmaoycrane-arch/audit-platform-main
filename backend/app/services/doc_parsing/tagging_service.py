@@ -3,6 +3,10 @@ from typing import Any, Protocol
 
 from app.db.models import AccountingEntry
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class EntryLike(Protocol):
     summary: str | None

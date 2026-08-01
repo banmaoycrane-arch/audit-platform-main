@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import re
 from decimal import Decimal
@@ -698,6 +702,7 @@ def iter_staging_compliance_review(
 
         invalidate_staging_preview_cache(job_id)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         pass
 
     single_scope = (group_keys and len(group_keys) == 1) or (voucher_nos and len(voucher_nos) == 1 and reviewed == 1)
@@ -755,6 +760,7 @@ def review_staging_compliance(
 
         invalidate_staging_preview_cache(job_id)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         pass
     single_scope = (group_keys and len(group_keys) == 1) or (voucher_nos and len(voucher_nos) == 1 and reviewed == 1)
     return {

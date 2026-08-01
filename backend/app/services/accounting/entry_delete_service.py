@@ -1,5 +1,10 @@
 """凭证/分录删除服务 — 按整张凭证事务化删除，避免只删部分分录导致账簿不平衡。"""
+
 from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 from dataclasses import dataclass
 from datetime import date
@@ -122,6 +127,7 @@ def delete_vouchers_transactional(
             db.query(Voucher).filter(Voucher.id.in_(voucher_ids)).delete(synchronize_session=False)
         db.commit()
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         db.rollback()
         raise
 

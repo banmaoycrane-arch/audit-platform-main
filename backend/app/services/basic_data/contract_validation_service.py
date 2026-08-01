@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：合同字段完整性校验与 LLM 推理补全服务
@@ -148,6 +153,7 @@ class ContractValidationService:
         try:
             value = Decimal(str(amount))
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             return ""
 
         if value < 0:

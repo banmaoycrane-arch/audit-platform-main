@@ -10,7 +10,7 @@ import {
 import { ReportSignatureModal, type ReportSignatureForm } from '../../components/ledger/ReportSignatureModal'
 import { ClassicReportFooter, ClassicReportHeader, ClassicReportSheet, ClassicReportTableWrap } from '../../components/ledger/ClassicReportChrome'
 import { useAuthStore } from '../../stores/authStore'
-import { formatAmount } from '../../money'
+import { formatAmount, parseDecimal } from '../../money'
 import { exportBalanceSheetCsv } from '../../utils/exportReportCsv'
 import { downloadBlobWithDisposition } from '../../utils/downloadBlob'
 
@@ -30,10 +30,14 @@ type DualColumnRow = {
   liability_is_subtotal?: boolean
 }
 
+// 金额解析使用 Decimal，避免报表展示时浮点精度损失
 function parseAmount(value: string | number | undefined): number {
   if (value === undefined || value === null || value === '') return 0
-  const n = Number(value)
-  return Number.isFinite(n) ? n : 0
+  try {
+    return parseDecimal(value).toNumber()
+  } catch {
+    return 0
+  }
 }
 
 export function BalanceSheetPage() {

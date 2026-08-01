@@ -23,6 +23,7 @@ from app.services.accounting.voucher_review_service import (
     review_vouchers_batch,
     unreview_voucher,
 )
+from app.services.doc_parsing.vector_store_service import safe_vector_store
 from app.services.doc_parsing.draft_archive_service import get_evidence_lifecycle, load_archive_metadata
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
@@ -202,6 +203,7 @@ def list_entries(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> EntryListResponse:
     query = db.query(AccountingEntry)
     if import_job_id:
@@ -692,7 +694,7 @@ class VoucherReviewBatchRequest(BaseModel):
 
 
 @router.post("/vouchers/{voucher_id}/review")
-def review_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def review_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     try:
         voucher = review_voucher(db, voucher_id)
     except ValueError as exc:
@@ -704,6 +706,7 @@ def review_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db)) -> d
 def review_vouchers_batch_endpoint(
     payload: VoucherReviewBatchRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     try:
         count = review_vouchers_batch(db, payload.voucher_ids)
@@ -713,7 +716,7 @@ def review_vouchers_batch_endpoint(
 
 
 @router.post("/vouchers/{voucher_id}/unreview")
-def unreview_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def unreview_voucher_endpoint(voucher_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     try:
         voucher = unreview_voucher(db, voucher_id)
     except ValueError as exc:
@@ -726,6 +729,7 @@ def update_entry_fields(
     entry_id: int,
     payload: EntryFieldUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> AccountingEntry:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
@@ -762,7 +766,7 @@ def update_entry_fields(
 
 
 @router.get("/{entry_id}", response_model=AccountingEntryRead)
-def get_entry(entry_id: int, db: Session = Depends(get_db)) -> AccountingEntry:
+def get_entry(entry_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> AccountingEntry:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -770,7 +774,7 @@ def get_entry(entry_id: int, db: Session = Depends(get_db)) -> AccountingEntry:
 
 
 @router.patch("/{entry_id}/tags")
-def update_tags(entry_id: int, payload: TagUpdate, db: Session = Depends(get_db)) -> dict[str, Any]:
+def update_tags(entry_id: int, payload: TagUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -792,7 +796,7 @@ def update_tags(entry_id: int, payload: TagUpdate, db: Session = Depends(get_db)
 
 
 @router.post("/{entry_id}/similar-search")
-def similar_search(entry_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def similar_search(entry_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -806,7 +810,7 @@ def similar_search(entry_id: int, db: Session = Depends(get_db)) -> dict[str, An
 
 
 @router.get("/{entry_id}/tags")
-def list_tags(entry_id: int, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_tags(entry_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> list[dict[str, Any]]:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -815,7 +819,7 @@ def list_tags(entry_id: int, db: Session = Depends(get_db)) -> list[dict[str, An
 
 
 @router.post("/{entry_id}/tags")
-def create_tag(entry_id: int, payload: EntryTagCreate, db: Session = Depends(get_db)) -> dict[str, Any]:
+def create_tag(entry_id: int, payload: EntryTagCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -839,7 +843,7 @@ def create_tag(entry_id: int, payload: EntryTagCreate, db: Session = Depends(get
 
 
 @router.delete("/{entry_id}/tags/{tag_id}")
-def delete_tag(entry_id: int, tag_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def delete_tag(entry_id: int, tag_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     entry = db.get(AccountingEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="分录不存在")
@@ -856,6 +860,7 @@ def update_entry_review(
     entry_id: int,
     payload: EntryReviewUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> AccountingEntry:
     if payload.review_status not in VALID_ENTRY_REVIEW_STATUSES:
         raise HTTPException(status_code=400, detail="无效的复核状态")
@@ -869,7 +874,7 @@ def update_entry_review(
 
 
 @router.post("/batch-review")
-def batch_update_entry_review(payload: EntryBatchReviewUpdate, db: Session = Depends(get_db)) -> dict[str, Any]:
+def batch_update_entry_review(payload: EntryBatchReviewUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     if payload.review_status not in VALID_ENTRY_REVIEW_STATUSES:
         raise HTTPException(status_code=400, detail="无效的复核状态")
     if not payload.entry_ids:
@@ -888,6 +893,7 @@ def review_all_entries_for_job(
     job_id: int,
     payload: EntryJobReviewUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     if payload.review_status not in VALID_ENTRY_REVIEW_STATUSES:
         raise HTTPException(status_code=400, detail="无效的复核状态")

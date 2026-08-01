@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：文档解析异步任务管理服务
@@ -258,6 +263,7 @@ class AsyncParsingService:
             return result
         
         except Exception as e:
+            logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
             can_retry = self.increment_retry_count(task_id)
             
             if can_retry:
@@ -298,6 +304,7 @@ class AsyncParsingService:
                 result = await asyncio.to_thread(parse_single_file, file_path, *args, **kwargs)
                 results.append({"file_path": file_path, "success": True, "result": result})
             except Exception as e:
+                logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
                 failed_files.append({"file_path": file_path, "error": str(e)})
                 results.append({"file_path": file_path, "success": False, "error": str(e)})
             
@@ -352,6 +359,7 @@ class AsyncParsingService:
                     result = await asyncio.to_thread(parse_single_file, file_path, *args, **kwargs)
                     return {"file_path": file_path, "success": True, "result": result}
                 except Exception as e:
+                    logger.warning(f"Bare exception caught in {__name__}: {e}", exc_info=True)
                     return {"file_path": file_path, "success": False, "error": str(e)}
         
         tasks = [parse_with_semaphore(fp) for fp in file_paths]

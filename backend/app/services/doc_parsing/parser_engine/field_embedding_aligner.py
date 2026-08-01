@@ -14,6 +14,10 @@ from typing import Any
 
 from app.services.doc_parsing.embedding_service import embed_text
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # 标准字段名库：key 为标准化字段名，value 为该字段的语义描述
 # 用于生成 embedding，提高语义识别能力

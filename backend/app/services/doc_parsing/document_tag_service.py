@@ -29,6 +29,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import DocumentTag, DocumentTagHistory
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def get_document_tag_by_id(db: Session, document_tag_id: int) -> DocumentTag | None:
     """

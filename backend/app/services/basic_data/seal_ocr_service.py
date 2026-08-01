@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # -*- coding: utf-8 -*-
 """
 模块功能：印章文字 OCR 识别与环形文字重组服务。
@@ -57,6 +62,7 @@ def _read_image_array(image_input: str | Path | np.ndarray) -> np.ndarray:
                 raise ValueError(f"无法读取图片: {image_input}")
             image = image_result
         except Exception as exc:
+            logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
             raise ValueError(f"读取印章子图失败: {exc}") from exc
 
     if image.ndim == 2:
@@ -70,6 +76,7 @@ def _read_image_array(image_input: str | Path | np.ndarray) -> np.ndarray:
         import cv2
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         pass
 
     return image
@@ -144,6 +151,7 @@ def recognize_seal_text(
     try:
         raw_results = reader.readtext(image)
     except Exception as exc:
+        logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
         logger.warning(f"印章 OCR 识别失败: {exc}")
         return SealOcrResult(text_items=[], recognized_text="")
 

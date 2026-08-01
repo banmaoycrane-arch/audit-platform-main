@@ -179,6 +179,12 @@ def ensure_product_events_table(conn: sqlite3.Connection) -> None:
 
 
 def ensure_tax_egress_tables(conn: sqlite3.Connection) -> None:
+    """Legacy fallback for tax egress tables.
+
+    Canonical schema source is Alembic ``0028_tax_city_egress_pool``.
+    Keep this helper so older production DBs without that revision still get tables
+    via ``apply_prod_schema.sh`` Step 1.
+    """
     ddl_statements = [
         (
             "tax_city_egress_pools",

@@ -11,6 +11,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AgentApproval, AgentDraftReview
 from app.models.user import User
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 VALID_REVIEW_STATUSES = {"approved", "returned"}
 
 

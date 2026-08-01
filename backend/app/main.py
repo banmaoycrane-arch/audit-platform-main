@@ -21,6 +21,8 @@ from app.api.routes_entries import router as entries_router
 from app.api.routes_entry_generation import router as entry_generation_router
 from app.api.routes_entry_tags import router as entry_tags_router
 from app.api.routes_analytics import router as analytics_router
+from app.api.routes_data_debt import router as data_debt_router
+from app.api.routes_ops import router as ops_router
 from app.api.routes_product_events import router as product_events_router
 from app.api.routes_tax_egress import router as tax_egress_router
 from app.api.routes_export import router as export_router
@@ -422,12 +424,25 @@ _ensure_local_sqlite_schema()
 
 from fastapi.responses import JSONResponse
 
+_is_dev = get_settings().database_url.startswith("sqlite")
+
 application: FastAPI = FastAPI(
     title="财务向量审计风险识别系统",
     version="0.1.0",
     default_response_class=JSONResponse,
+    docs_url="/docs" if _is_dev else None,
+    redoc_url="/redoc" if _is_dev else None,
+    openapi_url="/openapi.json" if _is_dev else None,
 )
 configure_gateway(application)
+
+from app.core.rate_limiter import RateLimitMiddleware
+application.add_middleware(
+    RateLimitMiddleware,
+    window_seconds=60,
+    max_requests=300,
+)
+
 application.add_middleware(GZipMiddleware, minimum_size=1000)
 _cors_origins = [
     origin.strip()
@@ -438,8 +453,8 @@ application.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins or ["http://127.0.0.1:5173"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "X-Ledger-Id", "X-Request-Id"],
 )
 application.include_router(auth_router)
 application.include_router(imports_router)
@@ -464,6 +479,8 @@ application.include_router(reports_router)
 application.include_router(entry_generation_router)
 application.include_router(entry_tags_router)
 application.include_router(analytics_router)
+application.include_router(data_debt_router)
+application.include_router(ops_router)
 application.include_router(product_events_router)
 application.include_router(tax_egress_router)
 application.include_router(business_cycles_router)

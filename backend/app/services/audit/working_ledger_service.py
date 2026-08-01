@@ -12,6 +12,10 @@ from app.models.project_member import ProjectMember
 from app.services.shared.ledger_timeline_service import initialize_ledger_timeline
 from app.services.basic_data.coa_service import init_default_accounts
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def get_or_create_working_ledger(
     db: Session,

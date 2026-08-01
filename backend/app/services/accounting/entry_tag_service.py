@@ -31,6 +31,10 @@ from sqlalchemy.orm import Session, joinedload
 from app.db.models import AccountingEntry, EntryTag, TagCategory, TagHistory
 from app.services.doc_parsing.tag_category_service import get_category_by_code
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def get_entry_tag_by_id(db: Session, entry_tag_id: int) -> EntryTag | None:
     """

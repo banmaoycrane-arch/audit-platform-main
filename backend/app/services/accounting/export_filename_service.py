@@ -5,6 +5,10 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from app.db.models import ImportJob
 

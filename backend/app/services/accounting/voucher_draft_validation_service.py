@@ -20,6 +20,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AccountingPeriod, ChartOfAccounts, Voucher
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # =============================================================================
 # 错误码常量

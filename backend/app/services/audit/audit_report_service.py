@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AuditFinding, AuditReport
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 SUPPORTED_FORMATS = {"xlsx", "json"}
 
 OVERVIEW_FIELDS = [

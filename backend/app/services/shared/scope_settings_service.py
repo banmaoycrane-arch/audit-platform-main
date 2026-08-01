@@ -14,6 +14,10 @@ from app.models.scope_settings import (
     TeamSettings,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 CurrencyMode = Literal["single", "multi"]
 BalanceDirectionRule = Literal["strict", "natural"]
 AccountCodePattern = Literal["4-2-2-2", "3-3-2-2"]

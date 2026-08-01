@@ -7,6 +7,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AccountingEntry, AccountingPeriod, ImportJob, Organization, SourceFile
 from app.models.ledger import Ledger
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def resolve_organization_id_for_ledger(db: Session, ledger_id: int) -> int | None:
     """查找账簿已绑定的 organization_id，不存在则返回 None。"""

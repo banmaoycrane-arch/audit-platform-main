@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Counterparty, ImportJob, SourceFile
 from app.db.session import get_db
+from app.services.shared import counterparty_cache
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.ledger import Ledger
@@ -120,9 +121,20 @@ def _extract_parse_summary(item: SourceFile) -> dict[str, Any]:
     }
 
 
+def _get_active_counterparties(db: Session) -> dict[int, Counterparty]:
+    if counterparty_cache.is_cache_expired():
+        rows = db.query(Counterparty).filter(Counterparty.is_active == True).all()
+        counterparty_cache.set_counterparty_cache(rows)
+    return counterparty_cache.get_counterparty_cache() or {}
+
+
+def _invalidate_counterparty_cache() -> None:
+    counterparty_cache.invalidate()
+
+
 def _find_counterparty_match(db: Session, item: SourceFile) -> tuple[Counterparty | None, str | None, str | None]:
     parsed = _extract_parse_summary(item)
-    counterparties = db.query(Counterparty).filter(Counterparty.is_active == True).all()
+    counterparties = _get_active_counterparties(db)
     search_sources = [
         ("文件名", item.filename or ""),
         ("解析摘要", parsed.get("summary") or ""),
@@ -133,7 +145,7 @@ def _find_counterparty_match(db: Session, item: SourceFile) -> tuple[Counterpart
     for source_name, source_text in search_sources:
         if not source_text:
             continue
-        for counterparty in counterparties:
+        for counterparty in counterparties.values():
             if counterparty.name and counterparty.name in source_text:
                 return counterparty, source_name, f"{source_name}包含往来单位名称“{counterparty.name}”，置信度较高"
 

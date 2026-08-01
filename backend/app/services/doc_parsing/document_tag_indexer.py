@@ -32,6 +32,10 @@ from app.services.doc_parsing.document_tag_service import (
 )
 from app.services.agent.llm_client_service import LightweightLLMClient, LLMResult
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class DocumentTagIndexer:
     """

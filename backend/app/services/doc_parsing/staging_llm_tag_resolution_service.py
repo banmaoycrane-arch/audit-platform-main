@@ -1,4 +1,4 @@
-"""Staging 草稿分录的 LLM 维度识别（确认入账前）。"""
+﻿"""Staging 草稿分录的 LLM 维度识别（确认入账前）。"""
 
 from __future__ import annotations
 

@@ -195,7 +195,7 @@ def _export_report_response(
         if not pdf_builder:
             raise HTTPException(status_code=400, detail=f"不支持的 PDF 报表类型: {report_kind}")
         if report_kind in {"income_statement", "cash_flow"}:
-            body = pdf_builder(payload, sig, period_code=period_code or payload.get("period_code"), ledger_name=ledger_name)
+            body = pdf_builder(payload, sig, period_code=period_code or payload.get("period_code") or "", ledger_name=ledger_name)
         else:
             body = pdf_builder(payload, sig, ledger_name=ledger_name)
         filename = build_report_export_filename(
@@ -442,7 +442,7 @@ def export_reports_package(
         if include_pdf:
             pdf_builder = PDF_BUILDERS[kind]
             if kind in {"income_statement", "cash_flow"}:
-                pdf_body = pdf_builder(report, signature, period_code=period_code, ledger_name=ledger_name)
+                pdf_body = pdf_builder(report, signature, period_code=period_code or "", ledger_name=ledger_name)
             else:
                 pdf_body = pdf_builder(report, signature, ledger_name=ledger_name)
             package_files.append((REPORT_PDF_FILENAMES[kind], pdf_body))

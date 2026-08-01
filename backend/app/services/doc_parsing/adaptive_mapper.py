@@ -4,6 +4,12 @@
 使用 AI 辅助识别未知格式文件的字段映射
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
 import json
 import re
 from typing import Any
@@ -110,6 +116,7 @@ def ai_assist_mapping(headers: list[str]) -> dict[str, str] | None:
             return mappings
 
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         pass
 
     return None
@@ -196,6 +203,7 @@ def improve_mapping_with_ai(
                     return {str(k): str(v) for k, v in improved.items()}
 
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         pass
 
     return current_mapping

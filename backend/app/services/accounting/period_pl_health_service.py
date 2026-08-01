@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AccountingEntry, AccountingPeriod, Voucher
 import app.services.accounting.financial_statements_service as financial_statements_service
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 PL_TRANSFER_VOUCHER_PREFIX = "转-期末-"
 IMPORT_PL_SUMMARY_KEYWORDS = ("结转", "本年利润", "损益结转")
 IMPORT_PL_ACCOUNT_PREFIXES = ("4103", "3103", "4104", "4101")
@@ -58,33 +62,40 @@ def detect_imported_pl_vouchers(
         .all()
     )
 
+    # 批量查询所有 voucher 的 PL 科目，避免 N+1
+    voucher_ids = list({v.id for v in vouchers})
+    pl_prefix_filters = [
+        AccountingEntry.account_code.like(f"{prefix}%")
+        for prefix in IMPORT_PL_ACCOUNT_PREFIXES
+    ]
+    pl_rows: list[tuple[int, str]] = []
+    if voucher_ids:
+        pl_rows = (
+            db.query(AccountingEntry.voucher_id, AccountingEntry.account_code)
+            .filter(
+                AccountingEntry.voucher_id.in_(voucher_ids),
+                or_(*pl_prefix_filters),
+            )
+            .distinct()
+            .all()
+        )
+    pl_map: dict[int, list[str]] = {}
+    for vid, code in pl_rows:
+        pl_map.setdefault(vid, []).append(code)
+
     results: list[dict[str, Any]] = []
     seen: set[int] = set()
     for voucher in vouchers:
         if voucher.id in seen:
             continue
         seen.add(voucher.id)
-        pl_accounts = (
-            db.query(AccountingEntry.account_code)
-            .filter(
-                AccountingEntry.voucher_id == voucher.id,
-                or_(
-                    *[
-                        AccountingEntry.account_code.like(f"{prefix}%")
-                        for prefix in IMPORT_PL_ACCOUNT_PREFIXES
-                    ]
-                ),
-            )
-            .distinct()
-            .all()
-        )
         results.append(
             {
                 "voucher_id": voucher.id,
                 "voucher_no": voucher.voucher_no,
                 "voucher_date": str(voucher.voucher_date),
                 "summary": voucher.summary,
-                "pl_accounts": [row[0] for row in pl_accounts],
+                "pl_accounts": pl_map.get(voucher.id, []),
             }
         )
     return results

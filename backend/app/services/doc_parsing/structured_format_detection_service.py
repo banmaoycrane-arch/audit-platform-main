@@ -14,6 +14,10 @@ from app.services.doc_parsing.structured_parse_options import (
     resolve_csv_encoding,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def detect_structured_file_format(
     file_path: str,

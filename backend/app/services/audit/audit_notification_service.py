@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AuditNotification
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _serialize(notification: AuditNotification) -> dict[str, Any]:
     return {

@@ -6,6 +6,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import re
 from datetime import datetime, timezone
@@ -225,6 +229,7 @@ def auto_archive_draft(
 
             workpaper_service.register_source_file(db, ledger_id, source_file.id)
         except Exception:
+            logger.warning(f"Bare exception caught in {__name__}")
             pass
 
     return archive

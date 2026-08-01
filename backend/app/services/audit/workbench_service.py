@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AuditFinding, AuditRisk, ImportJob
 from app.services.audit.structured_import_service import build_dimension_pending_queue
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 DIMENSION_QUEUE_TYPES = {
     "non_standardized",
     "missing_in_master",

@@ -12,6 +12,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AccountingPeriod, Organization
 from app.models.ledger import Ledger
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def month_period_bounds(anchor: date) -> tuple[str, date, date]:
     """按自然月生成期间编码与起止日期。"""

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -230,5 +234,6 @@ def build_draft(
             reconciliation.status,
         )
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         pass
     return result

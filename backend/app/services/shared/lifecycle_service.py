@@ -14,6 +14,10 @@ from typing import Any
 from sqlalchemy.orm import Session, sessionmaker
 from app.models.lifecycle_log import LifecycleLog
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def log_lifecycle_event(
     db: Session,

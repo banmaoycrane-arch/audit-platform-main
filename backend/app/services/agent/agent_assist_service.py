@@ -1,5 +1,10 @@
 """对话式 Agent：鉴权上下文下规划并自动执行低风险 API 工具。"""
+
 from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 import json
 import re
@@ -53,16 +58,6 @@ _ONBOARDING_KEYWORDS = (
     "团队", "账簿", "项目", "绑定", "onboarding", "入门", "开始用", "没有账簿",
     "创建团队", "怎么开始", "初始化", "新用户",
 )
-
-
-def _resolve_tool_agent_role(tool: dict[str, Any], requested_role: str) -> str:
-    """测试阶段：请求角色不在白名单时回退到工具允许的第一个角色。"""
-    allowed = tool.get("allowed_agent_roles") or []
-    if requested_role in allowed:
-        return requested_role
-    if allowed:
-        return str(allowed[0])
-    return requested_role
 
 
 def _tool_catalog_for_prompt() -> list[dict[str, str]]:
@@ -153,7 +148,13 @@ def _execute_tool_calls(
         if not tool:
             pending.append({"tool_name": tool_name, "reason": "工具未在白名单注册"})
             continue
-        agent_role = _resolve_tool_agent_role(tool, agent_role)
+        if agent_role not in tool["allowed_agent_roles"]:
+            executed.append({
+                "tool_name": tool_name,
+                "status": "failed",
+                "error": "当前 Agent 角色无权调用该工具",
+            })
+            continue
         if tool["risk_level"] != "low" or tool["approval_required"]:
             pending.append({
                 "tool_name": tool_name,
@@ -176,6 +177,7 @@ def _execute_tool_calls(
                 "result": result.get("result"),
             })
         except Exception as exc:
+            logger.warning(f"Bare exception caught in {__name__}: {exc}", exc_info=True)
             executed.append({
                 "tool_name": tool_name,
                 "status": "failed",

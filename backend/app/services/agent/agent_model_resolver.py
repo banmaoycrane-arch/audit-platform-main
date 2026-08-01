@@ -12,6 +12,10 @@ from app.services.doc_parsing.parser_engine.config_service import (
     resolve_effective_llm_config,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def resolve_agent_llm_config(db: Session | None = None) -> dict[str, Any]:
     runtime = resolve_effective_llm_config(db)

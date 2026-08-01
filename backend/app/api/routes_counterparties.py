@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Counterparty
 from app.db.session import get_db
+from app.services.shared import counterparty_cache
 
 router = APIRouter(prefix="/api/counterparties", tags=["counterparties"])
 
@@ -60,9 +61,12 @@ def _to_dict(cp: Counterparty) -> dict[str, Any]:
 
 
 @router.get("")
-def list_counterparties(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_counterparties(
+    limit: int = Query(5000, ge=1, le=50000),
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
     try:
-        items = db.query(Counterparty).order_by(Counterparty.id).all()
+        items = db.query(Counterparty).order_by(Counterparty.id).limit(limit).all()
         return [_to_dict(cp) for cp in items]
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=422, detail=f"往来单位加载失败，请检查基础资料表结构或迁移状态：{exc}")
@@ -114,6 +118,7 @@ def batch_update_counterparty_role(
             if payload.role == "related_party":
                 cp.is_related_party = True
         db.commit()
+        counterparty_cache.invalidate()
         for cp in items:
             db.refresh(cp)
         return {
@@ -136,6 +141,7 @@ def create_counterparty(payload: CounterpartyCreate, db: Session = Depends(get_d
     cp = Counterparty(**payload.model_dump())
     db.add(cp)
     db.commit()
+    counterparty_cache.invalidate()
     db.refresh(cp)
     return _to_dict(cp)
 
@@ -151,6 +157,7 @@ def update_counterparty(cp_id: int, payload: CounterpartyUpdate, db: Session = D
         if value is not None:
             setattr(cp, key, value)
     db.commit()
+    counterparty_cache.invalidate()
     db.refresh(cp)
     return _to_dict(cp)
 
@@ -162,5 +169,6 @@ def disable_counterparty(cp_id: int, db: Session = Depends(get_db)) -> dict[str,
         raise HTTPException(status_code=404, detail="对方单位不存在")
     cp.is_active = False
     db.commit()
+    counterparty_cache.invalidate()
     db.refresh(cp)
     return _to_dict(cp)

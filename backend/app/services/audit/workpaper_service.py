@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
 import hashlib
 import os
 from datetime import datetime, timezone
@@ -63,6 +69,7 @@ def _read_workbook_metadata(storage_path: str, file_ext: str | None) -> tuple[in
         workbook.close()
         return len(sheet_names), {"sheets": sheet_names}
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         return None, None
 
 

@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
 from decimal import Decimal
 from typing import Any
 from datetime import datetime, timezone
@@ -17,6 +23,7 @@ def _invalidate_staging_preview_cache(job_id: int) -> None:
 
         invalidate_staging_preview_cache(job_id)
     except Exception:
+        logger.warning(f"Bare exception caught in {__name__}")
         pass
 from app.services.audit.audit_day_book_service import (
     DayBookProcessingResult,
@@ -338,6 +345,17 @@ def _resolve_matching_control_findings(
 ) -> int:
     from app.db.models import AuditFinding
 
+    # 一次性查询所有 pending 的内控 findings，避免循环内 N+1
+    findings = (
+        db.query(AuditFinding)
+        .filter(
+            AuditFinding.job_id == job_id,
+            AuditFinding.finding_type == "internal_control",
+            AuditFinding.status == "pending",
+        )
+        .all()
+    )
+
     resolved = 0
     for tag in tags:
         if not isinstance(tag, dict) or not tag.get("name_standardized"):
@@ -346,15 +364,6 @@ def _resolve_matching_control_findings(
         display = str(tag.get("display_name") or "")
         if not sub or not display:
             continue
-        findings = (
-            db.query(AuditFinding)
-            .filter(
-                AuditFinding.job_id == job_id,
-                AuditFinding.finding_type == "internal_control",
-                AuditFinding.status == "pending",
-            )
-            .all()
-        )
         for finding in findings:
             meta = finding.finding_metadata or {}
             if meta.get("source_sub_code") == sub and meta.get("control_defect") == "bank_name_not_standardized":

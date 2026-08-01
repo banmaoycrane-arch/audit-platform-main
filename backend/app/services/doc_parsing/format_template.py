@@ -6,6 +6,10 @@
 
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 表头禁止映射到 counterparty 的关键词（避免「存货单位」误匹配「单位」）
 _COUNTERPARTY_HEADER_BLOCKLIST = frozenset({
     "存货单位",

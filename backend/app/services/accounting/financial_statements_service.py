@@ -21,6 +21,10 @@ from app.services.accounting.reclassification_service import (
 )
 from app.services.basic_data import coa_service
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 CLOSED_PERIOD_STATUSES = frozenset({"closed"})
 PRESENTATION_MODE_BALANCE = "balance"
 PRESENTATION_MODE_NET_MOVEMENT = "net_movement"
@@ -970,7 +974,7 @@ def income_statement(
     return {
         **period_meta,
         "format": "classic_income_statement",
-        "report_title": "损益表",
+        "report_title": "利润表",
         "revenue": revenue,
         "expense": expense,
         "ytd_revenue": ytd_revenue,

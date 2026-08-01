@@ -1,3 +1,4 @@
+import logging
 import time
 from typing import Any
 
@@ -19,6 +20,7 @@ from app.services.doc_parsing.parser_engine.parse_quality_metric_service import 
 from app.storage.local_storage import resolve_storage_path
 
 router = APIRouter(prefix="/api/parser-engine", tags=["parser-engine"])
+logger = logging.getLogger(__name__)
 
 
 def _ensure_organization(db: Session, organization_id: int) -> None:
@@ -109,8 +111,8 @@ def list_excel_sheets_endpoint(
     finally:
         try:
             os.unlink(temp_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("临时文件清理失败 path=%s, error=%s", temp_path, exc)
 
 
 @router.post("/parse-file", response_model=ParseResultResponse)
@@ -187,8 +189,8 @@ async def parse_file_endpoint(
     finally:
         try:
             os.unlink(temp_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("临时文件清理失败 path=%s, error=%s", temp_path, exc)
 
 
 @router.post("/parse-source-file/{file_id}", response_model=ParseResultResponse)

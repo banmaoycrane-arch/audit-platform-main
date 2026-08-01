@@ -29,6 +29,10 @@ from sqlalchemy.orm import Session
 
 from app.db.models import TagCategory
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # 简单内存缓存，按 (ledger_id, code) 缓存分类 ID
 _category_cache: dict[tuple[int, str], int] = {}

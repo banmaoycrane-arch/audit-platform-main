@@ -24,6 +24,10 @@ import app.services.accounting.financial_statements_service as financial_stateme
 import app.services.accounting.voucher_service as voucher_service
 from app.services.accounting.voucher_service import VoucherValidationError
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 PL_ACCOUNT_CODE = "4103"  # 本年利润
 PL_TRANSFER_VOUCHER_PREFIX = "转-期末-"

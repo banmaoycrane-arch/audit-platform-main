@@ -62,3 +62,13 @@ def get_current_ledger(
         )
 
     return ledger_id
+
+
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    """要求当前用户为系统管理员。"""
+    if current_user.platform_role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限",
+        )
+    return current_user
