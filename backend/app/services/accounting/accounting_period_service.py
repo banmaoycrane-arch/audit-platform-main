@@ -224,9 +224,20 @@ class AccountingPeriodService:
 
         old_status = period.status
 
-        # 结账前必须已显式结转损益；不允许在结账时自动结转，避免绕过用户确认
+        # 结账前必须已结转损益；若未结转则自动尝试（需保证资产负债表平衡）
         if period.status != "pl_transferred":
-            raise ValueError("尚未结转损益，请先执行损益结转后再结账")
+            from app.services.accounting import period_close_service
+
+            try:
+                period_close_service.ensure_pl_transfer_ready(
+                    self.db,
+                    effective_ledger_id,
+                    period_id,
+                    auto_apply=True,
+                )
+                period = self.db.get(AccountingPeriod, period_id)
+            except (ValueError, PermissionError) as exc:
+                raise ValueError(f"尚未结转损益，请先执行损益结转后再结账：{exc}") from exc
 
         from app.services.accounting import financial_statements_service
         balance_sheet = financial_statements_service.balance_sheet(self.db, effective_ledger_id, period_id)

@@ -69,8 +69,10 @@ def get_category_by_code(
     if use_cache and cache_key in _category_cache:
         category_id = _category_cache[cache_key]
         category = db.get(TagCategory, category_id)
-        if category is not None:
+        if category is not None and category.code == normalized:
             return category
+        # 缓存失效或污染（code 不匹配），清除缓存并回退到数据库查询
+        _category_cache.pop(cache_key, None)
 
     category = (
         db.query(TagCategory)

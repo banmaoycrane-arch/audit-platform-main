@@ -165,15 +165,29 @@ class TestL6SmokeA10PeriodClose:
         assert bs_before.status_code == 200
         assert bs_before.json()["is_balanced"] is False
 
-        # 未结转不能结账
-        close_blocked = test_client.post(
+        # 未结转直接结账：服务端会自动尝试损益结转（无需先手动点结转）
+        close_auto = test_client.post(
             f"/api/accounting-periods/{period_id}/close",
             headers=headers,
         )
-        assert close_blocked.status_code == 400
-        assert "尚未结转损益" in close_blocked.json()["detail"]
+        assert close_auto.status_code == 200
+        assert close_auto.json()["status"] == "closed"
 
-        # 损益结转
+        # 重新打开期间，按显式流程再走一遍，验证 reopen 后仍可结账
+        reopen = test_client.post(
+            f"/api/accounting-periods/{period_id}/reopen",
+            headers=headers,
+        )
+        assert reopen.status_code == 200
+
+        # 先反结转清除第一次自动生成的结转凭证
+        reverse = test_client.post(
+            f"/api/accounting-periods/{period_id}/pl-transfer/reverse",
+            headers=headers,
+        )
+        assert reverse.status_code == 200
+
+        # 显式损益结转
         pl = test_client.post(
             f"/api/accounting-periods/{period_id}/pl-transfer",
             headers=headers,
@@ -192,7 +206,7 @@ class TestL6SmokeA10PeriodClose:
         assert bs_after.status_code == 200
         assert bs_after.json()["is_balanced"] is True
 
-        # 结账
+        # 显式结转后结账
         close_ok = test_client.post(
             f"/api/accounting-periods/{period_id}/close",
             json={"operator": "l6_smoke", "reason": "A10冒烟结账"},

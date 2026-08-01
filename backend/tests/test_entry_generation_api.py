@@ -22,6 +22,12 @@ from app.models.lifecycle_log import LifecycleLog
 from app.db.session import Base, get_db
 from app.main import app
 from app.services.shared.lifecycle_service import log_lifecycle_event
+from app.core.security import create_access_token
+
+
+def _auth_headers(user_id: int) -> dict[str, str]:
+    token = create_access_token({"sub": str(user_id)})
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
@@ -165,7 +171,7 @@ def _seed(TestingSessionLocal):
             )
         )
         db.commit()
-        return job.id, period.id
+        return job.id, period.id, user.id
     finally:
         db.close()
 
@@ -403,7 +409,7 @@ def test_bank_only_generates_blocked_draft_and_requires_business_document(client
 
 def test_generate_drafts_apply_rules(client):
     test_client, TestingSessionLocal = client
-    job_id, period_id = _seed(TestingSessionLocal)
+    job_id, period_id, _ = _seed(TestingSessionLocal)
 
     resp = test_client.post(
         f"/api/import-jobs/{job_id}/generate-entries",
@@ -427,7 +433,7 @@ def test_generate_drafts_apply_rules(client):
 
 def test_commit_drafts_persists(client):
     test_client, TestingSessionLocal = client
-    job_id, period_id = _seed(TestingSessionLocal)
+    job_id, period_id, _ = _seed(TestingSessionLocal)
 
     drafts_resp = test_client.post(
         f"/api/import-jobs/{job_id}/generate-entries",
@@ -462,7 +468,7 @@ def test_commit_drafts_persists(client):
 
 def test_ai_draft_manual_switch_log_records_audit_objective_gap(client):
     test_client, TestingSessionLocal = client
-    job_id, period_id = _seed(TestingSessionLocal)
+    job_id, period_id, _ = _seed(TestingSessionLocal)
     payload = {
         "period_id": period_id,
         "reason": "原始资料不能充分识别业务，真实性、准确性、截止性、充分性结论不足，转人工补充。",
@@ -503,7 +509,7 @@ def test_ai_draft_manual_switch_log_records_audit_objective_gap(client):
 
 def test_commit_drafts_extracts_auxiliary_and_source_tags_from_metadata(client):
     test_client, TestingSessionLocal = client
-    job_id, period_id = _seed(TestingSessionLocal)
+    job_id, period_id, _ = _seed(TestingSessionLocal)
     drafts = [
         {
             "voucher_no": "记-辅助-001",
@@ -560,7 +566,7 @@ def test_commit_drafts_extracts_auxiliary_and_source_tags_from_metadata(client):
         tags = db.query(EntryTag).filter(EntryTag.entry_id == entry_id).all()
         tag_pairs = {(tag.tag_type, tag.tag_value) for tag in tags}
         assert ("counterparty", "服务商B") in tag_pairs
-        assert ("counterparty", "profit_loss") in tag_pairs
+        assert ("account_category", "profit_loss") in tag_pairs
         assert ("source", "source:ai_generated") in tag_pairs
         assert ("evidence_status", "sufficient") in tag_pairs
         assert all(tag.vector_pending for tag in tags)
@@ -570,7 +576,7 @@ def test_commit_drafts_extracts_auxiliary_and_source_tags_from_metadata(client):
 
 def test_commit_manual_entries_persists_with_source_tag(client):
     test_client, TestingSessionLocal = client
-    job_id, period_id = _seed(TestingSessionLocal)
+    job_id, period_id, user_id = _seed(TestingSessionLocal)
     db = TestingSessionLocal()
     try:
         job = db.get(ImportJob, job_id)
@@ -617,7 +623,10 @@ def test_commit_manual_entries_persists_with_source_tag(client):
     assert payload["count"] == 2
     assert payload["job_id"]
 
-    entries_resp = test_client.get(f"/api/entries?import_job_id={payload['job_id']}")
+    entries_resp = test_client.get(
+        f"/api/entries?import_job_id={payload['job_id']}",
+        headers=_auth_headers(user_id),
+    )
     assert entries_resp.status_code == 200
     entries_payload = entries_resp.json()
     entries = entries_payload["items"] if isinstance(entries_payload, dict) else entries_payload
@@ -638,7 +647,7 @@ def test_commit_manual_entries_persists_with_source_tag(client):
         all_tags = db.query(EntryTag).filter(EntryTag.entry_id.in_(payload["entry_ids"])).all()
         tag_pairs = {(tag.tag_type, tag.tag_value) for tag in all_tags}
         assert ("counterparty", "A公司") in tag_pairs
-        assert ("counterparty", "asset") in tag_pairs
+        assert ("account_category", "asset") in tag_pairs
         assert ("business_type", "销售收入") in tag_pairs
         manual_job = db.get(ImportJob, payload["job_id"])
         assert manual_job.source_type == "manual_entry"
@@ -649,7 +658,7 @@ def test_commit_manual_entries_persists_with_source_tag(client):
 
 def test_commit_manual_entries_ignores_ai_blocked_metadata(client):
     test_client, TestingSessionLocal = client
-    _, period_id = _seed(TestingSessionLocal)
+    _, period_id, _ = _seed(TestingSessionLocal)
     drafts = [
         {
             "voucher_no": "记-人工-001",
@@ -715,7 +724,7 @@ def test_commit_manual_entries_ignores_ai_blocked_metadata(client):
 
 def test_commit_manual_entries_returns_business_error_when_unbalanced(client):
     test_client, TestingSessionLocal = client
-    _, period_id = _seed(TestingSessionLocal)
+    _, period_id, _ = _seed(TestingSessionLocal)
     drafts = [
         {
             "voucher_no": "记-人工-002",

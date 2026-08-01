@@ -1,9 +1,45 @@
 # 代码真值状态（Code Truth Status）
 
 > **文档类型**: 项目状态唯一真值来源  
-> **更新日期**: 2026-07-12  
-> **代码基准**: Git `main` @ `00cfaf4`（已 push `origin/main`）  
+> **更新日期**: 2026-08-01（全量 pytest 872 绿、Alembic head 0033 实测后修订）  
+> **代码基准**: Git `main` @ `9579069`（含数据/运维负债、pytest 失败、安全修复；未含未跟踪 0028-0033 迁移文件）  
+> **人读总览**: [project-status-overview.md](./project-status-overview.md)（三层真值 · 下一步）  
 > **维护规则**: 任何规划文档、spec checklist、进度结论 **不得与此文冲突**；冲突时以本文 + 代码为准
+
+---
+
+## 〇、生产库部署真值（2026-07-21 实测）
+
+| 项 | 值 |
+|----|-----|
+| 服务器 | `47.122.117.76` · Docker 卷 `/data/finance_audit.db` |
+| 入口 | HTTPS **`:8443`**（官网 nginx 占 80；8080 已关） |
+| `prod_schema_audit.py` | **PASS**（模型表/列缺失 = 0） |
+| DB 表数 | **122** |
+| 模型表数（容器） | **120**（另有 DB-only `global_settings`） |
+| `alembic_version`（生产） | **`0028_tax_city_egress_pool`** |
+| 登录关键列 | `ledgers.is_working` / `project_id` **OK** |
+| 税务出口池表 | 4 表已存在；`fix_legacy_db.py` 仍作兜底 |
+| 业务数据 | 有用户/账簿；**分录≈0、审计任务=0** → 结构齐、L6 样例未跑 |
+
+### 〇.1 Alembic 三层对齐（2026-08-01 实测）
+
+| 层 | Alembic 尖端 | 说明 |
+|----|--------------|------|
+| Git `origin/main` 文件树 | **`0027_cash_flow_item`** | 远程仍停留在 `4d8dd89`；本地工作区已前进到 `9579069` |
+| 本机工作区 / 测试环境 | **`0033_ops_missing_indexes`** | `9579069` 已包含 `0028`–`0033`；已通过 `alembic upgrade head` 对齐 |
+| 生产 stamp（2026-07-21） | **`0028_tax_city_egress_pool`** | 与 Git 文件树脱节；**下次部署前必须收口到 0033** |
+
+**上线纪律**：改模型必须同时更新 Alembic **与** `deploy/fix_legacy_db.py`，并用 `prod_deploy_full.sh` / `apply_prod_schema.sh`（见 [DEPLOY_SYNC.md](../../deploy/DEPLOY_SYNC.md)）。本次新增 `0030`–`0033` 涉及性能索引、数据完整性约束、脏数据清理，部署前需在 staging 复验。
+
+### 〇.2 本机工作区相对 `main`（摘要）
+
+详见 [project-status-overview.md §4](./project-status-overview.md)。要点：
+
+- **未入库文档**: OS 总纲、实施排期、事件工单规格、端口/域名规划  
+- **未入库迁移**: `0028`、`0029`  
+- **未提交代码**: 模块登记增强、部署 8443 相关、`Contract.deep_analysis` 等  
+- **勿提交**: `backend/*test*.txt`、`mypy_output_full.txt` 等临时日志
 
 ---
 
@@ -25,15 +61,15 @@ cd audit-platform-main\backend
 
 ---
 
-## 二、代码规模（2026-07-05 静态扫描）
+## 二、代码规模（2026-07-05 静态扫描；2026-07-21 路由数校正）
 
 | 指标 | 数值 | 路径 |
 |------|------|------|
-| 后端路由模块 | **53** | `backend/app/api/routes_*.py` |
-| HTTP 端点 | **~366** | `@router.get/post/...` |
+| 后端路由模块 | **57**（原文档 53，已增 tax_egress 等） | `backend/app/api/routes_*.py` |
+| HTTP 端点 | **~366+** | `@router.get/post/...` |
 | 系统端点 | **2** | `/`, `/health` |
-| **API 合计** | **~368** | `main.py` 注册 53 router |
-| 后端测试用例 | **677** | `backend/tests/` |
+| **API 合计** | **~370+** | `main.py` 注册 router |
+| 后端测试用例 | **872** | `backend/tests/` |
 | 前端页面组件 | **77+** | `frontend/src/pages/**/*.tsx` |
 | 服务层文件 | **123** | `backend/app/services/**/*.py` |
 | 活跃 spec 目录 | **60** | `.trae/specs/*/spec.md` |
@@ -145,7 +181,9 @@ backend/app/services/
 |------|------|----------|------------|
 | 印章识别 | **L4** | `routes_seals.py` + basic_data/seal_* + 测试 | P2，不压过 P2/P3 主线 |
 | 文档标签 | **L4–L5** | `routes_document_tags.py` + DocumentTagsPage | 与 entry-tags 重叠，待合并 |
-| Agent / LLM | **L4** | `routes_agent`, `llm-resolution` | 增强项 |
+| Agent / LLM | **L4** | `routes_agent`, `llm-resolution`；前端标「实验功能」 | 增强项，非主路径 |
+| 税务城市出口池 | **L4** | `routes_tax_egress` + `0028_tax_city_egress_pool`；**未接真实税局** | 可选增值；主线仍为文件导入记账 |
+| 经济事件工单 | **L1** | 正式规格在工作区：`economic-event-workorder`（**尚未进 origin/main**）；**代码未开工** | OS 调度单元；排期见 [implementation-plan-and-schedule.md](./implementation-plan-and-schedule.md)；总览见 [project-status-overview.md](./project-status-overview.md) |
 | 采购三单匹配 | **L2** | `routes_purchase_match` + 占位页 | 不做生产承诺 |
 | D11 扩展模块 | **L2** | PlaceholderModulePage 等 | Backlog |
 
@@ -155,11 +193,11 @@ backend/app/services/
 
 | 项 | 状态 | 说明 |
 |----|------|------|
-| 测试收集 | **677** | `pytest tests --collect-only` |
-| 全量通过 | **677 passed, 0 failed** | 2026-07-06 S1-5 全量跑绿；~290s |
-| 阶段1修复摘要 | 见下 | isolated SQLite fixture、pl_transferred 结账前置、规则引擎测试隔离、合同 party commit、LLM import 路径 |
-| mypy | **~351 错** | `TECH_DEBT.md` TD-001；strict 已关闭 |
-| 覆盖率 | **~39%** | `TECH_DEBT.md` TD-003 |
+| 测试收集 | **872** | `pytest tests --collect-only` |
+| 全量通过 | **872 passed, 0 failed** | 2026-08-01 实测；~430s |
+| 阶段1修复摘要 | 见下 | 已修复：close_period 自动损益结转、counterparty/TagCategory 进程缓存污染兜底、entry_generation_api 认证 headers、A10/A11 冒烟流程 |
+| mypy | **0 错** | 276 source files，Success: no issues found |
+| 覆盖率 | **~39%** | `TECH_DEBT.md` TD-003；核心服务已补充 90 个测试 |
 | CI | 已配置 | `.github/workflows/ci.yml` |
 | 本地密钥 | 未入库 | `backend/.env` gitignore，需本地配置 SECRET_KEY |
 
@@ -169,23 +207,25 @@ backend/app/services/
 
 ### P0 — 阻塞发布
 
-1. ~~**全量 pytest 跑绿**~~ ⚠️ 2026-07-06 曾 677/677；**2026-07-09 实测有失败项**，发布前须再跑全绿（见 [bookkeeping-v1-decision-record.md §7](../backend/docs/bookkeeping-v1-decision-record.md)）
-2. **记账 v1.0 L6 人工验收**（路径 A 签字；**先验收再修** — 见 [bookkeeping-v1-decision-record.md](../backend/docs/bookkeeping-v1-decision-record.md)）
-3. **审计 L6 路径 B**（与记账 v1.0 独立，可并行）
-4. **API 收敛 Phase 2**：统一 vouchers 主路径 — **L6 签字后**（章程冻结）
-5. **回写本文 §3.5**：staging/维度增量 commit 基准与测试数
+1. ~~**全量 pytest 跑绿**~~ ✅ 2026-08-01 实测 872/872 passed
+2. **提交 git 变更**：已修改代码 + 未跟踪规划文档 + Alembic 0028–0033 迁移 → 进入 `origin/main`
+3. **记账 v1.0 L6 人工验收**（路径 A 签字；**先验收再修** — 见 [bookkeeping-v1-decision-record.md](../backend/docs/bookkeeping-v1-decision-record.md)）
+4. **审计 L6 路径 B**（与记账 v1.0 独立，可并行）
+5. **API 收敛 Phase 2**：统一 vouchers 主路径 — **L6 签字后**（章程冻结）
+6. **生产 Alembic 收口**：部署前将 stamp 从 0028 升级到 0033，并在 staging 复验
 
 ### P1 — 主线质量
 
-4. **解析 P2 验收**：修正回流 + 96% 稳定性指标（非新功能）
-5. **Money 前端迁移**（TECH_DEBT TD-002）
-6. **清理服务层根目录重复文件**（seal_*、project_service 等）
+7. **解析 P2 验收**：修正回流 + 96% 稳定性指标（非新功能）
+8. ~~**Money 前端迁移**~~ ✅ 已完成（见 TECH_DEBT TD-002）
+9. **清理服务层根目录重复文件**（seal_*、project_service 等）
+10. **API 边界治理 Phase 1–3**：导入链路收敛、entry-tags/document-tags 合并
 
 ### P2 — 治理与文档
 
-7. 执行 `api-boundary-governance-plan.md` Phase 1–3
-8. 合并 entry-tags / document-tags 设计 spec
-9. 更新各 spec checklist：**不得写与本文矛盾的「已完成」**
+11. 更新各 spec checklist：**不得写与本文矛盾的「已完成」**
+12. 合并 entry-tags / document-tags 设计 spec
+13. 经济事件工单（D14）进入 M1 开发
 
 ### 明确不做（当前 Sprint）
 
@@ -201,9 +241,13 @@ backend/app/services/
 |-------------|----------|
 | `current-risks` 风险2：B1–B7 未开发 | ❌ 已有 `parser-voucher` + 预览页 |
 | `module-refactoring-plan` 任务1「待执行」 | ❌ 已执行（99a15db），残留清理待做 |
-| `next-execution-roadmap` checklist「88 passed」 | ❌ 现为 677 用例全绿（2026-07-06） |
+| `next-execution-roadmap` checklist「88 passed」 | ❌ 现为 **872** 用例（2026-08-01 全绿） |
 | `development-plan` P1「待做 embedding 修复」 | ✅ 已迁至 `doc_parsing/embedding_service.py` |
 | 多个 spec「L5 全部完成」 | ⚠️ 仅 API/页面存在，L6 未统一验收 |
+| 「生产无 alembic_version / 仅 116 表」 | ❌ **已过时**：2026-07-21 为 122 表 + 生产 stamp **`0028`** |
+| 「Git head 迁移已是 0028/0029」 | ❌ **错误**：`origin/main` 迁移文件尖端仍是 **`0027`**；本机 head 已到 **`0033`** |
+| 「事件工单 / OS 排期已在远程」 | ❌ **错误**：规格与排期在本机未跟踪；远程尚未收口 |
+| pytest 全量仍有 1 失败 | ❌ 2026-08-01 实测 **872/872 passed** |
 
 ---
 
@@ -211,7 +255,10 @@ backend/app/services/
 
 ```text
 AGENTS.md                         财务规则 + API 原则 + 任务顺序
+project-status-overview.md          ★ 人读总览（三层真值 / 下一步）
 code-truth-status.md（本文）       ★ 代码真值 / 完成度 / 待办
+implementation-plan-and-schedule.md 实施排期（知识储备分离）
+ai-native-finance-os-definition.md  OS 总纲
 api-boundary-governance-plan.md   API 重叠与收敛细则
 requirements-domain-index.md      需求域与 spec 归属
 current-risks-and-tasks.md          派生：风险与任务摘要 → 链到本文
@@ -219,4 +266,4 @@ development-plan.md                 派生：阶段目标 → 链到本文 §三
 .trae/specs/*/                      单一增量；checklist 不得违背本文
 ```
 
-**更新触发条件**: 每次 `main` 合并 significant PR、全量 pytest 结果变化、或 L6 验收完成时，更新本文日期与 §三–§五。
+**更新触发条件**: 每次 `main` 合并 significant PR、全量 pytest 结果变化、生产复测、或 L6 验收完成时，更新本文日期与 §〇–§五；并同步 [project-status-overview.md](./project-status-overview.md)。

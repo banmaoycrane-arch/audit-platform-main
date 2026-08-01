@@ -52,6 +52,7 @@ Acceptance Level:
 | D11 | 业务模块 | 银行、税务、固定资产、进销存等模块 |
 | D12 | 缺陷修复与环境诊断 | 登录修复、注册修复、IDE 保存、JWT、后端可用性等 |
 | D13 | 项目计划、复盘、路线图 | 计划、回顾、验收路径、路线图、项目状态 |
+| D14 | 经济事件与事件工单 | 事件卡片、状态机、事件事务、与分录/Tag/证据关联；AI 原生 OS 调度单元 |
 
 ## D01 身份认证与访问控制
 
@@ -180,7 +181,16 @@ Acceptance Level:
 | multi-agent-cli-execution-roadmap.md | planning | 长期路线图 | Agent 执行型能力规划，位于 documents |
 | agent-architecture-plan.md | planning | 架构计划 | Agent 架构计划，位于 documents |
 
-边界规则：Agent 不绕过后端权限，不直接生成正式凭证，不直接执行结账、反结账等高风险财务操作。
+边界规则：Agent 不绕过后端权限，不直接生成正式凭证，不直接执行结账、反结账等高风险财务操作。**写意图应落成 D14 事件工单后再调 Tool**（见 economic-event-workorder）。
+
+## D14 经济事件与事件工单
+
+| Spec | 状态 | 角色 | 说明 |
+|---|---|---|---|
+| economic-event-workorder | active-main | 主规格 | 事件卡片、状态机、事件事务、关联分录/证据、steps 留痕 |
+| ai-native-finance-os-definition.md | planning | OS 总纲 | OS 定义、技术栈、开发内容；位于 documents |
+
+边界规则：事件不存借贷核算金额；查询不开工单；不替代记账 L6 路径；不新增旁路导入链。依赖 D04/D09/D05；编排 Agent 时与 D10 协同。
 
 ## D11 银行、税务、库存、固定资产等业务模块
 

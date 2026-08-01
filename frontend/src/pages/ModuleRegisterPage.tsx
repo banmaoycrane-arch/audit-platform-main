@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd'
-import { DeleteOutlined, EditOutlined, FileDoneOutlined, FolderOutlined, MailOutlined, ShoppingOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Collapse, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd'
+import { DeleteOutlined, EditOutlined, FileDoneOutlined, FolderOutlined, MailOutlined, ShoppingOutlined, EyeOutlined, WarningOutlined, InfoCircleOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ModuleRegisterItem, ModuleRegisterListResponse } from '../api/client'
@@ -119,6 +119,7 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
   const [executionStatus, setExecutionStatus] = useState<string | undefined>()
   const [editingRow, setEditingRow] = useState<ModuleRegisterItem | null>(null)
   const [correctingRow, setCorrectingRow] = useState<ModuleRegisterItem | null>(null)
+  const [viewingAnalysisRow, setViewingAnalysisRow] = useState<ModuleRegisterItem | null>(null)
   const [form] = Form.useForm()
   const [correctForm] = Form.useForm()
 
@@ -177,6 +178,14 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
     }
     setCorrectingRow(row)
     correctForm.setFieldsValue({ ...pickInitialValues(moduleKey, row), correction_reason: '' })
+  }
+
+  const openAnalysisModal = (row: ModuleRegisterItem) => {
+    if (!row.deep_analysis) {
+      message.info('该合同暂无深度分析结果')
+      return
+    }
+    setViewingAnalysisRow(row)
   }
 
   const handleEditSubmit = async () => {
@@ -324,10 +333,11 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
     {
       title: '操作',
       key: 'actions',
-      width: 260,
+      width: 340,
       fixed: 'right' as const,
       render: (_: unknown, row: ModuleRegisterItem) => (
         <Space size="small" wrap>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => openAnalysisModal(row)} disabled={!row.deep_analysis}>深度分析</Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(row)} disabled={!supportsRowOperations}>编辑</Button>
           <Button size="small" icon={<FileDoneOutlined />} onClick={() => openCorrectModal(row)} disabled={!supportsRowOperations}>更正</Button>
           <Button size="small" icon={<FolderOutlined />} onClick={() => handleArchive(row)} disabled={!supportsRowOperations}>归档</Button>
@@ -432,6 +442,195 @@ export function ModuleRegisterPage({ fixedModuleKey }: { fixedModuleKey?: string
             <Input.TextArea rows={3} placeholder="例如：OCR识别金额错误，经人工核对合同原文后更正" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={`合同深度分析 - ${viewingAnalysisRow?.contract_name || ''}`}
+        open={!!viewingAnalysisRow?.deep_analysis}
+        onCancel={() => setViewingAnalysisRow(null)}
+        footer={null}
+        width={900}
+        destroyOnClose
+      >
+        {viewingAnalysisRow?.deep_analysis && (
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {viewingAnalysisRow.deep_analysis.overall_risk_level === 'critical' && (
+                <Tag color="red" icon={<WarningOutlined />}>严重风险</Tag>
+              )}
+              {viewingAnalysisRow.deep_analysis.overall_risk_level === 'high' && (
+                <Tag color="orange" icon={<WarningOutlined />}>高风险</Tag>
+              )}
+              {viewingAnalysisRow.deep_analysis.overall_risk_level === 'medium' && (
+                <Tag color="gold" icon={<ClockCircleOutlined />}>中风险</Tag>
+              )}
+              {viewingAnalysisRow.deep_analysis.overall_risk_level === 'low' && (
+                <Tag color="green" icon={<CheckCircleOutlined />}>低风险</Tag>
+              )}
+              {viewingAnalysisRow.deep_analysis.overall_risk_level === 'info' && (
+                <Tag color="blue" icon={<InfoCircleOutlined />}>信息提示</Tag>
+              )}
+              <Tag>风险评分: {viewingAnalysisRow.deep_analysis.risk_score}</Tag>
+              <Tag>分析时间: {viewingAnalysisRow.deep_analysis.analysis_time}</Tag>
+            </div>
+
+            <Paragraph strong>{viewingAnalysisRow.deep_analysis.analysis_summary}</Paragraph>
+
+            <Collapse defaultActiveKey={['summary', 'contradictions', 'missing', 'non_standard', 'ambiguous', 'accounting']}>
+              {viewingAnalysisRow.deep_analysis.all_risk_items?.length > 0 && (
+                <Collapse.Panel header={`风险项汇总 (${viewingAnalysisRow.deep_analysis.all_risk_items.length})`} key="summary">
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    {viewingAnalysisRow.deep_analysis.all_risk_items.map((item, index) => (
+                      <Card key={index} size="small" style={{ borderLeft: '4px solid ' + 
+                        (item.risk_level === 'critical' ? '#ff4d4f' :
+                         item.risk_level === 'high' ? '#fa8c16' :
+                         item.risk_level === 'medium' ? '#faad14' : '#52c41a') }}>
+                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text strong>{item.title}</Text>
+                            <Tag color={item.risk_level === 'critical' ? 'red' :
+                                        item.risk_level === 'high' ? 'orange' :
+                                        item.risk_level === 'medium' ? 'gold' : 'green'}>
+                              {item.risk_level === 'critical' ? '严重' :
+                               item.risk_level === 'high' ? '高' :
+                               item.risk_level === 'medium' ? '中' : '低'}
+                            </Tag>
+                          </div>
+                          <Text type="secondary">{item.description}</Text>
+                          {item.accounting_impact && (
+                            <Paragraph style={{ margin: 0 }}>
+                              <Text strong>会计影响：</Text>{item.accounting_impact}
+                            </Paragraph>
+                          )}
+                          {item.recommendation && (
+                            <Paragraph style={{ margin: 0 }}>
+                              <Text strong>建议：</Text>{item.recommendation}
+                            </Paragraph>
+                          )}
+                        </Space>
+                      </Card>
+                    ))}
+                  </Space>
+                </Collapse.Panel>
+              )}
+
+              {viewingAnalysisRow.deep_analysis.contradictions?.length > 0 && (
+                <Collapse.Panel header={`条款矛盾 (${viewingAnalysisRow.deep_analysis.contradictions.length})`} key="contradictions">
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    {viewingAnalysisRow.deep_analysis.contradictions.map((item, index) => (
+                      <Card key={index} size="small" type="inner">
+                        <Alert type="error" message={`矛盾类型：${item.contradiction_type}`} showIcon />
+                        <Paragraph style={{ margin: '8px 0' }}>
+                          <Text strong>条款A：</Text>{item.clause_a}
+                        </Paragraph>
+                        <Paragraph style={{ margin: '8px 0' }}>
+                          <Text strong>条款B：</Text>{item.clause_b}
+                        </Paragraph>
+                        <Paragraph style={{ margin: 0 }}>
+                          <Text strong>矛盾描述：</Text>{item.description}
+                        </Paragraph>
+                      </Card>
+                    ))}
+                  </Space>
+                </Collapse.Panel>
+              )}
+
+              {viewingAnalysisRow.deep_analysis.missing_elements?.length > 0 && (
+                <Collapse.Panel header={`缺失要素 (${viewingAnalysisRow.deep_analysis.missing_elements.length})`} key="missing">
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    {viewingAnalysisRow.deep_analysis.missing_elements.map((item, index) => (
+                      <Card key={index} size="small" type="inner">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text strong>{item.element_name}</Text>
+                          <Tag color={item.importance === '高' ? 'red' : item.importance === '中' ? 'orange' : 'blue'}>
+                            {item.importance}
+                          </Tag>
+                        </div>
+                        <Paragraph style={{ margin: '8px 0' }}>{item.description}</Paragraph>
+                        <Paragraph style={{ margin: 0 }}>
+                          <Text strong>建议：</Text>{item.suggested_action}
+                        </Paragraph>
+                      </Card>
+                    ))}
+                  </Space>
+                </Collapse.Panel>
+              )}
+
+              {viewingAnalysisRow.deep_analysis.non_standard_clauses?.length > 0 && (
+                <Collapse.Panel header={`非标条款 (${viewingAnalysisRow.deep_analysis.non_standard_clauses.length})`} key="non_standard">
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    {viewingAnalysisRow.deep_analysis.non_standard_clauses.map((item, index) => (
+                      <Card key={index} size="small" type="inner">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text strong>{item.clause_type}</Text>
+                          <Tag color={item.risk_level === 'critical' ? 'red' :
+                                      item.risk_level === 'high' ? 'orange' :
+                                      item.risk_level === 'medium' ? 'gold' : 'green'}>
+                            {item.risk_level === 'critical' ? '严重' :
+                             item.risk_level === 'high' ? '高' :
+                             item.risk_level === 'medium' ? '中' : '低'}
+                          </Tag>
+                        </div>
+                        <Paragraph style={{ margin: '8px 0' }}>{item.clause_text}</Paragraph>
+                        <Paragraph style={{ margin: '8px 0' }}>
+                          <Text strong>偏离标准：</Text>{item.deviation_from_standard}
+                        </Paragraph>
+                        <Paragraph style={{ margin: 0 }}>
+                          <Text strong>会计处理：</Text>{item.accounting_treatment}
+                        </Paragraph>
+                      </Card>
+                    ))}
+                  </Space>
+                </Collapse.Panel>
+              )}
+
+              {viewingAnalysisRow.deep_analysis.ambiguous_expressions?.length > 0 && (
+                <Collapse.Panel header={`模糊表述 (${viewingAnalysisRow.deep_analysis.ambiguous_expressions.length})`} key="ambiguous">
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    {viewingAnalysisRow.deep_analysis.ambiguous_expressions.map((item, index) => (
+                      <Card key={index} size="small" type="inner">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text strong>{item.ambiguity_type}</Text>
+                        </div>
+                        <Paragraph style={{ margin: '8px 0' }}>
+                          <Text strong>模糊表述：</Text>{item.expression}
+                        </Paragraph>
+                        <Paragraph style={{ margin: '8px 0' }}>
+                          <Text strong>可能解读：</Text>{item.possible_interpretations.join('；')}
+                        </Paragraph>
+                        <Paragraph style={{ margin: 0 }}>
+                          <Text strong>建议澄清：</Text>{item.recommended_clarification}
+                        </Paragraph>
+                      </Card>
+                    ))}
+                  </Space>
+                </Collapse.Panel>
+              )}
+
+              <Collapse.Panel header="会计处理提示" key="accounting">
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Card size="small" type="inner">
+                    <Text strong>会计处理要点：</Text>
+                    <Paragraph>{viewingAnalysisRow.deep_analysis.accounting_notes}</Paragraph>
+                  </Card>
+                  <Card size="small" type="inner">
+                    <Text strong>收入确认考虑：</Text>
+                    <Paragraph>{viewingAnalysisRow.deep_analysis.revenue_recognition_considerations}</Paragraph>
+                  </Card>
+                  <Card size="small" type="inner">
+                    <Text strong>预计负债要求：</Text>
+                    <Paragraph>{viewingAnalysisRow.deep_analysis.provision_requirements}</Paragraph>
+                  </Card>
+                </Space>
+              </Collapse.Panel>
+            </Collapse>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Tag>分析条款数：{viewingAnalysisRow.deep_analysis.total_clauses_analyzed}</Tag>
+              <Tag color="orange">发现风险条款：{viewingAnalysisRow.deep_analysis.risk_clauses_found}</Tag>
+            </div>
+          </Space>
+        )}
       </Modal>
     </Card>
   )

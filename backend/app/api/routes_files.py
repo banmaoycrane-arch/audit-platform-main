@@ -135,6 +135,9 @@ def _invalidate_counterparty_cache() -> None:
 def _find_counterparty_match(db: Session, item: SourceFile) -> tuple[Counterparty | None, str | None, str | None]:
     parsed = _extract_parse_summary(item)
     counterparties = _get_active_counterparties(db)
+    # 缓存可能跨请求/测试过期，空缓存时直接查库兜底
+    if not counterparties:
+        counterparties = {cp.id: cp for cp in db.query(Counterparty).filter(Counterparty.is_active == True).all()}
     search_sources = [
         ("文件名", item.filename or ""),
         ("解析摘要", parsed.get("summary") or ""),

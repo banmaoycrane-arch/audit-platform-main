@@ -197,6 +197,8 @@ export type VoucherLinesResponse = {
 export type VoucherQueryFilters = {
   ledger_id: number
   period_id?: number
+  /** 多会计期间筛选（与 period_id 二选一优先） */
+  period_ids?: number[]
   date_from?: string
   date_to?: string
   month?: string
@@ -687,6 +689,71 @@ export type ContractSealExtractResponse = {
   seals: ContractSeal[]
 }
 
+export type ContractRiskLevel = 'critical' | 'high' | 'medium' | 'low' | 'info'
+
+export type ContractRiskCategory = 'contradiction' | 'missing_element' | 'non_standard' | 'ambiguity' | 'compliance' | 'accounting' | 'financial'
+
+export type ClauseContradiction = {
+  clause_a: string
+  clause_b: string
+  contradiction_type: string
+  description: string
+  risk_level: ContractRiskLevel
+}
+
+export type MissingElement = {
+  element_name: string
+  element_category: string
+  importance: string
+  description: string
+  suggested_action: string
+}
+
+export type NonStandardClause = {
+  clause_text: string
+  clause_type: string
+  deviation_from_standard: string
+  risk_description: string
+  risk_level: ContractRiskLevel
+  accounting_treatment: string
+}
+
+export type AmbiguousExpression = {
+  expression: string
+  ambiguity_type: string
+  possible_interpretations: string[]
+  recommended_clarification: string
+}
+
+export type ContractRiskItem = {
+  risk_level: ContractRiskLevel
+  risk_category: ContractRiskCategory
+  title: string
+  description: string
+  clause_reference?: string
+  location?: string
+  accounting_impact?: string
+  recommendation?: string
+  confidence?: number
+}
+
+export type ContractDeepAnalysis = {
+  overall_risk_level: ContractRiskLevel
+  risk_score: number
+  analysis_summary: string
+  contradictions: ClauseContradiction[]
+  missing_elements: MissingElement[]
+  non_standard_clauses: NonStandardClause[]
+  ambiguous_expressions: AmbiguousExpression[]
+  all_risk_items: ContractRiskItem[]
+  accounting_notes: string
+  revenue_recognition_considerations: string
+  provision_requirements: string
+  total_clauses_analyzed: number
+  risk_clauses_found: number
+  analysis_time: string
+}
+
 export type ModuleRegisterItem = {
   id?: number
   module_key?: string
@@ -712,6 +779,7 @@ export type ModuleRegisterItem = {
   balance_type?: string | null
   balance_type_label?: string | null
   document_count?: number | null
+  deep_analysis?: ContractDeepAnalysis | null
   created_at?: string | null
 }
 
@@ -2796,7 +2864,14 @@ export const api = {
           llm_error?: string | null
           llm_thinking?: string | null
           compliant?: boolean
-          similar_tag_refs?: Array<Record<string, unknown>>
+          similar_tag_refs?: Array<{
+            score: number
+            category_code?: string
+            tag_value?: string
+            display_name?: string
+            voucher_no?: string
+            summary?: string
+          }>
           llm_reasoning?: string | null
           findings?: string[]
           similar_case_notes?: string | null
