@@ -194,7 +194,7 @@ Acceptance Level: 文档可指导后续 spec 与 PR；执行后 OpenAPI 主路�
 | **Phase 0** | 本文档评审 + 登记 `requirements-domain-index` | P0 | 团队确认主路径表 |
 | **Phase 1** | 拆分 `import-jobs` 三 Router 为子前缀或合并文件 | P0 | ✅ 2026-08-01 完成（方案 C 链式挂载：`imports_router.include_router(entry_generation_router/export_router)`；prefix 唯一定义在 `routes_imports.py`；882/882 测试不变） |
 | **Phase 2** | 前端与测试迁移到 `/api/vouchers`；废弃 `/entries/vouchers/*` | P0 | 无前端调用旧路径 |
-| **Phase 3** | 标记 `/api/unified-import`、`/api/parse` deprecated | P1 | 响应头或文档注明 |
+| **Phase 3** | 标记 `/api/unified-import`、`/api/parse` deprecated | P1 | ✅ 2026-08-01 完成（四重注明：OpenAPI `deprecated=True` + docstring `.. deprecated::` + tags 注明 + `deprecated-api-list-v1.md` 登记；并补 HTTP 响应头 `Deprecation: true` + `Sunset: Mon, 01 Feb 2027 00:00:00 GMT` + `Link` 中间件，5 个新测试，887/887 通过） |
 | **Phase 4** | Tag 服务统一设计 spec | P1 | 新 spec 三件套 |
 | **Phase 5** | 印章 `/api/v1` → `/api/seals` | P2 | 旧路径兼容 redirect |
 | **Phase 6** | 更新 `module-refactoring-plan` 中「API 不变」表述 | P2 | 文档与代码一致 |

@@ -438,11 +438,17 @@ application: FastAPI = FastAPI(
 configure_gateway(application)
 
 from app.core.rate_limiter import RateLimitMiddleware
+from app.core.deprecation import DeprecationHeaderMiddleware
 application.add_middleware(
     RateLimitMiddleware,
     window_seconds=60,
     max_requests=300,
 )
+
+# 已废弃 API 响应头（Phase 3）：给 /api/unified-import、/api/parse 追加
+# Deprecation: true + Sunset + Link 头，便于客户端程序化检测。
+# 治理依据：api-boundary-governance-plan.md §五 Phase 3
+application.add_middleware(DeprecationHeaderMiddleware)
 
 application.add_middleware(GZipMiddleware, minimum_size=1000)
 _cors_origins = [

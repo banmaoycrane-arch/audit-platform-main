@@ -217,7 +217,7 @@ backend/app/services/
 7. **解析 P2 验收**：修正回流 + 96% 稳定性指标（非新功能）
 8. ~~**Money 前端迁移**~~ ✅ 已完成（见 TECH_DEBT TD-002）
 9. ~~**清理服务层根目录重复文件**~~ ✅ 已完成（`4f30bf1` 删除 6 个根目录重复文件；grep 确认无旧路径导入残留）
-10. **API 边界治理 Phase 1–3**：导入链路收敛、entry-tags/document-tags 合并（~~Phase 1~~ ✅ 2026-08-01 完成：`import-jobs` 三 Router 链式挂载，prefix 唯一定义；882/882 测试不变；Phase 2/3 受 L6 阻塞）
+10. **API 边界治理 Phase 1–3**：导入链路收敛、entry-tags/document-tags 合并（~~Phase 1~~ ✅ 2026-08-01 完成：`import-jobs` 三 Router 链式挂载，prefix 唯一定义；882/882 测试不变；~~Phase 3~~ ✅ 2026-08-01 完成：`/api/unified-import`、`/api/parse` 已四重注明 deprecated + 响应头中间件 `Deprecation: true` + `Sunset` + `Link`，5 个新测试，887/887 通过；Phase 2 受 L6 阻塞）
 
 ### P2 — 治理与文档
 
