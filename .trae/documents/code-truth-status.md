@@ -210,7 +210,7 @@ backend/app/services/
 3. **记账 v1.0 L6 人工验收**（路径 A 签字；**先验收再修** — 见 [bookkeeping-v1-decision-record.md](../backend/docs/bookkeeping-v1-decision-record.md)）— **需会计专业用户签字，技术方不可代签**
 4. **审计 L6 路径 B**（与记账 v1.0 独立，可并行）— **需会计专业用户签字，技术方不可代签**
 5. ~~**API 收敛 Phase 2**：统一 vouchers 主路径~~ ✅ 2026-08-02 完成（章程 §四 S2-2 + S2-4：`/entries/vouchers 6 端点 deprecated 四重注明 + Deprecation/Sunset/Link 响应头指向 /api/vouchers + client.ts JSDoc + 不做 307（因复合键非双射）；S2-4 client.ts 去除 Engine 暗示（getParsingRuntimeStatus / getDocumentParsingConfig / saveDocumentParsingConfig，旧名 alias 保留）；10/10 deprecation 测试通过）
-6. **生产 Alembic 收口**：部署前将 stamp 从 0028 升级到 0034，并在 staging 复验 — **需运维操作**
+6. **生产 Alembic 收口**：部署前将 stamp 从 0028 升级到 **head（含 0034 经济事件 + 0035 DocumentTag.ledger_id）**，并在 staging 复验 — **需运维操作**
 
 ### P1 — 主线质量
 
@@ -222,7 +222,7 @@ backend/app/services/
 ### P2 — 治理与文档
 
 11. 更新各 spec checklist：**不得写与本文矛盾的「已完成」**
-12. ~~合并 entry-tags / document-tags 设计 spec~~ ✅ 2026-08-01 完成（[tag-unification](../specs/tag-unification/spec.md) 三件套定稿 + 实施落地：D1 决定**不合并表**（EntryTag 辅助核算维度 ≠ DocumentTag 资料检索）；D2 决定 DocumentTag `ledger_id` 后置到生产 Alembic 0028→0034 收口后；D3 决定废弃 `/api/entries/{id}/tags` 三端点 → 307 重定向到 `/api/entry-tags`，`PATCH` 暂保留）。**后置任务（P2）**：生产 Alembic 收口后，给 `DocumentTag` 模型加 `ledger_id` 字段 + 迁移 + 实串库（向量 payload 真实写入、filter 真实生效）；同时视需要给 `entry-tags` 扩展 PATCH 端点以废弃 `PATCH /api/entries/{id}/tags`。
+12. ~~合并 entry-tags / document-tags 设计 spec~~ ✅ 2026-08-01 完成（[tag-unification](../specs/tag-unification/spec.md) 三件套定稿 + 实施落地：D1 决定**不合并表**（EntryTag 辅助核算维度 ≠ DocumentTag 资料检索）；D2 决定 DocumentTag `ledger_id` 后置到生产 Alembic 0028→0034 收口后；D3 决定废弃 `/api/entries/{id}/tags` 三端点 → 307 重定向到 `/api/entry-tags`，`PATCH` 暂保留）。~~**后置任务**：DocumentTag `ledger_id` 实串库~~ ✅ 2026-08-02（Alembic `0035` + 向量 payload/filter；生产需 `alembic upgrade head` 含 0035）。
 13. ~~经济事件工单（D14）E1 事件壳~~ ✅ 后端+前端落地（2026-08-01）；~~E2 导入聚类~~ ✅ 后端+前端落地（2026-08-01，往来+月份规则聚类+幂等）；E3 Agent / E4 向量待开工
 
 ### 明确不做（当前 Sprint）

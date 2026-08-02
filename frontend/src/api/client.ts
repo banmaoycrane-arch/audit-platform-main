@@ -107,6 +107,8 @@ export type AccountingEntry = {
   id: number
   import_job_id: number
   ledger_id?: number | null
+  /** TD-031：聚合根凭证 ID；有值时优先走 /api/vouchers/{id} */
+  voucher_id?: number | null
   voucher_no: string | null
   voucher_date: string | null
   summary: string | null

@@ -816,14 +816,74 @@ export function SubsidiaryLedgerPage() {
     message.success(saveHabitAsDefault ? '已保存并设为默认习惯' : '已保存查看习惯')
   }
 
-  const openVoucherDrawer = async (voucherNo: string | null, voucherDate: string | null) => {
+  const mapVoucherLinesToEntries = (
+    voucherNo: string | null,
+    voucherDate: string | null,
+    lines: Array<{
+      entry_id: number
+      line_no: number
+      summary: string
+      account_code: string
+      account_name?: string | null
+      debit_amount: string | number
+      credit_amount: string | number
+      counterparty?: string | null
+    }>,
+  ): AccountingEntry[] =>
+    lines.map((line) => ({
+      id: line.entry_id,
+      import_job_id: 0,
+      voucher_no: voucherNo,
+      voucher_date: voucherDate,
+      summary: line.summary,
+      account_code: line.account_code,
+      account_name: line.account_name || null,
+      debit_amount: Number(line.debit_amount),
+      credit_amount: Number(line.credit_amount),
+      counterparty: line.counterparty || null,
+      normalized_text: '',
+      entry_line_no: line.line_no,
+      review_status: 'draft',
+      created_at: '',
+      resolved_account_code: null,
+      resolved_account_name: null,
+      counterparty_id: null,
+      requires_llm_resolution: false,
+    }))
+
+  const openVoucherDrawer = async (
+    voucherNo: string | null,
+    voucherDate: string | null,
+    voucherId?: number | null,
+  ) => {
     if (!currentLedgerId || !voucherNo) return
     setActiveVoucher({ voucherNo, voucherDate })
     setVoucherDrawerOpen(true)
     setVoucherDrawerLoading(true)
     try {
-      const resp = await api.getVoucherLines(currentLedgerId, voucherNo, voucherDate)
-      setVoucherLines(resp.items)
+      // TD-031：优先 /api/vouchers 主路径；无 voucher_id 时用号+日期解析，最后才回退复合键
+      let resolvedVoucherId = voucherId || null
+      if (!resolvedVoucherId) {
+        const listed = await api.listVouchersPrimary({
+          ledger_id: currentLedgerId,
+          voucher_no: voucherNo,
+          start_date: voucherDate || undefined,
+          end_date: voucherDate || undefined,
+          page: 1,
+          page_size: 5,
+        })
+        const matched =
+          listed.items.find((item) => item.voucher_no === voucherNo && (!voucherDate || item.voucher_date === voucherDate)) ||
+          listed.items[0]
+        resolvedVoucherId = matched?.voucher_id ?? null
+      }
+      if (resolvedVoucherId) {
+        const resp = await api.getVoucher(resolvedVoucherId)
+        setVoucherLines(mapVoucherLinesToEntries(voucherNo, voucherDate, resp.data.lines || []))
+      } else {
+        const resp = await api.getVoucherLines(currentLedgerId, voucherNo, voucherDate)
+        setVoucherLines(resp.items)
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载凭证详情失败')
       setVoucherLines([])
@@ -981,7 +1041,12 @@ export function SubsidiaryLedgerPage() {
         key: 'voucher_no',
         render: (_, row) =>
           row.rowType === 'entry' && row.voucher_no ? (
-            <Button type="link" size="small" style={{ padding: 0 }} onClick={() => openVoucherDrawer(row.voucher_no, row.voucher_date)}>
+            <Button
+              type="link"
+              size="small"
+              style={{ padding: 0 }}
+              onClick={() => openVoucherDrawer(row.voucher_no, row.voucher_date, row.voucher_id)}
+            >
               {row.voucher_no}
             </Button>
           ) : (

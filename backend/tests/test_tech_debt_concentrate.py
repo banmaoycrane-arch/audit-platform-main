@@ -167,5 +167,15 @@ def test_voucher_detail_exposes_signature_fields():
             assert data["cross_reviewed_by_user_id"] == data.get("cross_reviewed_by_user_id")
             assert data["cross_reviewed_by_name"]
             assert data["approved_by_name"]
+
+            # TD-031：分录列表透出 voucher_id，供明细账等走主路径
+            entries = client.get(
+                f"/api/entries/chronological?ledger_id={ledger_id}&limit=20",
+                headers={**headers, "X-Ledger-Id": str(ledger_id)},
+            )
+            assert entries.status_code == 200, entries.text
+            entry_items = entries.json()["items"]
+            assert entry_items
+            assert any(item.get("voucher_id") == voucher_id for item in entry_items)
     finally:
         app.dependency_overrides.clear()

@@ -290,7 +290,7 @@ Git 迁移尖端 `0027`；本机未跟踪 `0028`/`0029`；生产曾 stamp `0028`
 | **TD-021** | **P0** | L6 人工签字 | ⏳ 需会计专业用户 |
 | **TD-022** | **P0** | 生产样例账空洞 | ⏳ `scripts/seed_demo_ledger.py`（建议 staging） |
 | **TD-030** | **P1** | 解析稳定性 96% | ⏳ 验收未达标 |
-| **TD-031** | **P1** | 废弃 API 前端迁移 | ✅ 本轮：序时簿/复核/展开行优先 `/api/vouchers`；复合键查询仍保留兼容 |
+| **TD-031** | **P1** | 废弃 API 前端迁移 | ✅ 本轮：序时簿/复核/明细账抽屉优先 `/api/vouchers`；分录透出 `voucher_id`；复合键查询仍保留兼容 |
 | **TD-032** | **P1** | DocumentTag ledger_id 实串库 | ✅ 本轮：模型+0035+向量 payload+检索过滤 |
 | **TD-033** | **P1** | 凭证签章 UI/API 暴露 | ✅ 本轮：Voucher API 返回签章；编辑页展示签章条 |
 | **TD-034** | **P1** | 关键路径补测 | ✅ 本轮：`test_tech_debt_concentrate.py` + 向量隔离回归 |
@@ -311,4 +311,6 @@ Git 迁移尖端 `0027`；本机未跟踪 `0028`/`0029`；生产曾 stamp `0028`
 ### TD-031 废弃路径收敛（增量）
 - `LedgerBooksPage` → `listVouchersPrimary`（`/api/vouchers`）
 - `VoucherQueryPage` 审核 → `verifyVoucher`；有 `voucher_id` 时展开行 → `getVoucher`
+- `SubsidiaryLedgerPage` 凭证抽屉：优先 `voucher_id` / `listVouchersPrimary` + `getVoucher`，复合键仅兜底
+- `AccountingEntryRead` / 前端 `AccountingEntry` 透出 `voucher_id`
 - 仍保留 `queryVouchers`/`getVoucherLines` 兼容无 voucher_id 的历史卡片
