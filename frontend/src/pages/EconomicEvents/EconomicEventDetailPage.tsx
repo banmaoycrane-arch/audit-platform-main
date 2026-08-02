@@ -29,6 +29,7 @@ import {
   type EconomicEventDetail,
   type EconomicEventEntryLink,
   type EconomicEventFileLink,
+  type EconomicEventSimilarItem,
   type EconomicEventStep,
 } from '../../api/client'
 import { useAuthStore } from '../../stores/authStore'
@@ -50,6 +51,9 @@ export function EconomicEventDetailPage() {
   const { currentLedgerId } = useAuthStore()
   const [event, setEvent] = useState<EconomicEventDetail | null>(null)
   const [loading, setLoading] = useState(false)
+  const [similarEvents, setSimilarEvents] = useState<EconomicEventSimilarItem[]>([])
+  const [similarMessage, setSimilarMessage] = useState<string | null>(null)
+  const [similarLoading, setSimilarLoading] = useState(false)
   const [transitionModal, setTransitionModal] = useState<{ to: string } | null>(null)
   const [transitionReason, setTransitionReason] = useState('')
   const [entryModalVisible, setEntryModalVisible] = useState(false)
@@ -57,12 +61,31 @@ export function EconomicEventDetailPage() {
   const [entryForm] = Form.useForm()
   const [fileForm] = Form.useForm()
 
+  const loadSimilar = () => {
+    if (!currentLedgerId || !eventId) return
+    setSimilarLoading(true)
+    api
+      .listSimilarEconomicEvents(currentLedgerId, eventId, 5)
+      .then((result) => {
+        setSimilarEvents(result.results || [])
+        setSimilarMessage(result.message || null)
+      })
+      .catch(() => {
+        setSimilarEvents([])
+        setSimilarMessage('相似事件推荐暂不可用')
+      })
+      .finally(() => setSimilarLoading(false))
+  }
+
   const loadEvent = () => {
     if (!currentLedgerId || !eventId) return
     setLoading(true)
     api
       .getEconomicEvent(currentLedgerId, eventId)
-      .then(setEvent)
+      .then((data) => {
+        setEvent(data)
+        loadSimilar()
+      })
       .catch((error: Error) => message.error(error.message || '加载事件详情失败'))
       .finally(() => setLoading(false))
   }
@@ -240,10 +263,67 @@ export function EconomicEventDetailPage() {
     </div>
   )
 
+  const renderSimilarTab = () => (
+    <div>
+      <Space style={{ marginBottom: 12 }}>
+        <Button loading={similarLoading} onClick={loadSimilar}>
+          刷新相似推荐
+        </Button>
+        <Text type="secondary">基于本账簿事件叙述的向量推荐（仅供参考）</Text>
+      </Space>
+      {similarMessage && (
+        <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+          {similarMessage}
+        </Paragraph>
+      )}
+      <List
+        loading={similarLoading}
+        itemLayout="horizontal"
+        dataSource={similarEvents}
+        locale={{ emptyText: '暂无相似历史事件' }}
+        renderItem={(item: EconomicEventSimilarItem) => (
+          <List.Item
+            actions={[
+              <Button
+                key="open"
+                type="link"
+                onClick={() => navigate(`/ledger/events/${item.event_id}`)}
+              >
+                打开
+              </Button>,
+            ]}
+          >
+            <List.Item.Meta
+              title={
+                <Space wrap>
+                  <Text strong>{item.event_no}</Text>
+                  <Text>{item.title}</Text>
+                  <Tag color={EVENT_STATUS_COLOR[item.status] || 'default'}>
+                    {EVENT_STATUS_LABEL[item.status] || item.status}
+                  </Tag>
+                </Space>
+              }
+              description={
+                <Space direction="vertical" size={0}>
+                  <Text type="secondary">
+                    {EVENT_TYPE_LABEL[item.event_type] || item.event_type}
+                    {item.score != null ? ` · 相似度 ${(item.score * 100).toFixed(1)}%` : ''}
+                  </Text>
+                  {item.summary && <Text type="secondary">{item.summary}</Text>}
+                </Space>
+              }
+            />
+          </List.Item>
+        )}
+      />
+    </div>
+  )
+
   const tabItems = [
     { key: 'steps', label: '状态时间轴', children: renderStepsTimeline() },
     { key: 'entries', label: `关联分录 (${event?.entries.length || 0})`, children: renderEntriesTab() },
     { key: 'files', label: `证据文件 (${event?.files.length || 0})`, children: renderFilesTab() },
+    { key: 'similar', label: `相似事件 (${similarEvents.length})`, children: renderSimilarTab() },
   ]
 
   if (!eventId) {

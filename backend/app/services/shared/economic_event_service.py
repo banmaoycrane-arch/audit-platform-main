@@ -254,7 +254,12 @@ def transition(
     actor_type: str = "user",
     reason: str | None = None,
 ) -> EconomicEvent:
-    """推进事件状态，校验状态机允许边。"""
+    """
+    推进事件状态，校验状态机允许边。
+
+    E3 人审闸门：Agent 不得将工单推进到 posted / closed；
+    pending_post → posted 必须由人工（actor_type=user）确认。
+    """
     event = db.get(EconomicEvent, event_id)
     if not event:
         raise ValueError("事件不存在")
@@ -263,6 +268,17 @@ def transition(
     allowed = _TRANSITIONS.get(event.status, set())
     if to_status not in allowed:
         raise ValueError(f"不允许从 {event.status} 迁移到 {to_status}")
+
+    safe_actor_type = (actor_type or "user").strip() or "user"
+    # 【E3 过账闸门】AI 不绕过人工复核：禁止 Agent 过账或关闭
+    if safe_actor_type == "agent" and to_status in {"posted", "closed"}:
+        raise ValueError(
+            "Agent 不得将事件推进到已入账或已关闭；请人工在「待入账」状态确认过账"
+        )
+    if event.status == "pending_post" and to_status == "posted" and safe_actor_type != "user":
+        raise ValueError(
+            "过账前强制人审：pending_post → posted 仅允许人工操作（actor_type=user）"
+        )
 
     from_status = event.status
     event.status = to_status
@@ -273,7 +289,7 @@ def transition(
     _log_step(
         db, event_id, "transition", f"状态推进: {from_status} → {to_status}",
         actor_user_id=actor_user_id,
-        actor_type=actor_type,
+        actor_type=safe_actor_type,
         from_status=from_status,
         to_status=to_status,
         result_summary=reason,

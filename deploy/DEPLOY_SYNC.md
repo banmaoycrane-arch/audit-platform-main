@@ -70,8 +70,10 @@ ssh -i <pem> root@47.122.117.76 "sh /root/audit-platform-main/deploy/apply_prod_
 | 模型表缺失 | 0 |
 | 模型列缺失 | 0 |
 | DB 表总数 | **122** |
-| `alembic_version` | **`0028_tax_city_egress_pool`（head）** |
+| `alembic_version`（生产实测 2026-07-21） | **`0028_tax_city_egress_pool`**（落后） |
+| 代码 head | **`0034_add_economic_event_workorder`** |
 | 税务出口池表 | 4 表已存在；正式迁移 **`0028_tax_city_egress_pool`** 已在生产执行 |
+| 升级到 0034 | 见 [ALEMBIC_0028_TO_0034.md](./ALEMBIC_0028_TO_0034.md) 与 `upgrade_prod_alembic_to_0034.sh` |
 
 ## 2026-07-08 生产库审计结果（历史）
 
