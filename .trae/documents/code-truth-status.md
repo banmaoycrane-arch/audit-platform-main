@@ -178,7 +178,7 @@ backend/app/services/
 | 能力 | L 级 | 代码证据 | 建议优先级 |
 |------|------|----------|------------|
 | 印章识别 | **L4** | `routes_seals.py` + basic_data/seal_* + 测试 | P2，不压过 P2/P3 主线 |
-| 文档标签 | **L4–L5** | `routes_document_tags.py` + DocumentTagsPage | 与 entry-tags 重叠端点已废弃（`/api/entries/{id}/tags` GET/POST/DELETE 三端点 307 重定向到 `/api/entry-tags`，Phase 4 完成）；**表未合并**（D1 决定：EntryTag 辅助核算维度 ≠ DocumentTag 资料检索）；DocumentTag 向量 `ledger_id` 参数位已预留（值 None），**实串库待生产 Alembic 0028→0034 收口后**（D2 决定） |
+| 文档标签 | **L4–L5** | `routes_document_tags.py` + DocumentTagsPage | 与 entry-tags 重叠端点已废弃（`/api/entries/{id}/tags` GET/POST/DELETE 三端点 307 重定向到 `/api/entry-tags`，Phase 4 完成）；**表未合并**（D1 决定：EntryTag 辅助核算维度 ≠ DocumentTag 资料检索）；DocumentTag **ledger_id 实串库已落地**（Alembic `0035` + 向量 payload/filter；生产需 upgrade 到 0035） |
 | Agent / LLM | **L4** | `routes_agent`, `llm-resolution`；前端标「实验功能」 | 增强项，非主路径 |
 | 税务城市出口池 | **L4** | `routes_tax_egress` + `0028_tax_city_egress_pool`；**未接真实税局** | 可选增值；主线仍为文件导入记账 |
 | 经济事件工单 | **L5**（E1+E2 后端+前端落地） | `routes_economic_events.py`（含 cluster-suggest/cluster-confirm）+ `economic_event_service.py` + `economic_event_cluster_service.py` + `0034` 迁移 + `EconomicEventsPage`/`EconomicEventDetailPage`/`ClusterSuggestModal`；900/900 后端测试通过 | E1 事件壳完成（创建/列表/详情/挂分录/挂证据/状态推进/时间轴）；E2 导入聚类完成（往来+月份规则聚类 / 阈值≥2 / 幂等排除已挂载分录 / 一键创建推进到 collecting）；E3 Agent、E4 向量待开工；spec 见 [economic-event-workorder](../specs/economic-event-workorder/spec.md) |

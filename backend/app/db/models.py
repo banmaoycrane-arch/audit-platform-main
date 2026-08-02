@@ -1930,6 +1930,10 @@ class DocumentTag(Base):
     
     document_id: Mapped[int] = mapped_column(Integer)  # 关联的源文件ID
     document_type: Mapped[str] = mapped_column(String(50))
+    # TD-032：账簿隔离；可空以兼容历史数据，回填后向量检索按 ledger_id 过滤
+    ledger_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ledgers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     
     tag: Mapped[str] = mapped_column(String(500))
     tag_type: Mapped[str] = mapped_column(String(50))  # business/risk/relation/time/amount/status

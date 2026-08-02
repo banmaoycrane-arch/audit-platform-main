@@ -529,12 +529,7 @@ class TestDocumentTagIndexer:
 
 
 class TestDocumentTagVectorServiceLedgerIsolation:
-    """DocumentTag 向量服务 ledger_id 参数位回归（api-boundary-governance-plan Phase 4）。
-
-    预留位目的：当前 DocumentTag 模型无 ledger_id 字段，向量检索全局共享存在
-    跨账簿串库风险；本轮先在服务层预留参数位与 payload 字段（行为不变），
-    待生产 Alembic 收口 0028→0034 后再补迁移回填真实 ledger_id。
-    """
+    """DocumentTag 向量服务 ledger_id 实串库回归（TD-032）。"""
 
     def test_search_without_ledger_id_no_error(self, db_session, monkeypatch):
         monkeypatch.setattr(
@@ -556,7 +551,7 @@ class TestDocumentTagVectorServiceLedgerIsolation:
 
     def test_search_with_ledger_id_filters_payload(self, db_session, monkeypatch):
         class FakeStore:
-            def search(self, text, limit):
+            def search(self, text, limit, filter_payload=None):
                 return [
                     {"payload": {"tag": "a", "ledger_id": None}, "score": 0.9},
                     {"payload": {"tag": "b", "ledger_id": 5}, "score": 0.8},
@@ -572,7 +567,7 @@ class TestDocumentTagVectorServiceLedgerIsolation:
         assert len(result) == 1
         assert result[0]["payload"]["tag"] == "b"
 
-    def test_sync_tag_to_vector_payload_has_ledger_id(self, db_session, monkeypatch):
+    def test_sync_tag_to_vector_payload_has_real_ledger_id(self, db_session, monkeypatch):
         captured = {}
 
         class FakeStore:
@@ -592,10 +587,10 @@ class TestDocumentTagVectorServiceLedgerIsolation:
             tag_type="business",
             confidence=0.9,
             source="rule",
+            ledger_id=42,
         )
         db_session.add(tag)
         db_session.flush()
         ok = svc.sync_tag_to_vector(tag)
         assert ok is True
-        assert "ledger_id" in captured["payload"]
-        assert captured["payload"]["ledger_id"] is None
+        assert captured["payload"]["ledger_id"] == 42
