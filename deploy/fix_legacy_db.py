@@ -64,6 +64,10 @@ PATCHES: dict[str, dict[str, str]] = {
         "weight": "ALTER TABLE entry_tags ADD COLUMN weight REAL DEFAULT 1.0 NOT NULL",
         "vector_pending": "ALTER TABLE entry_tags ADD COLUMN vector_pending BOOLEAN DEFAULT 1 NOT NULL",
     },
+    # Alembic 0029：合同深度分析结果（JSON），生产从 0028 升到 0034 时兜底补列
+    "contracts": {
+        "deep_analysis": "ALTER TABLE contracts ADD COLUMN deep_analysis JSON",
+    },
 }
 
 

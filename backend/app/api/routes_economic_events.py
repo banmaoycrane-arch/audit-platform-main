@@ -16,6 +16,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.services.shared import economic_event_cluster_service as cluster_svc
 from app.services.shared import economic_event_service as svc
+from app.services.shared.economic_event_vector_service import EconomicEventVectorService
 
 router = APIRouter(prefix="/api/economic-events", tags=["economic-events"])
 
@@ -210,6 +211,11 @@ def create_event(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    # E4：创建后尝试同步 summary 向量（失败不影响主路径）
+    try:
+        EconomicEventVectorService(db).upsert_event(event)
+    except Exception:
+        pass
     return _to_event_response(event, db)
 
 
@@ -237,6 +243,46 @@ def list_events(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return [_to_event_response(e, db) for e in events]
+
+
+class VectorSyncResponse(BaseModel):
+    vector_available: bool
+    synced_count: int = 0
+    failed_count: int = 0
+    total: int = 0
+    ledger_id: int | None = None
+    message: str | None = None
+
+
+class SimilarEventItem(BaseModel):
+    event_id: int
+    event_no: str
+    title: str
+    event_type: str
+    status: str
+    summary: str | None = None
+    score: float | None = None
+    ledger_id: int
+
+
+class SimilarEventsResponse(BaseModel):
+    vector_available: bool
+    query: str | None = None
+    ledger_id: int | None = None
+    results: list[SimilarEventItem] = []
+    message: str | None = None
+
+
+@router.post("/vector-sync", response_model=VectorSyncResponse)
+def sync_event_vectors(
+    ledger_id: int = Depends(require_ledger),
+    limit: int = Query(100, ge=1, le=500),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """E4：将本账簿事件 summary 同步到 Qdrant（ledger 隔离）。"""
+    result = EconomicEventVectorService(db).sync_ledger_events(ledger_id, limit=limit)
+    return VectorSyncResponse(**result)
 
 
 # ---------- E2 导入聚类端点 ----------
@@ -379,3 +425,33 @@ def list_steps(
     if not event or event.ledger_id != ledger_id:
         raise HTTPException(status_code=404, detail="事件不存在")
     return [EventStepResponse.model_validate(s) for s in svc.list_steps(db, event_id)]
+
+
+@router.get("/{event_id}/similar", response_model=SimilarEventsResponse)
+def list_similar_events(
+    event_id: int,
+    ledger_id: int = Depends(require_ledger),
+    limit: int = Query(5, ge=1, le=20),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """E4：基于当前事件标题/摘要推荐本账簿相似历史事件。"""
+    event = svc.get_event(db, event_id)
+    if not event or event.ledger_id != ledger_id:
+        raise HTTPException(status_code=404, detail="事件不存在")
+    query_text = " ".join(
+        part for part in [event.title or "", event.summary or ""] if part
+    ).strip()
+    result = EconomicEventVectorService(db).search_similar(
+        ledger_id=ledger_id,
+        query_text=query_text or event.event_no,
+        limit=limit,
+        exclude_event_id=event_id,
+    )
+    return SimilarEventsResponse(
+        vector_available=bool(result.get("vector_available")),
+        query=result.get("query"),
+        ledger_id=result.get("ledger_id"),
+        results=[SimilarEventItem(**item) for item in result.get("results") or []],
+        message=result.get("message"),
+    )

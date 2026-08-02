@@ -260,6 +260,38 @@ AGENT_TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "approval_required": True,
         "audit_trace_required": True,
     },
+    # E3：事件工单 —— 开草稿 / 推进（不过账）/ 只读列表
+    "create_economic_event_draft": {
+        "tool_name": "create_economic_event_draft",
+        "description": "根据自然语言意图创建经济事件草稿工单，不生成正式凭证、不过账。",
+        "allowed_agent_roles": ["accounting_assistant_agent", "accounting_clerk_agent"],
+        "intents": ["accounting_import", "due_diligence_audit", "general_help"],
+        "risk_level": "medium",
+        "approval_required": True,
+        "audit_trace_required": True,
+    },
+    "advance_economic_event": {
+        "tool_name": "advance_economic_event",
+        "description": "推进经济事件工单状态至归集/待复核/待入账，禁止直接过账。",
+        "allowed_agent_roles": ["accounting_assistant_agent", "accounting_clerk_agent"],
+        "intents": ["accounting_import", "due_diligence_audit"],
+        "risk_level": "medium",
+        "approval_required": True,
+        "audit_trace_required": True,
+    },
+    "list_economic_events": {
+        "tool_name": "list_economic_events",
+        "description": "查询当前账簿的经济事件工单列表（只读）。",
+        "allowed_agent_roles": [
+            "accounting_assistant_agent",
+            "accounting_clerk_agent",
+            "audit_assistant_agent",
+        ],
+        "intents": ["accounting_import", "audit_workflow", "due_diligence_audit", "general_help"],
+        "risk_level": "low",
+        "approval_required": False,
+        "audit_trace_required": True,
+    },
 }
 
 
