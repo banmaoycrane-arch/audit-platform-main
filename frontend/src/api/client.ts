@@ -107,6 +107,8 @@ export type AccountingEntry = {
   id: number
   import_job_id: number
   ledger_id?: number | null
+  /** TD-031：聚合根凭证 ID；有值时优先走 /api/vouchers/{id} */
+  voucher_id?: number | null
   voucher_no: string | null
   voucher_date: string | null
   summary: string | null
@@ -296,6 +298,13 @@ export type VoucherResponse = {
     updated_at?: string
     posted_at?: string
     posted_by?: number
+    source_preparer_name?: string | null
+    cross_reviewed_by_user_id?: number | null
+    cross_reviewed_by_name?: string | null
+    cross_reviewed_at?: string | null
+    approved_by_user_id?: number | null
+    approved_by_name?: string | null
+    approved_at?: string | null
     lines: VoucherLineItem[]
   }
   message: string
@@ -3189,6 +3198,52 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
+
+  /** TD-031：凭证主路径列表（替代 deprecated queryVouchers） */
+  listVouchersPrimary: (params: {
+    ledger_id: number
+    status?: string
+    voucher_no?: string
+    summary?: string
+    start_date?: string
+    end_date?: string
+    page?: number
+    page_size?: number
+  }) => {
+    const search = new URLSearchParams()
+    search.set('ledger_id', String(params.ledger_id))
+    if (params.status) search.set('status', params.status)
+    if (params.voucher_no) search.set('voucher_no', params.voucher_no)
+    if (params.summary) search.set('summary', params.summary)
+    if (params.start_date) search.set('start_date', params.start_date)
+    if (params.end_date) search.set('end_date', params.end_date)
+    search.set('page', String(params.page ?? 1))
+    search.set('page_size', String(params.page_size ?? 20))
+    return request<{
+      total: number
+      page: number
+      page_size: number
+      items: Array<{
+        voucher_id: number
+        voucher_no: string
+        voucher_type?: string | null
+        voucher_number?: string | null
+        voucher_date: string
+        summary?: string | null
+        status: string
+        total_debit: string
+        total_credit: string
+        entry_count: number
+        attachment_count: number
+        created_by: number
+        created_by_name?: string | null
+        created_at: string
+        source_preparer_name?: string | null
+        cross_reviewed_by_name?: string | null
+        approved_by_name?: string | null
+      }>
+    }>(`/api/vouchers?${search.toString()}`)
+  },
 
   getVoucher: (voucherId: number) =>
     request<VoucherResponse>(`/api/vouchers/${voucherId}`),

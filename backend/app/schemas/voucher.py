@@ -147,6 +147,14 @@ class VoucherResponse(BaseModel):
     updated_at: Any | None = Field(None, description="更新时间")
     posted_at: Any | None = Field(None, description="过账时间")
     posted_by: int | None = Field(None, description="过账人ID")
+    # TD-033：凭证签章链（制单人 / 复核人 / 审核人）
+    source_preparer_name: str | None = Field(None, description="序时簿制单人")
+    cross_reviewed_by_user_id: int | None = Field(None, description="复核人用户ID")
+    cross_reviewed_by_name: str | None = Field(None, description="复核人姓名")
+    cross_reviewed_at: Any | None = Field(None, description="复核时间")
+    approved_by_user_id: int | None = Field(None, description="审核人用户ID")
+    approved_by_name: str | None = Field(None, description="审核人姓名")
+    approved_at: Any | None = Field(None, description="审核时间")
     lines: list[VoucherLineResponse] = Field(default_factory=list, description="分录明细")
 
     model_config = {"from_attributes": True}
@@ -171,6 +179,9 @@ class VoucherListItem(BaseModel):
     created_by: int = Field(..., description="制单人ID")
     created_by_name: str | None = Field(None, description="制单人姓名")
     created_at: Any = Field(..., description="创建时间")
+    source_preparer_name: str | None = Field(None, description="序时簿制单人")
+    cross_reviewed_by_name: str | None = Field(None, description="复核人姓名")
+    approved_by_name: str | None = Field(None, description="审核人姓名")
 
     model_config = {"from_attributes": True}
 

@@ -106,6 +106,16 @@ ssh -i <pem> root@47.122.117.76 "sh /root/audit-platform-main/deploy/migrate_to_
 
 **迁移后**每次部署的 `apply_prod_schema.sh` 会自动执行 `alembic upgrade head`。`fix_legacy_db.py` 仍作为 legacy 补列兜底保留，直至所有环境均已 stamp。
 
+## 2026-08-02 迁移尖端说明
+
+| 层 | Alembic |
+|----|---------|
+| 代码 head（本仓） | **`0035_document_tag_ledger_id`**（DocumentTag 账簿隔离） |
+| 前一尖端 | `0034_add_economic_event_workorder` |
+| 生产（2026-07-21 记录） | 仍为 **`0028`** |
+
+生产收口请执行 `alembic upgrade head`（或既有 `apply_prod_schema.sh` / `upgrade_prod_alembic_to_0034.sh` 升到 head），确保含 **0035**。
+
 ## 禁止事项
 
 - 不要只 `docker compose build` 而不跑 schema 审计

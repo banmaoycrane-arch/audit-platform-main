@@ -9,6 +9,8 @@ class AccountingEntryRead(BaseModel):
     organization_id: int
     ledger_id: int | None = None
     import_job_id: int | None = None
+    # TD-031：透出聚合根凭证 ID，便于前端走 /api/vouchers/{id} 主路径
+    voucher_id: int | None = None
     voucher_no: str | None
     voucher_date: date | None
     summary: str | None

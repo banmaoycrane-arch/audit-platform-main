@@ -82,10 +82,8 @@ class DocumentTagVectorService:
                     "tag_type": tag.tag_type,
                     "confidence": tag.confidence,
                     "source": tag.source,
-                    # 预留账簿隔离位：当前 DocumentTag 模型无 ledger_id 字段，
-                    # 值暂为 None；后置迁移（Alembic 收口 0028→0034 后）回填真实值，
-                    # 检索时即可按账簿过滤，消除跨公司串库风险。
-                    "ledger_id": None,
+                    # TD-032：真实账簿隔离；缺失时为 None，检索传入 ledger_id 会过滤掉
+                    "ledger_id": tag.ledger_id,
                 },
             )
             tag.vector_id = f"doc_tag_{tag.id}"
@@ -96,12 +94,17 @@ class DocumentTagVectorService:
             logger.warning(f"Bare exception caught in {__name__}")
             return False
 
-    def sync_pending_tags(self, batch_size: int = 50) -> int:
+    def sync_pending_tags(
+        self,
+        batch_size: int = 50,
+        ledger_id: int | None = None,
+    ) -> int:
         """
         同步所有待同步的标签到向量数据库。
 
         Args:
             batch_size: 每批处理数量
+            ledger_id: 可选，仅同步指定账簿
 
         Returns:
             int: 成功同步的标签数量
@@ -109,12 +112,10 @@ class DocumentTagVectorService:
         if not self.vector_store:
             return 0
 
-        pending_tags = (
-            self.db.query(DocumentTag)
-            .filter(DocumentTag.vector_stored == False)
-            .limit(batch_size)
-            .all()
-        )
+        query = self.db.query(DocumentTag).filter(DocumentTag.vector_stored == False)
+        if ledger_id is not None:
+            query = query.filter(DocumentTag.ledger_id == ledger_id)
+        pending_tags = query.limit(batch_size).all()
 
         success_count = 0
         for tag in pending_tags:
@@ -138,9 +139,7 @@ class DocumentTagVectorService:
             query_text: 查询文本
             document_type: 文档类型过滤
             tag_type: 标签类型过滤
-            ledger_id: 账簿隔离过滤（预留位，默认 None 不过滤；
-                当前 DocumentTag 模型无 ledger_id 字段，传入时因 payload
-                中 ledger_id 为 None 会被过滤，为后置迁移铺路，不报错）
+            ledger_id: 账簿隔离过滤（强烈建议传入，避免跨公司串库）
             limit: 返回数量限制
 
         Returns:
@@ -149,9 +148,14 @@ class DocumentTagVectorService:
         if not self.vector_store:
             return []
 
+        filter_payload = None
+        if ledger_id is not None:
+            filter_payload = {"ledger_id": ledger_id}
+
         results = self.vector_store.search(
             text=query_text,
-            limit=limit,
+            limit=limit * 2,
+            filter_payload=filter_payload,
         )
 
         filtered_results = []
@@ -164,6 +168,8 @@ class DocumentTagVectorService:
             if ledger_id is not None and payload.get("ledger_id") != ledger_id:
                 continue
             filtered_results.append(result)
+            if len(filtered_results) >= limit:
+                break
 
         return filtered_results
 

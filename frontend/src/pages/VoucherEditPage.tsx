@@ -10,6 +10,7 @@ import {
   type VoucherUpdatePayload,
 } from '../api/client'
 import { TraditionalVoucherForm, type VoucherEntryLine } from '../components/voucher/TraditionalVoucherForm'
+import { VoucherSignatureStrip, type VoucherSignatureInfo } from '../components/staging/VoucherSignatureStrip'
 import { useAuthStore } from '../stores/authStore'
 import { Money, parseDecimal } from '../money'
 
@@ -72,6 +73,7 @@ export function VoucherEditPage() {
   const [quickEntry, setQuickEntry] = useState<boolean>(false)
   const [rows, setRows] = useState<VoucherEntryLine[]>([])
   const [originalStatus, setOriginalStatus] = useState<string>('')
+  const [signature, setSignature] = useState<VoucherSignatureInfo | null>(null)
 
   const activeRows = useMemo(() => rows.filter(row =>
     row.summary.trim()
@@ -115,6 +117,14 @@ export function VoucherEditPage() {
         setAttachmentCount(voucher.attachment_count)
         setRemark(voucher.summary || '')
         setPeriodId(voucher.period_id || null)
+        setSignature({
+          source_preparer_name: voucher.source_preparer_name,
+          cross_reviewed_by_user_id: voucher.cross_reviewed_by_user_id,
+          cross_reviewed_by_name: voucher.cross_reviewed_by_name,
+          cross_reviewed_at: voucher.cross_reviewed_at,
+          approved_by_name: voucher.approved_by_name,
+          approved_at: voucher.approved_at,
+        })
 
         const matchedPeriod = voucher.period_id
           ? periods.find(p => p.id === voucher.period_id)
@@ -308,6 +318,9 @@ export function VoucherEditPage() {
           当前凭证已入账，不支持修改。如需调整，请红冲或反结账后重新录入。
         </Card>
       )}
+      <Card size="small" style={{ marginBottom: 16 }} title="凭证签章">
+        <VoucherSignatureStrip signature={signature} />
+      </Card>
       <TraditionalVoucherForm
         voucherType={voucherType}
         voucherNumber={voucherNumber}

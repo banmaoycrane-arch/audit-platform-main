@@ -460,8 +460,27 @@ export function VoucherQueryPage() {
     if (linesCache[key]) return
     setLinesLoadingKeys((prev) => new Set(prev).add(key))
     try {
-      const resp = await api.getVoucherLines(currentLedgerId, voucher.voucher_no, voucher.voucher_date)
-      setLinesCache((prev) => ({ ...prev, [key]: resp.items }))
+      // TD-031：有 voucher_id 时走主路径 getVoucher；否则回退 deprecated 复合键查询
+      if (voucher.voucher_id) {
+        const resp = await api.getVoucher(voucher.voucher_id)
+        setLinesCache((prev) => ({
+          ...prev,
+          [key]: (resp.data.lines || []).map((line) => ({
+            id: line.entry_id,
+            voucher_no: voucher.voucher_no,
+            voucher_date: voucher.voucher_date,
+            summary: line.summary,
+            account_code: line.account_code,
+            account_name: line.account_name || null,
+            debit_amount: line.debit_amount,
+            credit_amount: line.credit_amount,
+            counterparty: line.counterparty || null,
+          })),
+        }))
+      } else {
+        const resp = await api.getVoucherLines(currentLedgerId, voucher.voucher_no, voucher.voucher_date)
+        setLinesCache((prev) => ({ ...prev, [key]: resp.items }))
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载分录明细失败')
       setExpandedLineKeys((prev) => {
@@ -592,7 +611,7 @@ export function VoucherQueryPage() {
     setReviewing(true)
     setReviewingKey(key)
     try {
-      await api.reviewVoucher(voucher.voucher_id)
+      await api.verifyVoucher(voucher.voucher_id)
       message.success('凭证审核通过')
       await loadVouchers()
     } catch (error) {
@@ -613,7 +632,8 @@ export function VoucherQueryPage() {
     }
     setReviewing(true)
     try {
-      await api.reviewVouchersBatch(targets.map((item) => item.voucher_id!))
+      // TD-031：批量复核走 /api/vouchers/{id}/verify 主路径
+      await Promise.all(targets.map((item) => api.verifyVoucher(item.voucher_id!)))
       message.success(`已审核 ${targets.length} 张凭证`)
       setSelectedKeys(new Set())
       await loadVouchers()
