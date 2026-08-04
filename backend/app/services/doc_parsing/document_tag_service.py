@@ -27,11 +27,34 @@ from typing import Any
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
-from app.db.models import DocumentTag, DocumentTagHistory
+from app.db.models import DocumentTag, DocumentTagHistory, ImportJob, SourceFile
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_document_ledger_id(
+    db: Session,
+    document_id: int,
+    ledger_id: int | None = None,
+) -> int | None:
+    """
+    功能描述：解析文档所属账簿，供 DocumentTag 隔离使用。
+    业务逻辑：显式传入优先；否则 source_files.ledger_id；再兜底 import_jobs.ledger_id。
+    """
+    if ledger_id is not None:
+        return int(ledger_id)
+    source_file = db.get(SourceFile, document_id)
+    if source_file is None:
+        return None
+    if source_file.ledger_id is not None:
+        return int(source_file.ledger_id)
+    if source_file.import_job_id is not None:
+        import_job = db.get(ImportJob, source_file.import_job_id)
+        if import_job is not None and import_job.ledger_id is not None:
+            return int(import_job.ledger_id)
+    return None
 
 
 def get_document_tag_by_id(db: Session, document_tag_id: int) -> DocumentTag | None:
@@ -50,9 +73,10 @@ def list_document_tags(
     vector_stored: bool | None = None,
     created_from: datetime | None = None,
     created_to: datetime | None = None,
+    ledger_id: int | None = None,
 ) -> list[DocumentTag]:
     """
-    查询文档标签列表，支持按文档ID、文档类型、标签类型、来源、向量状态、创建时间过滤。
+    查询文档标签列表，支持按文档ID、文档类型、标签类型、来源、向量状态、创建时间、账簿过滤。
     """
     query = db.query(DocumentTag)
     if document_id is not None:
@@ -69,6 +93,8 @@ def list_document_tags(
         query = query.filter(DocumentTag.created_at >= created_from)
     if created_to is not None:
         query = query.filter(DocumentTag.created_at <= created_to)
+    if ledger_id is not None:
+        query = query.filter(DocumentTag.ledger_id == ledger_id)
     return query.order_by(desc(DocumentTag.confidence), desc(DocumentTag.created_at)).all()
 
 
@@ -80,6 +106,7 @@ def create_document_tag(
     tag_type: str,
     confidence: float = 0.8,
     source: str = "rule",
+    ledger_id: int | None = None,
 ) -> DocumentTag:
     """
     为文档创建标签。
@@ -87,11 +114,14 @@ def create_document_tag(
     业务逻辑：
         1. 校验标签类型合法。
         2. 同一文档同一标签类型下，相同 tag 去重。
-        3. 写入标签。
+        3. 解析并写入 ledger_id（TD-032 账簿隔离）。
+        4. 写入标签。
     """
     valid_tag_types = {"business", "risk", "relation", "time", "amount", "status"}
     if tag_type not in valid_tag_types:
         raise ValueError(f"无效的标签类型：{tag_type}，有效值：{valid_tag_types}")
+
+    resolved_ledger_id = resolve_document_ledger_id(db, document_id, ledger_id)
 
     existing = (
         db.query(DocumentTag)
@@ -104,11 +134,17 @@ def create_document_tag(
         .first()
     )
     if existing:
+        # 历史标签补齐 ledger_id，并标记需重同步向量
+        if existing.ledger_id is None and resolved_ledger_id is not None:
+            existing.ledger_id = resolved_ledger_id
+            existing.vector_stored = False
+            db.flush()
         return existing
 
     document_tag = DocumentTag(
         document_id=document_id,
         document_type=document_type,
+        ledger_id=resolved_ledger_id,
         tag=tag,
         tag_type=tag_type,
         confidence=confidence,

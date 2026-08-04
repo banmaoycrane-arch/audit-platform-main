@@ -39,6 +39,7 @@ class DocumentTagCreate(BaseModel):
     tag_type: str = Field(..., min_length=1, max_length=50)
     confidence: float = 0.8
     source: str = "rule"
+    ledger_id: int | None = None
 
 
 class DocumentTagUpdate(BaseModel):
@@ -93,6 +94,7 @@ def list_document_tags_api(
     vector_stored: bool | None = None,
     created_from: str | None = None,
     created_to: str | None = None,
+    ledger_id: int | None = None,
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     created_from_dt = datetime.fromisoformat(created_from) if created_from else None
@@ -106,6 +108,7 @@ def list_document_tags_api(
         vector_stored=vector_stored,
         created_from=created_from_dt,
         created_to=created_to_dt,
+        ledger_id=ledger_id,
     )
     return [tag.__dict__ for tag in tags]
 
@@ -121,6 +124,7 @@ def create_document_tag_api(data: DocumentTagCreate, db: Session = Depends(get_d
             tag_type=data.tag_type,
             confidence=data.confidence,
             source=data.source,
+            ledger_id=data.ledger_id,
         )
         return tag.__dict__
     except ValueError as e:
@@ -213,10 +217,14 @@ def get_document_tag_stats_api(document_type: str | None = None, db: Session = D
 
 
 @router.post("/sync-vectors", response_model=dict)
-def sync_pending_tags_api(db: Session = Depends(get_db)) -> Any:
+def sync_pending_tags_api(
+    ledger_id: int | None = None,
+    batch_size: int = 50,
+    db: Session = Depends(get_db),
+) -> Any:
     vector_service = DocumentTagVectorService(db)
-    count = vector_service.sync_pending_tags()
-    return {"success": True, "synced_count": count}
+    count = vector_service.sync_pending_tags(batch_size=batch_size, ledger_id=ledger_id)
+    return {"success": True, "synced_count": count, "ledger_id": ledger_id}
 
 
 @router.post("/search", response_model=list[dict[str, Any]])

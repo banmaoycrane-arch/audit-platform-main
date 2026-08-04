@@ -64,6 +64,14 @@ PATCHES: dict[str, dict[str, str]] = {
         "weight": "ALTER TABLE entry_tags ADD COLUMN weight REAL DEFAULT 1.0 NOT NULL",
         "vector_pending": "ALTER TABLE entry_tags ADD COLUMN vector_pending BOOLEAN DEFAULT 1 NOT NULL",
     },
+    # Alembic 0029：合同深度分析结果（JSON）
+    "contracts": {
+        "deep_analysis": "ALTER TABLE contracts ADD COLUMN deep_analysis JSON",
+    },
+    # Alembic 0035：DocumentTag 账簿隔离
+    "document_tags": {
+        "ledger_id": "ALTER TABLE document_tags ADD COLUMN ledger_id INTEGER",
+    },
 }
 
 

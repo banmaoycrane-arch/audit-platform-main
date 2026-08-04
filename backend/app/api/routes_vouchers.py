@@ -86,6 +86,15 @@ def _format_amount(value: float | Decimal | None) -> str:
     return f"{Decimal(str(value)).quantize(Decimal('0.00'))}"
 
 
+def _user_display_name(db: Session, user_id: int | None) -> str | None:
+    if user_id is None:
+        return None
+    user = db.get(User, user_id)
+    if user is None:
+        return None
+    return user.username or user.phone or str(user.id)
+
+
 def _format_voucher(voucher: Voucher, db: Session) -> VoucherResponse:
     """将 Voucher ORM 对象转换为响应 Schema。"""
     voucher_type, voucher_number = _split_voucher_no(voucher.voucher_no)
@@ -104,11 +113,9 @@ def _format_voucher(voucher: Voucher, db: Session) -> VoucherResponse:
         for entry in get_voucher_lines(db, voucher.id)
     ]
 
-    created_by_name = None
-    if voucher.created_by:
-        user = db.get(User, voucher.created_by)
-        if user:
-            created_by_name = user.username or user.phone or str(user.id)
+    created_by_name = _user_display_name(db, voucher.created_by)
+    cross_reviewed_by_name = _user_display_name(db, voucher.cross_reviewed_by_user_id)
+    approved_by_name = _user_display_name(db, voucher.approved_by_user_id)
 
     return VoucherResponse(
         voucher_id=voucher.id,
@@ -131,6 +138,13 @@ def _format_voucher(voucher: Voucher, db: Session) -> VoucherResponse:
         updated_at=voucher.updated_at,
         posted_at=voucher.posted_at,
         posted_by=voucher.posted_by,
+        source_preparer_name=voucher.source_preparer_name,
+        cross_reviewed_by_user_id=voucher.cross_reviewed_by_user_id,
+        cross_reviewed_by_name=cross_reviewed_by_name,
+        cross_reviewed_at=voucher.cross_reviewed_at,
+        approved_by_user_id=voucher.approved_by_user_id,
+        approved_by_name=approved_by_name,
+        approved_at=voucher.approved_at,
         lines=lines,
     )
 
@@ -142,11 +156,7 @@ def _format_voucher_list_item(voucher: Voucher, db: Session) -> VoucherListItem:
         AccountingEntry.voucher_id == voucher.id
     ).count()
 
-    created_by_name = None
-    if voucher.created_by:
-        user = db.get(User, voucher.created_by)
-        if user:
-            created_by_name = user.username or user.phone or str(user.id)
+    created_by_name = _user_display_name(db, voucher.created_by)
 
     return VoucherListItem(
         voucher_id=voucher.id,
@@ -163,6 +173,9 @@ def _format_voucher_list_item(voucher: Voucher, db: Session) -> VoucherListItem:
         created_by=voucher.created_by or 0,
         created_by_name=created_by_name,
         created_at=voucher.created_at,
+        source_preparer_name=voucher.source_preparer_name,
+        cross_reviewed_by_name=_user_display_name(db, voucher.cross_reviewed_by_user_id),
+        approved_by_name=_user_display_name(db, voucher.approved_by_user_id),
     )
 
 

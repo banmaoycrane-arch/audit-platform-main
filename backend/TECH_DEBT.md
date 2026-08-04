@@ -275,14 +275,42 @@ Git 迁移尖端 `0027`；本机未跟踪 `0028`/`0029`；生产曾 stamp `0028`
 |------|--------|------|------|
 | TD-001 | P1 | mypy 类型检查 | ✅ 已修复 |
 | TD-002 | P2 | 前端 Money 迁移 | ✅ 已完成 |
-| TD-003 | P3 | 测试覆盖率 | ✅ 已完成 |
+| TD-003 | P3 | 测试覆盖率 | ✅ 已完成（核心服务）；整体仍约 39%，继续按路径补测 |
 | TD-004 | P1 | services 根目录存根 | ✅ 已修复 |
 | TD-005 | P1 | 前端白屏 | ✅ 已修复 |
 | TD-006 | P1 | 类型对齐 | ✅ 已修复 |
 | TD-007 | P2 | .gitignore | ✅ 已修复 |
-| TD-008 | P1 | Alembic 三层不一致 | ✅ 版本链验证通过（运维需执行 git add + stamp） |
+| TD-008 | P1 | Alembic 三层不一致 | ⚠️ Git head 已到 0034+/0035；**生产 stamp 仍 0028** → 见 TD-020 |
 | TD-009 | P1→P2 | datetime.utcnow() | ✅ 全部修复 |
 | TD-010 | P1 | 合同深度分析缺失 | ✅ 已修复 |
 | TD-011 | P1→P2 | 静默异常吞噬 | ✅ 全部修复 |
 | TD-012 | 高 | 安全负债（认证/枚举/CORS/上传） | ✅ 全部修复 |
 | TD-013 | 高 | 性能负债（N+1/索引/分页/缓存） | ✅ 全部修复 |
+| **TD-020** | **P0** | 生产 Alembic 0028→head | ⏳ 运维：本机 `.\deploy\upgrade_prod_schema_to_head.ps1`（清单见 `deploy/ALEMBIC_0028_TO_HEAD.md`；目标 **0035**） |
+| **TD-021** | **P0** | L6 人工签字 | ⏳ 需会计专业用户 |
+| **TD-022** | **P0** | 生产样例账空洞 | ⏳ `scripts/seed_demo_ledger.py`（建议 staging） |
+| **TD-030** | **P1** | 解析稳定性 96% | ⏳ 验收未达标 |
+| **TD-031** | **P1** | 废弃 API 前端迁移 | ✅ 本轮：序时簿/复核/明细账抽屉优先 `/api/vouchers`；分录透出 `voucher_id`；复合键查询仍保留兼容 |
+| **TD-032** | **P1** | DocumentTag ledger_id 实串库 | ✅ 本轮：模型+0035+向量 payload+检索过滤 |
+| **TD-033** | **P1** | 凭证签章 UI/API 暴露 | ✅ 本轮：Voucher API 返回签章；编辑页展示签章条 |
+| **TD-034** | **P1** | 关键路径补测 | ✅ 本轮：`test_tech_debt_concentrate.py` + 向量隔离回归 |
+
+---
+
+## TD-032 / TD-033 / TD-031（2026-08-02 集中修复）
+
+### TD-032 DocumentTag 账簿隔离
+- Alembic `0035_document_tag_ledger_id`：加列、从 source_files/import_jobs 回填、标记向量重同步
+- `create_document_tag` 自动解析 `ledger_id`
+- 向量 payload 写入真实 `ledger_id`；检索支持 Qdrant filter
+
+### TD-033 签章暴露
+- `VoucherResponse` / `VoucherListItem` 增加制单/复核/审核字段
+- 凭证编辑页挂载 `VoucherSignatureStrip`
+
+### TD-031 废弃路径收敛（增量）
+- `LedgerBooksPage` → `listVouchersPrimary`（`/api/vouchers`）
+- `VoucherQueryPage` 审核 → `verifyVoucher`；有 `voucher_id` 时展开行 → `getVoucher`
+- `SubsidiaryLedgerPage` 凭证抽屉：优先 `voucher_id` / `listVouchersPrimary` + `getVoucher`，复合键仅兜底
+- `AccountingEntryRead` / 前端 `AccountingEntry` 透出 `voucher_id`
+- 仍保留 `queryVouchers`/`getVoucherLines` 兼容无 voucher_id 的历史卡片

@@ -20,6 +20,8 @@ export function LedgerBooksPage() {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const currentMonth = dayjs().format('YYYY-MM')
+  const monthStart = dayjs(currentMonth).startOf('month').format('YYYY-MM-DD')
+  const monthEnd = dayjs(currentMonth).endOf('month').format('YYYY-MM-DD')
 
   useEffect(() => {
     if (!currentLedgerId) {
@@ -28,21 +30,33 @@ export function LedgerBooksPage() {
       return
     }
     setLoading(true)
+    // TD-031：改用 /api/vouchers 主路径，不再调用 deprecated queryVouchers
     api
-      .queryVouchers({
+      .listVouchersPrimary({
         ledger_id: currentLedgerId,
-        month: currentMonth,
-        limit: 50,
-        offset: (page - 1) * 50,
-        include_lines: false,
+        start_date: monthStart,
+        end_date: monthEnd,
+        page,
+        page_size: 50,
       })
       .then((resp) => {
-        setVouchers(resp.items)
+        const items: VoucherCard[] = (resp.items || []).map((item) => ({
+          voucher_id: item.voucher_id,
+          voucher_no: item.voucher_no,
+          voucher_date: item.voucher_date,
+          voucher_word: item.voucher_type || null,
+          status: item.status,
+          line_count: item.entry_count,
+          debit_total: Number(item.total_debit || 0),
+          credit_total: Number(item.total_credit || 0),
+          summary_preview: item.summary || null,
+        }))
+        setVouchers(items)
         setTotal(resp.total)
       })
       .catch((error) => message.error(`加载凭证序时簿失败：${error instanceof Error ? error.message : String(error)}`))
       .finally(() => setLoading(false))
-  }, [currentLedgerId, page, currentMonth])
+  }, [currentLedgerId, page, monthStart, monthEnd])
 
   const voucherRows = useMemo(
     () =>
