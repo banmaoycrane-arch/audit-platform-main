@@ -114,7 +114,20 @@ ssh -i <pem> root@47.122.117.76 "sh /root/audit-platform-main/deploy/migrate_to_
 | 前一尖端 | `0034_add_economic_event_workorder` |
 | 生产（2026-07-21 记录） | 仍为 **`0028`** |
 
-生产收口请执行 `alembic upgrade head`（或既有 `apply_prod_schema.sh` / `upgrade_prod_alembic_to_0034.sh` 升到 head），确保含 **0035**。
+生产收口（TD-020）推荐：
+
+```powershell
+# Windows 本机（有 id_banmao.pem）
+.\deploy\upgrade_prod_schema_to_head.ps1
+```
+
+详见 [ALEMBIC_0028_TO_HEAD.md](./ALEMBIC_0028_TO_HEAD.md)。服务器侧也可：
+
+```bash
+AUTO_YES=1 sh deploy/upgrade_prod_alembic_to_head.sh   # 需先同步代码并重建 backend
+# 或一气呵成：
+sh deploy/prod_upgrade_alembic_head.sh
+```
 
 ## 禁止事项
 

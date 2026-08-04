@@ -286,7 +286,7 @@ Git 迁移尖端 `0027`；本机未跟踪 `0028`/`0029`；生产曾 stamp `0028`
 | TD-011 | P1→P2 | 静默异常吞噬 | ✅ 全部修复 |
 | TD-012 | 高 | 安全负债（认证/枚举/CORS/上传） | ✅ 全部修复 |
 | TD-013 | 高 | 性能负债（N+1/索引/分页/缓存） | ✅ 全部修复 |
-| **TD-020** | **P0** | 生产 Alembic 0028→head | ⏳ 运维执行 `upgrade_prod_alembic_to_0034.sh`（含后续 0035） |
+| **TD-020** | **P0** | 生产 Alembic 0028→head | ⏳ 运维：本机 `.\deploy\upgrade_prod_schema_to_head.ps1`（清单见 `deploy/ALEMBIC_0028_TO_HEAD.md`；目标 **0035**） |
 | **TD-021** | **P0** | L6 人工签字 | ⏳ 需会计专业用户 |
 | **TD-022** | **P0** | 生产样例账空洞 | ⏳ `scripts/seed_demo_ledger.py`（建议 staging） |
 | **TD-030** | **P1** | 解析稳定性 96% | ⏳ 验收未达标 |
