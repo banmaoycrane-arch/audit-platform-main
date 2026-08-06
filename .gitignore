@@ -125,6 +125,8 @@ backend/tmp_*.ps1
 # Test sample data (not test code)
 samples/
 backend/samples/
+!backend/samples/
+!backend/samples/daybook-sample.csv
 
 # Database backups
 *.db.pre_*
