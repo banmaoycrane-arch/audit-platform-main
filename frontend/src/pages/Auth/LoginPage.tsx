@@ -23,9 +23,29 @@ export function LoginPage() {
   const [backendOk, setBackendOk] = useState<boolean | null>(null)
 
   useEffect(() => {
-    void api.health()
-      .then(() => setBackendOk(true))
-      .catch(() => setBackendOk(false))
+    let cancelled = false
+    let timer: number | undefined
+
+    const checkBackend = () => {
+      void api
+        .health()
+        .then(() => {
+          if (!cancelled) setBackendOk(true)
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setBackendOk(false)
+            // 后端稍后启动时自动恢复，不必刷新页面
+            timer = window.setTimeout(checkBackend, 3000)
+          }
+        })
+    }
+
+    checkBackend()
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
   }, [])
 
   const finishLogin = async (accessToken: string) => {
