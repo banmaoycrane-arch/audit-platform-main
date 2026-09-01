@@ -297,7 +297,13 @@ export function LoginPage() {
             showIcon
             style={{ marginBottom: 16 }}
             message="后端服务未启动"
-            description="请先启动后端：在项目根目录执行 pnpm dev:backend，确认 http://127.0.0.1:8000/health 可访问后再登录。"
+            description={
+              <>
+                请先启动后端后再登录。可双击桌面「启动财务审计服务」，或在项目根目录执行
+                {' '}<code>./scripts/dev/dev-services.sh restart</code>。
+                确认 <code>http://127.0.0.1:8000/health</code> 返回 ok 后本提示会自动消失。
+              </>
+            }
           />
         )}
         <Tabs activeKey={activeTab} onChange={(k) => { setActiveTab(k as 'password' | 'sms'); setSmsLoginError(null); setPasswordError(null) }} centered items={tabItems} />
