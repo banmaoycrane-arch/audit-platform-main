@@ -5378,6 +5378,22 @@ export const api = {
       headers: { 'Content-Type': 'application/json', 'X-Ledger-Id': String(ledgerId) },
       body: JSON.stringify(payload),
     }),
+
+  // E4：事件向量同步与相似推荐
+  syncEconomicEventVectors: (ledgerId: number, limit = 100) =>
+    request<EconomicEventVectorSyncResult>(
+      `/api/economic-events/vector-sync?limit=${limit}`,
+      {
+        method: 'POST',
+        headers: { 'X-Ledger-Id': String(ledgerId) },
+      },
+    ),
+
+  listSimilarEconomicEvents: (ledgerId: number, eventId: number, limit = 5) =>
+    request<EconomicEventSimilarResult>(
+      `/api/economic-events/${eventId}/similar?limit=${limit}`,
+      { headers: { 'X-Ledger-Id': String(ledgerId) } },
+    ),
 }
 
 // ---------------------------------------------------------------------------
@@ -5454,4 +5470,33 @@ export type EconomicEventClusterSuggestion = {
   entry_ids: number[]
   entry_count: number
   display_amount: string
+}
+
+// E4 相似事件推荐
+export type EconomicEventSimilarItem = {
+  event_id: number
+  event_no: string
+  title: string
+  event_type: string
+  status: string
+  summary: string | null
+  score: number | null
+  ledger_id: number
+}
+
+export type EconomicEventSimilarResult = {
+  vector_available: boolean
+  query?: string | null
+  ledger_id?: number | null
+  results: EconomicEventSimilarItem[]
+  message?: string | null
+}
+
+export type EconomicEventVectorSyncResult = {
+  vector_available: boolean
+  synced_count: number
+  failed_count: number
+  total: number
+  ledger_id?: number | null
+  message?: string | null
 }

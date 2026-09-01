@@ -46,6 +46,8 @@
 - 导出前凭证入账（post）流程：已复核分录入账后方可导出，导出仅包含已入账分录。
 - **财务报表标准列报**：资产负债表按报表项目聚合；利润表含「本期+本年累计」；现金流量表直接法分项 + 间接法调节，识别收入直接进银行与应收回款；科目表可设置 `balance_sheet_item` / `cash_flow_item`。
 - **证据云空间（P0）**：以账簿为主视图，支持拖拽上传至收件箱、手动归档到项目/期间/分类；企业自建推送见 `scripts/evidence_ingest.py` 与云空间页 curl/CLI 示例；分录可反查原件。内控待办工作台合并内控/维度/风险三类提醒，仅通知不强制阻塞。详见 [.trae/specs/evidence-cloud-and-icf-workbench/spec.md](.trae/specs/evidence-cloud-and-icf-workbench/spec.md)。
+- **经济事件工单（D14）**：事件卡片 + 状态机；E2 导入聚类；E3 Agent 开草稿/推进（过账必须人工）；E4 summary 向量相似推荐。生产库升级见 [deploy/ALEMBIC_0028_TO_0034.md](deploy/ALEMBIC_0028_TO_0034.md)。
+- **样例账灌入**：`python scripts/seed_demo_ledger.py`（可用 `BASE_URL` 指向 staging/生产），补齐演示用凭证与事件。
 
 ## 架构与分层文档（DDD 对照）
 

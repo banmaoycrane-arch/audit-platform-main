@@ -15,9 +15,18 @@ from typing import Any
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.db.models import AccountingPeriod, AuditFinding, ChartOfAccounts, Counterparty, ImportJob, SourceFile
+from app.db.models import (
+    AccountingPeriod,
+    AuditFinding,
+    ChartOfAccounts,
+    Counterparty,
+    EconomicEvent,
+    ImportJob,
+    SourceFile,
+)
 from app.services.agent.agent_service import detect_intent
 from app.services.agent.agent_tool_registry import get_agent_tool
+from app.services.shared.economic_event_agent_service import serialize_event_brief
 
 import logging
 
@@ -271,6 +280,24 @@ def _run_list_internal_control_findings(db: Session, args: dict[str, Any]) -> di
     }
 
 
+def _run_list_economic_events(db: Session, args: dict[str, Any]) -> dict[str, Any]:
+    """E3 只读：列出账簿事件工单。"""
+    ledger_id = args.get("ledger_id")
+    if not ledger_id:
+        raise ValueError("缺少 ledger_id")
+    limit = max(1, min(int(args.get("limit") or 20), 50))
+    status = args.get("status")
+    query = db.query(EconomicEvent).filter(EconomicEvent.ledger_id == int(ledger_id))
+    if status and status != "all":
+        query = query.filter(EconomicEvent.status == str(status))
+    rows = query.order_by(EconomicEvent.id.desc()).limit(limit).all()
+    return {
+        "items": [serialize_event_brief(row) for row in rows],
+        "count": len(rows),
+        "ledger_id": int(ledger_id),
+    }
+
+
 def _dispatch_tool(db: Session, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     if tool_name == "suggest_system_path":
         return _run_suggest_system_path(args)
@@ -290,6 +317,8 @@ def _dispatch_tool(db: Session, tool_name: str, args: dict[str, Any]) -> dict[st
         return _run_get_trial_balance(db, args)
     if tool_name == "list_internal_control_findings":
         return _run_list_internal_control_findings(db, args)
+    if tool_name == "list_economic_events":
+        return _run_list_economic_events(db, args)
     raise NotImplementedError("该工具尚未接入执行器")
 
 

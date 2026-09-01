@@ -11,6 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AgentApproval
 from app.services.agent.agent_tool_registry import get_agent_tool
+from app.services.shared.economic_event_agent_service import (
+    advance_event_from_agent,
+    create_draft_event_from_agent,
+    serialize_event_brief,
+)
 
 import logging
 
@@ -28,6 +33,7 @@ class AgentControlledExecutionService:
     注意事项：
         1. 只有已确认记录可以进入草稿受控执行
         2. 输出结果不构成最终审计结论或正式交付
+        3. E3 事件工具会落库草稿工单，但仍禁止过账
     """
     
     DRAFT_EXECUTABLE_TOOLS = {
@@ -55,6 +61,16 @@ class AgentControlledExecutionService:
             "output_type": "draft",
             "title": "交付物草稿",
             "notice": "该交付物为草稿，正式交付必须另行人工确认。",
+        },
+        "create_economic_event_draft": {
+            "output_type": "draft",
+            "title": "经济事件草稿工单",
+            "notice": "已创建事件草稿；过账前必须人工推进并确认。",
+        },
+        "advance_economic_event": {
+            "output_type": "draft",
+            "title": "经济事件状态推进（不过账）",
+            "notice": "仅允许推进到待入账前状态；posted 必须人工确认。",
         },
     }
     
@@ -84,6 +100,14 @@ class AgentControlledExecutionService:
             raise PermissionError("该工具不属于草稿或预览类受控执行范围")
 
         draft_config = self.DRAFT_EXECUTABLE_TOOLS[approval.tool_name]
+        source_args = approval.request_args_summary or {}
+        event_payload = self._execute_economic_event_tool(
+            db,
+            tool_name=approval.tool_name,
+            source_args=source_args,
+            actor_user_id=approval.requested_by_user_id,
+        )
+
         return {
             "approval_id": approval.id,
             "tool_name": approval.tool_name,
@@ -93,11 +117,59 @@ class AgentControlledExecutionService:
             "result": {
                 "title": draft_config["title"],
                 "notice": draft_config["notice"],
-                "source_args": approval.request_args_summary or {},
+                "source_args": source_args,
                 "review_required": True,
                 "formal_delivery_allowed": False,
+                "economic_event": event_payload,
             },
         }
+
+    def _execute_economic_event_tool(
+        self,
+        db: Session,
+        *,
+        tool_name: str,
+        source_args: dict[str, Any],
+        actor_user_id: int | None,
+    ) -> dict[str, Any] | None:
+        """E3：人工确认后真正落库草稿工单或安全推进状态。"""
+        if tool_name == "create_economic_event_draft":
+            ledger_id = source_args.get("ledger_id")
+            title = source_args.get("title") or source_args.get("message") or "Agent 事件草稿"
+            if not ledger_id:
+                raise ValueError("创建事件草稿缺少 ledger_id")
+            event = create_draft_event_from_agent(
+                db,
+                ledger_id=int(ledger_id),
+                title=str(title),
+                summary=source_args.get("summary"),
+                event_type=str(source_args.get("event_type") or "manual"),
+                actor_user_id=actor_user_id,
+                model_provider=source_args.get("model_provider"),
+                model_name=source_args.get("model_name"),
+                tool_name=tool_name,
+            )
+            return serialize_event_brief(event)
+
+        if tool_name == "advance_economic_event":
+            event_id = source_args.get("event_id")
+            to_status = source_args.get("to_status") or "pending_review"
+            if not event_id:
+                raise ValueError("推进事件缺少 event_id")
+            event = advance_event_from_agent(
+                db,
+                event_id=int(event_id),
+                to_status=str(to_status),
+                actor_user_id=actor_user_id,
+                reason=source_args.get("reason"),
+                model_provider=source_args.get("model_provider"),
+                model_name=source_args.get("model_name"),
+                tool_name=tool_name,
+            )
+            return serialize_event_brief(event)
+
+        return None
+
 
 
 _controlled_execution_service_instance = AgentControlledExecutionService()
