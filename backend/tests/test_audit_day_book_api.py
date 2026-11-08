@@ -31,6 +31,7 @@ from app.models.ledger import Ledger
 from app.models.team import Team
 
 from tests.conftest import register_auth_headers
+from tests.fixtures.day_book import DAYBOOK_API_SAMPLE_CSV
 
 
 @pytest.fixture
@@ -140,7 +141,7 @@ class TestDayBookImport:
         ledger_id = _seed_ledger(TestingSessionLocal, test_client)
         _acknowledge_dimension_readiness(test_client, ledger_id)
 
-        daybook_path = os.path.join(os.path.dirname(__file__), "../samples/daybook-sample.csv")
+        daybook_path = str(DAYBOOK_API_SAMPLE_CSV)
         assert os.path.exists(daybook_path), f"样例文件不存在: {daybook_path}"
 
         create_response = test_client.post(
@@ -181,7 +182,7 @@ class TestDayBookImport:
         ledger_id = _seed_ledger(TestingSessionLocal, test_client)
         _acknowledge_dimension_readiness(test_client, ledger_id)
 
-        daybook_path = os.path.join(os.path.dirname(__file__), "../samples/daybook-sample.csv")
+        daybook_path = str(DAYBOOK_API_SAMPLE_CSV)
 
         create_response = test_client.post(
             "/api/import-jobs",
@@ -226,7 +227,7 @@ class TestDayBookImport:
         ledger_id = _seed_ledger(TestingSessionLocal, test_client)
         _acknowledge_dimension_readiness(test_client, ledger_id)
 
-        daybook_path = os.path.join(os.path.dirname(__file__), "../samples/daybook-sample.csv")
+        daybook_path = str(DAYBOOK_API_SAMPLE_CSV)
 
         create_response = test_client.post(
             "/api/import-jobs",
@@ -265,7 +266,7 @@ class TestDayBookImport:
         ledger_id = _seed_ledger(TestingSessionLocal, test_client)
         _acknowledge_dimension_readiness(test_client, ledger_id)
 
-        daybook_path = os.path.join(os.path.dirname(__file__), "../samples/daybook-sample.csv")
+        daybook_path = str(DAYBOOK_API_SAMPLE_CSV)
 
         create_response = test_client.post(
             "/api/import-jobs",
@@ -345,7 +346,7 @@ class TestDayBookImport:
         finally:
             db.close()
 
-        daybook_path = os.path.join(os.path.dirname(__file__), "../samples/daybook-sample.csv")
+        daybook_path = str(DAYBOOK_API_SAMPLE_CSV)
 
         create_response = test_client.post(
             "/api/import-jobs",

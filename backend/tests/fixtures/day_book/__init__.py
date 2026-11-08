@@ -32,6 +32,18 @@ DATA_ROWS = [
     ["记-001", "2026-01-03", "冲减应收账款", "1122", "应收账款", "0", "12000", "客户A"],
 ]
 
+# test_audit_day_book_api：3 张凭证、6 条分录，借贷合计 75000，期间 2026-01
+API_DAY_BOOK_DATA_ROWS = [
+    ["记-001", "2026-01-03", "收到客户货款", "1002", "银行存款", "25000", "0", "客户A"],
+    ["记-001", "2026-01-03", "冲减应收账款", "1122", "应收账款", "0", "25000", "客户A"],
+    ["记-002", "2026-01-10", "支付供应商款", "2202", "应付账款", "25000", "0", "供应商B"],
+    ["记-002", "2026-01-10", "银行存款支出", "1002", "银行存款", "0", "25000", "供应商B"],
+    ["记-003", "2026-01-15", "计提折旧", "6602", "管理费用", "25000", "0", ""],
+    ["记-003", "2026-01-15", "累计折旧", "1602", "累计折旧", "0", "25000", ""],
+]
+
+DAYBOOK_API_SAMPLE_CSV = Path(__file__).resolve().parent / "daybook-api-sample.csv"
+
 FOOTER_ROWS = [
     ["合计", "", "", "", "", "12000", "12000", ""],
     ["", "", "", "", "", "", "", ""],
@@ -63,6 +75,19 @@ def build_daybook_rows() -> list[list[str]]:
     padded_preamble = [row + [""] * (width - len(row)) for row in PREAMBLE_ROWS]
     padded_footer = [row + [""] * (width - len(row)) for row in FOOTER_ROWS]
     return [*padded_preamble, HEADER_ROW, *DATA_ROWS, *padded_footer]
+
+
+def build_api_daybook_simple_rows() -> list[list[str]]:
+    """扁平 CSV（无标题区），供序时簿 API 集成测试上传。"""
+    return [HEADER_ROW, *API_DAY_BOOK_DATA_ROWS]
+
+
+def write_api_daybook_sample_csv(path: Path | None = None) -> Path:
+    target = path or DAYBOOK_API_SAMPLE_CSV
+    target.parent.mkdir(parents=True, exist_ok=True)
+    rows = build_api_daybook_simple_rows()
+    target.write_text("\n".join(",".join(row) for row in rows) + "\n", encoding="utf-8-sig")
+    return target
 
 
 def write_daybook_csv(path: Path) -> Path:
