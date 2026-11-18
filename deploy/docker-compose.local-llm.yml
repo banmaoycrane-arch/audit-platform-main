@@ -1,0 +1,37 @@
+# 可选叠加：在同机 Docker 内启动 Ollama，供 backend 走内网调用
+# 用法（仓库根目录）：
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local-llm.yml --env-file deploy/.env up -d
+#
+# 注意：
+# - GPU 机型请在宿主机安装 NVIDIA Container Toolkit 后取消下方 deploy 注释
+# - 多数中介机构仍推荐 Ollama 跑在裸机 GPU，本文件仅作「单机 PoC / 小所」快捷方案
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    expose:
+      - "11434"
+    restart: unless-stopped
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # 合并时覆盖 backend 的环境变量，使其默认可达 compose 内 ollama 服务
+  backend:
+    environment:
+      AI_BASE_URL: ${AI_BASE_URL:-http://ollama:11434/v1}
+      AI_MODEL: ${AI_MODEL:-qwen2.5:14b}
+      AI_ROUTING_MODE: ${AI_ROUTING_MODE:-local}
+      AI_LOCAL_BASE_URL: ${AI_LOCAL_BASE_URL:-http://ollama:11434/v1}
+      AI_LOCAL_MODEL: ${AI_LOCAL_MODEL:-qwen2.5:14b}
+    depends_on:
+      - ollama
+
+volumes:
+  ollama_data:

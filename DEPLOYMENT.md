@@ -210,7 +210,10 @@ sudo docker compose -f deploy/docker-compose.yml exec backend \
 
 ## 九、（以后）启用大模型 AI
 
-等你准备好云端大模型 API（OpenAI 兼容）时：
+**律所 / 会计师事务所等须客户数据不出域时**，优先阅读 **[deploy/FDE_LOCAL_LLM_COMPLIANCE.md](./deploy/FDE_LOCAL_LLM_COMPLIANCE.md)**（所内 Ollama、三档部署、质控清单）。  
+部署后可执行 `bash deploy/scripts/fde_preflight.sh` 做连通性预检。
+
+若使用 **云端** 大模型 API（OpenAI 兼容）：
 
 1. 编辑 `deploy/.env`，填写三项（`AI_BASE_URL` 填到 `/v1` 为止、结尾不带斜杠）：
    ```

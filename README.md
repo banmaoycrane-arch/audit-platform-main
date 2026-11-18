@@ -194,6 +194,7 @@ pnpm --dir frontend build
 ## 生产部署
 
 > **首次上线**（装 Docker、配 `.env`、加 Swap 等）见 [DEPLOYMENT.md](./DEPLOYMENT.md)。  
+> **律所 / 会计师事务所本地化大模型（FDE 合规）** 见 [deploy/FDE_LOCAL_LLM_COMPLIANCE.md](./deploy/FDE_LOCAL_LLM_COMPLIANCE.md)。  
 > **代码 + 数据层统一上线**（推荐日常更新）见 [deploy/DEPLOY_SYNC.md](./deploy/DEPLOY_SYNC.md)。  
 > 本节描述**已有生产环境**上的日常更新流程（解析引擎、前后端代码变更）。
 
