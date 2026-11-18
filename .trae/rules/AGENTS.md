@@ -8,6 +8,42 @@
 - **记账主线**：项目 → 账簿 → 会计分录 → 凭证 → 期间 → 报表。
 - **审计主线**：审计任务 → 业务循环 → 风险识别 → 审计证据 → 工作底稿 → 审计发现。
 
+目标用户：会计师事务所、律师事务所、税务师事务所等中介机构，以及企业财务共享中心。客户资料保密是产品前提，不是附加功能（见第十二节）。
+
+---
+
+## 〇、仓库导航（先看这里）
+
+### 0.1 目录结构
+
+| 路径 | 内容 |
+|---|---|
+| `backend/app/api/routes_*.py` | REST 路由，一个文件对应一个 prefix（见第九节） |
+| `backend/app/services/` | 业务服务，按域分目录：`accounting`、`audit`、`basic_data`、`doc_parsing`、`agent`、`tax`、`auth`、`shared` |
+| `backend/app/db/models.py`、`backend/app/models/` | SQLAlchemy 数据模型 |
+| `backend/app/money/` | 金额 `Decimal` 工具，金额计算优先复用 |
+| `backend/app/core/config.py` | 环境变量配置（`Settings`），含 AI 路由字段 |
+| `backend/alembic/versions/` | 数据库迁移；新增字段须同步 `deploy/fix_legacy_db.py` |
+| `backend/tests/` | pytest 测试 |
+| `frontend/src/` | React 前端（页面在 `pages/`） |
+| `deploy/` | Docker 生产部署、schema 审计脚本、FDE 本地化方案 |
+| `.trae/documents/`、`.trae/specs/` | 规划、规格与状态文档 |
+
+### 0.2 真值文档（判断「做没做完」以此为准）
+
+- `.trae/documents/code-truth-status.md`：代码真值与 L1–L6 完成度，**唯一真值来源**。
+- `.trae/documents/project-status-overview.md`：项目总览与下一步。
+- `.trae/documents/requirements-domain-index.md`：需求域 D01–D13 索引。
+- `.trae/documents/api-boundary-governance-plan.md`：API 主路径与收敛计划。
+- `deploy/DEPLOY_SYNC.md`：代码与生产数据层一致性纪律。
+- `deploy/FDE_LOCAL_LLM_COMPLIANCE.md`：中介机构本地化大模型部署与合规。
+
+历史 roadmap、spec checklist 不能单独作为「已完成」的依据，须对照 `code-truth-status.md`。
+
+### 0.3 不要依赖的文件
+
+根目录下的 `*.log`、`debug-*.md`、`test_*.csv`、`finance_audit.db`、`temp/` 等是历史调试残留，不代表当前代码状态；不要据此下结论，也不要在任务中顺手修改或提交它们。
+
 ---
 
 ## 一、核心术语与业务边界
@@ -86,12 +122,35 @@
 
 Windows 下无需 `source .venv/bin/activate`，Trae 终端会自动使用项目配置好的 Python 环境。
 
-### 4.3 常见坑
+Linux / macOS 首次安装（`pnpm dev:backend` 依赖当前 shell 中能找到 venv 里的 `uvicorn`）：
+
+```bash
+python3 -m venv backend/.venv
+source backend/.venv/bin/activate
+pip install -e "backend[dev]"
+pnpm --dir frontend install
+```
+
+### 4.3 测试与检查命令（从仓库根目录执行）
+
+| 目的 | 命令 |
+|---|---|
+| 单个后端测试文件（推荐） | `python -m pytest backend/tests/test_xxx.py -q` |
+| 全量后端测试 | `pnpm test:backend` |
+| 前端类型检查（即 lint） | `pnpm lint:frontend`（实际执行 `tsc --noEmit`） |
+| 前端构建 | `pnpm build:frontend` |
+
+改动财务逻辑时，至少运行与改动模块同名的测试文件，再视影响范围扩大到相关 API 测试。
+
+### 4.4 常见坑
 
 - `bcrypt` 必须 `< 4.1`，否则密码哈希会报 `ValueError`。
 - `frontend` 使用 `dayjs` 直接依赖，不是通过 antd 间接引入。
 - `pnpm build:frontend` 会先跑 TypeScript 类型检查，dev 时能跑不代表能 build。
 - 后端测试用共享 SQLite 数据库，部分测试在完整跑时可能因顺序失败，建议单独跑目标测试文件。
+- Ubuntu/Debian 上 `python3 -m venv` 报 `ensurepip is not available` 时，先 `sudo apt-get install python3.12-venv`（版本号与 `python3 --version` 一致）。
+- 新增模型字段必须同时写 Alembic 迁移和 `deploy/fix_legacy_db.py`，否则生产库会漂移导致登录/接口 500（见 `deploy/DEPLOY_SYNC.md`）。
+- 生产后端镜像变更须 `docker compose build --no-cache backend`，否则 COPY 层可能沿用旧代码。
 
 ---
 
@@ -213,7 +272,18 @@ def 函数名(参数名: 参数类型) -> 返回值类型:
 
 ## 八、任务治理与边界控制（灰色地带）
 
-- **需求归属域**：开发任务开始前，AI 必须先识别需求归属域（D01-D13）。
+- **需求归属域**：开发任务开始前，AI 必须先识别需求归属域（D01-D13，详见 `requirements-domain-index.md`）：
+
+| 域 | 名称 | 域 | 名称 |
+|---|---|---|---|
+| D01 | 身份认证与访问控制 | D08 | 会计期间、结账、快照、报表 |
+| D02 | 团队、账簿、项目、上下文 | D09 | EntryTag、语义、向量、AI 草稿 |
+| D03 | Shell、导航、工作台、模块入口 | D10 | Agent 与执行型助手 |
+| D04 | 凭证生命周期 | D11 | 业务模块（银行、税务、固定资产、进销存） |
+| D05 | 原始资料导入与解析 | D12 | 缺陷修复与环境诊断 |
+| D06 | 审计证据与审计流程 | D13 | 项目计划、复盘、路线图 |
+| D07 | 基础资料 | | |
+
 - **每个任务必须先说明边界**：包括 In Scope（本次做什么）和 Out of Scope（本次明确不做什么）。
 - **执行顺序**：阻塞 bug → 上下文和主数据边界 → 记账闭环 → 审计闭环 → AI/EntryTag/向量增强 → 银行/税务/固定资产/进销存扩展。
 - **六级完成标准**：L1 文档完成 → L2 数据模型完成 → L3 服务完成 → L4 API 完成 → L5 前端接入完成 → L6 测试与真实数据验证完成。
@@ -256,3 +326,29 @@ def 函数名(参数名: 参数类型) -> 返回值类型:
 - **用户测试后反馈问题，AI 优先修复**。
 - **财务逻辑错误 = 最高优先级 bug**，与技术缺陷分开处理。
 - **财务主流程和财务逻辑修复应尽量达到 L6**（测试与真实数据验证完成）。
+
+---
+
+## 十二、本地化大模型与客户数据合规（中介机构视角）
+
+完整部署方案见 `deploy/FDE_LOCAL_LLM_COMPLIANCE.md`，本节只列开发时必须遵守的约束。
+
+- **大模型是可选增强，不是前提**：未配置 AI 时，导入、规则风险、借贷平衡、试算、结账控制必须照常可用；新功能不得把大模型变成主流程的硬依赖，须保留 `ai_fallback_to_rules` 兜底路径。
+- **统一走模型路由**：调用大模型必须通过 `resolve_effective_llm_config`（`manual` / `local` / `cloud` / `auto`），不得在业务代码里硬编码模型地址、云端 API 或 Key。
+- **默认数据不出域**：客户序时账、凭证、合同、底稿、身份信息等原始资料，默认只发往本地模型（Ollama / vLLM）；新增调用云端模型的路径，必须由配置显式开启，并在 PR 中说明会发出哪些字段。
+- **解析与推理分开**：文档/票据解析用 `ai_local_model`，合规审查与 Agent 推理用 `ai_reasoning_model`，避免同一模型在本地显存中互相挤占。
+- **向量库本地化**：Qdrant 使用本地路径（`qdrant_local_path`），不得引入外部托管向量服务作为默认选项。
+- **AI 输出标注**：界面与导出报告中，AI 生成内容须可识别为「建议 / 草稿」，不能与人工确认的审计结论、律师意见混在同一字段。
+
+---
+
+## Cursor Cloud specific instructions
+
+云端 Agent 运行在 Ubuntu 虚拟机上，与本地 Windows / Trae 环境不同：
+
+- **后端环境**：按 §4.2 的 Linux 步骤创建 `backend/.venv`；若 `ensurepip` 报错，先安装 `python3.12-venv`。之后每个新 shell 先 `source backend/.venv/bin/activate`，再执行 `pnpm dev:backend` 或 pytest。
+- **长期运行的服务**（后端、前端 dev server）放在 tmux 会话中启动，启动后用 `curl http://127.0.0.1:8000/health` 确认返回 `{"status":"ok"}`。
+- **数据库**：默认使用 `backend/finance_audit.db`（SQLite），无需 PostgreSQL、Redis 或 Docker 即可开发和测试；VM 上通常没有 Docker，`deploy/` 下的 compose 脚本无法在云端验证，只做语法与文档层面检查。
+- **大模型**：VM 上没有 Ollama，也不应配置真实云端 Key；涉及 LLM 的逻辑用 pytest 的 `monkeypatch` 模拟（参考 `backend/tests/test_compliance_llm_vector.py`），并确认规则兜底路径可用。
+- **最低验证**：后端改动跑相关 `backend/tests/test_*.py`；前端改动跑 `pnpm lint:frontend` 与 `pnpm build:frontend`。
+- **不要提交**本地产生的 `backend/.venv/`、`*.log`、`finance_audit.db` 变更、`qdrant_local_storage/` 等运行时文件；`pip install -e` 会改动已被跟踪的 `backend/finance_vector_audit_backend.egg-info/`，提交前用 `git checkout -- backend/finance_vector_audit_backend.egg-info` 还原。
